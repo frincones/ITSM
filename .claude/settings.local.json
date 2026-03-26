@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git clone:*)",
+      "Bash(cp -r /tmp/nextjs-saas-temp/* /c/Users/freddyrs/Desktop/ITSM/ITSM/)",
+      "Bash(cp /tmp/nextjs-saas-temp/.* /c/Users/freddyrs/Desktop/ITSM/ITSM/)",
+      "Bash(git remote:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}
