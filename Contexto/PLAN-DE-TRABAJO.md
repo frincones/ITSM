@@ -518,56 +518,56 @@
 
 #### Migration 00007: Inbox
 
-- [ ] 4.1.1 Crear tabla `inbox_channels` con RLS
-- [ ] 4.1.2 Crear tabla `inbox_conversations` con RLS + índices
-- [ ] 4.1.3 Crear tabla `inbox_messages` con RLS + índices
-- [ ] 4.1.4 Agregar FK: tickets.inbox_message_id → inbox_messages.id
+- [x] 4.1.1 Crear tabla `inbox_channels` con RLS
+- [x] 4.1.2 Crear tabla `inbox_conversations` con RLS + índices
+- [x] 4.1.3 Crear tabla `inbox_messages` con RLS + índices
+- [x] 4.1.4 Agregar FK: tickets.inbox_message_id → inbox_messages.id
 
 ---
 
 ### 4.2 Backend — Inbox Core
 
-- [ ] 4.2.1 Crear `lib/services/inbox.service.ts` — NormalizedMessage interface
-- [ ] 4.2.2 Crear `lib/services/inbox.service.ts` — createConversation, addMessage, linkToTicket
-- [ ] 4.2.3 Crear `lib/actions/inbox.ts` — Server Actions para reply, resolve, assign
-- [ ] 4.2.4 Crear ChannelAdapter interface
+- [x] 4.2.1 Crear `lib/services/inbox.service.ts` — NormalizedMessage interface
+- [x] 4.2.2 Crear `lib/services/inbox.service.ts` — createConversation, addMessage, linkToTicket
+- [x] 4.2.3 Crear `lib/actions/inbox.ts` — Server Actions para reply, resolve, assign
+- [x] 4.2.4 Crear ChannelAdapter interface
 
 ---
 
 ### 4.3 Backend — Email Channel
 
-- [ ] 4.3.1 Crear `lib/integrations/email/imap-adapter.ts` — IMAP polling
-- [ ] 4.3.2 Crear `lib/integrations/email/smtp-adapter.ts` — SMTP send
+- [x] 4.3.1 Crear `lib/integrations/email/imap-adapter.ts` — IMAP polling + Resend send
+- [x] 4.3.2 Crear `lib/integrations/email/smtp-adapter.ts` — SMTP send (via Resend)
 - [ ] 4.3.3 Crear `api/cron/inbox-sync/route.ts` — Vercel Cron para polling IMAP
-- [ ] 4.3.4 Implementar email parsing (subject, body, attachments, from, to)
-- [ ] 4.3.5 Implementar contact matching (email → contact)
+- [x] 4.3.4 Implementar email parsing (subject, body, attachments, from, to)
+- [x] 4.3.5 Implementar contact matching (email → contact)
 
 ---
 
 ### 4.4 Backend — Office 365 Channel
 
-- [ ] 4.4.1 Crear `lib/integrations/office365/graph-adapter.ts` — Microsoft Graph API
-- [ ] 4.4.2 Implementar OAuth2 flow para Office 365
-- [ ] 4.4.3 Implementar webhook subscription para nuevos emails
-- [ ] 4.4.4 Implementar send via Graph API
+- [x] 4.4.1 Crear `lib/integrations/office365/graph-adapter.ts` — Microsoft Graph API
+- [x] 4.4.2 Implementar OAuth2 flow para Office 365
+- [x] 4.4.3 Implementar webhook subscription para nuevos emails
+- [x] 4.4.4 Implementar send via Graph API
 
 ---
 
 ### 4.5 Backend — WhatsApp Channel
 
-- [ ] 4.5.1 Crear `lib/integrations/whatsapp/whatsapp-adapter.ts` — WhatsApp Cloud API
-- [ ] 4.5.2 Crear `api/v1/inbox/webhooks/whatsapp/route.ts` — webhook receiver
-- [ ] 4.5.3 Implementar webhook signature verification
-- [ ] 4.5.4 Implementar message parsing (text, image, document, location)
-- [ ] 4.5.5 Implementar send message via Cloud API
+- [x] 4.5.1 Crear `lib/integrations/whatsapp/whatsapp-adapter.ts` — WhatsApp Cloud API
+- [x] 4.5.2 Crear `api/v1/inbox/webhooks/[channel]/route.ts` — universal webhook receiver
+- [x] 4.5.3 Implementar webhook signature verification (HMAC-SHA256)
+- [x] 4.5.4 Implementar message parsing (text, image, document, location)
+- [x] 4.5.5 Implementar send message via Cloud API
 
 ---
 
 ### 4.6 Backend — Web Widget Channel
 
-- [ ] 4.6.1 Crear `lib/integrations/widget/widget-adapter.ts` — Supabase Realtime
+- [x] 4.6.1 Crear `lib/integrations/widget/widget-adapter.ts` — Supabase Realtime
 - [ ] 4.6.2 Implementar embeddable widget script (`<script src="novadesk-widget.js">`)
-- [ ] 4.6.3 Implementar Realtime channel per conversation (Supabase broadcast)
+- [x] 4.6.3 Implementar Realtime channel per conversation (Supabase broadcast)
 
 ---
 
@@ -582,24 +582,24 @@
 
 ### 4.8 Frontend — Inbox Page
 
-- [ ] 4.8.1 Implementar `app/home/inbox/page.tsx` — replicar Inbox.tsx del template
-- [ ] 4.8.2 Implementar `packages/ui/src/itsm/inbox-view.tsx` — split view (conversation list + message detail)
-- [ ] 4.8.3 Implementar conversation list con search, filters, channel icons
-- [ ] 4.8.4 Implementar message thread view con timeline
-- [ ] 4.8.5 Implementar reply composer (text + attachments)
-- [ ] 4.8.6 Implementar actions: Create Ticket, Assign, Resolve, Snooze
-- [ ] 4.8.7 Implementar AI classification badges en conversaciones
-- [ ] 4.8.8 Implementar Supabase Realtime para nuevos mensajes (push)
+- [x] 4.8.1 Implementar `app/home/inbox/page.tsx` — replicar Inbox.tsx del template
+- [x] 4.8.2 Implementar split view (conversation list + message detail)
+- [x] 4.8.3 Implementar conversation list con search, filters, channel icons
+- [x] 4.8.4 Implementar message thread view con timeline
+- [x] 4.8.5 Implementar reply composer (text + attachments)
+- [x] 4.8.6 Implementar actions: Create Ticket, Assign, Resolve, Snooze
+- [x] 4.8.7 Implementar AI classification badges en conversaciones
+- [x] 4.8.8 Implementar Supabase Realtime para nuevos mensajes (push)
 
 ---
 
 ### 4.9 Frontend — Settings > Channels
 
-- [ ] 4.9.1 Implementar `app/home/settings/channels/page.tsx`
-- [ ] 4.9.2 Implementar configuración de canal Email (IMAP/SMTP credentials)
-- [ ] 4.9.3 Implementar configuración de canal Office 365 (OAuth connect)
-- [ ] 4.9.4 Implementar configuración de canal WhatsApp (API key, phone number)
-- [ ] 4.9.5 Implementar configuración de Web Widget (embed code, customization)
+- [x] 4.9.1 Implementar `app/home/settings/channels/page.tsx`
+- [x] 4.9.2 Implementar configuración de canal Email (IMAP/SMTP credentials)
+- [x] 4.9.3 Implementar configuración de canal Office 365 (OAuth connect)
+- [x] 4.9.4 Implementar configuración de canal WhatsApp (API key, phone number)
+- [x] 4.9.5 Implementar configuración de Web Widget (embed code, customization)
 
 ---
 
@@ -933,14 +933,14 @@
 ```
 Fase 1: [x] Foundation          ██████████ 95%
 Fase 2: [x] ITSM Core           ████████░░ 80%
-Fase 3: [x] AI Layer             █████████░ 90% (pending: cron sync, doc analysis, tests)
-Fase 4: [ ] Omnichannel Inbox    ░░░░░░░░░░ 0%
+Fase 3: [x] AI Layer             █████████░ 90%
+Fase 4: [x] Omnichannel Inbox    █████████░ 90% (pending: cron sync, widget script, tests)
 Fase 5: [ ] Portal & Workflows   ░░░░░░░░░░ 0%
 Fase 6: [ ] Analytics & Polish   ░░░░░░░░░░ 0%
 
 Total Tasks: ~350
-Completed:   ~210
-Progress:    ~60%
+Completed:   ~255
+Progress:    ~73%
 ```
 
 ---
