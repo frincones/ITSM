@@ -101,6 +101,7 @@ interface SettingsClientProps {
 
 const adminMenu = [
   { id: 'general', label: 'General', icon: SettingsIcon },
+  { id: 'organizations', label: 'Organizations', icon: Globe, href: '/home/settings/organizations' },
   { id: 'users', label: 'Users & Agents', icon: Users },
   { id: 'groups', label: 'Groups & Teams', icon: UserCog },
   { id: 'roles', label: 'Roles & Permissions', icon: Shield },
@@ -189,20 +190,35 @@ export function SettingsClient({
             <Card>
               <CardContent className="p-4">
                 <nav className="space-y-1">
-                  {adminMenu.map((item) => (
-                    <button
-                      key={item.id}
-                      onClick={() => handleTabChange(item.id)}
-                      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                        activeTab === item.id
-                          ? 'bg-indigo-50 text-indigo-600'
-                          : 'text-gray-700 hover:bg-gray-50'
-                      }`}
-                    >
-                      <item.icon className="h-4 w-4" />
-                      {item.label}
-                    </button>
-                  ))}
+                  {adminMenu.map((item) => {
+                    const menuItem = item as typeof item & { href?: string };
+                    if (menuItem.href) {
+                      return (
+                        <a
+                          key={item.id}
+                          href={menuItem.href}
+                          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                        >
+                          <item.icon className="h-4 w-4" />
+                          {item.label}
+                        </a>
+                      );
+                    }
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => handleTabChange(item.id)}
+                        className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                          activeTab === item.id
+                            ? 'bg-indigo-50 text-indigo-600'
+                            : 'text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        <item.icon className="h-4 w-4" />
+                        {item.label}
+                      </button>
+                    );
+                  })}
                 </nav>
               </CardContent>
             </Card>

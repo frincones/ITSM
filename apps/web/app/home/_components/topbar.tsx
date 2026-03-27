@@ -6,6 +6,7 @@ import { Search, Bell, Plus, ChevronDown, User, LogOut } from 'lucide-react';
 
 import { useSignOut } from '@kit/supabase/hooks/use-sign-out';
 import { useUser } from '@kit/supabase/hooks/use-user';
+import { OrgSelector } from './org-selector';
 import { Button } from '@kit/ui/button';
 import { Input } from '@kit/ui/input';
 import { Badge } from '@kit/ui/badge';
@@ -69,8 +70,9 @@ export function Topbar() {
         </div>
       </div>
 
-      {/* Actions */}
+      {/* Org Selector + Actions */}
       <div className="flex items-center gap-3">
+        <OrgSelector />
         <Button
           variant="default"
           size="sm"
