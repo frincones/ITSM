@@ -111,7 +111,7 @@ interface Ticket {
   first_response_at?: string | null;
   resolved_at?: string | null;
   closed_at?: string | null;
-  sla_due_at?: string | null;
+  sla_due_date?: string | null;
   sla_breached?: boolean;
   requester_email?: string | null;
   assigned_agent?: Agent | null;
@@ -392,10 +392,10 @@ export function TicketDetailClient({
               <div className="flex items-start gap-3">
                 <Avatar className="h-10 w-10">
                   <AvatarFallback>
-                    {requester
+                    {requester?.name
                       ? getInitials(requester.name)
                       : ticket.requester_email
-                        ? ticket.requester_email[0]!.toUpperCase()
+                        ? (ticket.requester_email[0] ?? '?').toUpperCase()
                         : '?'}
                   </AvatarFallback>
                 </Avatar>
@@ -446,7 +446,7 @@ export function TicketDetailClient({
             <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">
               SLA
             </h3>
-            {ticket.sla_due_at ? (
+            {ticket.sla_due_date ? (
               <div
                 className={`rounded-lg border p-3 ${
                   ticket.sla_breached
@@ -456,12 +456,12 @@ export function TicketDetailClient({
               >
                 <div className="mb-2 flex items-center gap-2">
                   <SLAIndicator
-                    dueDate={ticket.sla_due_at}
+                    dueDate={ticket.sla_due_date}
                     breached={ticket.sla_breached ?? false}
                   />
                 </div>
                 <p className="text-sm text-gray-700 dark:text-gray-300">
-                  Due: {formatDate(ticket.sla_due_at)}
+                  Due: {formatDate(ticket.sla_due_date)}
                 </p>
               </div>
             ) : (
