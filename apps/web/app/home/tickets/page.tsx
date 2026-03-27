@@ -127,6 +127,19 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
   // RLS filters automatically by tenant_id
   const { data: tickets, count, error } = await query;
 
+  // Fetch organizations for the "Client" column (id → name map)
+  const { data: orgs } = await client
+    .from('organizations')
+    .select('id, name')
+    .is('deleted_at', null);
+
+  const organizationMap: Record<string, string> = {};
+  if (orgs) {
+    for (const org of orgs) {
+      organizationMap[org.id] = org.name;
+    }
+  }
+
   // Fetch current agent for "Assigned to Me" tab
   const {
     data: { user },
@@ -151,6 +164,7 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
       currentPage={page}
       pageSize={limit}
       currentAgentId={currentAgentId}
+      organizationMap={organizationMap}
       activeTab={params.tab ?? 'all'}
       searchQuery={params.search ?? ''}
       filters={{

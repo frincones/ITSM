@@ -149,17 +149,36 @@ export async function getUserAllowedModules(
         return [...ALL_MODULES];
       }
 
-      // Agent with a profile -> modules from profile_permissions
+      // Get profile-based modules
+      let profileModules: string[] | null = null;
       if (userInfo.agent.profile_id) {
-        const profileModules = await getModulesFromProfile(
+        profileModules = await getModulesFromProfile(
           client,
           userInfo.agent.profile_id,
         );
-        return profileModules;
       }
 
-      // Agent without profile -> fallback
-      return null;
+      // Check if agent is assigned to a specific org → intersect with org enabled_modules
+      const { data: agentOrg } = await client
+        .from('agent_organizations')
+        .select('organization_id')
+        .eq('agent_id', userInfo.agent.id)
+        .eq('is_default', true)
+        .maybeSingle();
+
+      if (agentOrg?.organization_id) {
+        const orgModules = await getOrganizationEnabledModules(
+          client,
+          agentOrg.organization_id,
+        );
+        if (orgModules && profileModules) {
+          // INTERSECT: only modules that are both in profile AND org
+          return profileModules.filter((m) => orgModules.includes(m));
+        }
+        if (orgModules) return orgModules;
+      }
+
+      return profileModules;
     }
 
     // --- Organization User ---

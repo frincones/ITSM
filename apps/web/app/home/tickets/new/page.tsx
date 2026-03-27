@@ -16,6 +16,13 @@ export default async function NewTicketPage() {
     .is('deleted_at', null)
     .order('name', { ascending: true });
 
+  // Fetch organizations for the dropdown (RLS filters by tenant_id)
+  const { data: organizations } = await client
+    .from('organizations')
+    .select('id, name')
+    .is('deleted_at', null)
+    .order('name', { ascending: true });
+
   // Fetch contacts for the requester autocomplete (RLS filters by tenant_id)
   const { data: contacts } = await client
     .from('contacts')
@@ -28,6 +35,7 @@ export default async function NewTicketPage() {
     <CreateTicketForm
       categories={categories ?? []}
       contacts={contacts ?? []}
+      organizations={organizations ?? []}
     />
   );
 }

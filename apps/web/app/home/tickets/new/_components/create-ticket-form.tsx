@@ -63,9 +63,15 @@ interface Contact {
   email: string;
 }
 
+interface Organization {
+  id: string;
+  name: string;
+}
+
 interface CreateTicketFormProps {
   categories: Category[];
   contacts: Contact[];
+  organizations?: Organization[];
 }
 
 // ---------------------------------------------------------------------------
@@ -94,6 +100,7 @@ const SEVERITY_LEVELS = [
 export function CreateTicketForm({
   categories,
   contacts,
+  organizations = [],
 }: CreateTicketFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -118,6 +125,7 @@ export function CreateTicketForm({
       type: 'incident',
       urgency: 'medium',
       impact: 'medium',
+      organization_id: undefined,
       category_id: undefined,
       requester_email: undefined,
       tags: [],
@@ -251,6 +259,37 @@ export function CreateTicketForm({
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Organization */}
+                {organizations.length > 0 && (
+                  <FormField
+                    control={form.control}
+                    name="organization_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Organization</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          defaultValue={field.value ?? undefined}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select organization" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {organizations.map((org) => (
+                              <SelectItem key={org.id} value={org.id}>
+                                {org.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
                 {/* Title */}
                 <FormField
                   control={form.control}

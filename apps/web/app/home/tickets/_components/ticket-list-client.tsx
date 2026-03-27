@@ -74,6 +74,7 @@ export interface TicketRow {
   sla_due_date: string | null;
   sla_breached: boolean;
   created_at: string;
+  organization_id: string | null;
   assigned_agent: TicketAgent | null;
   requester: TicketRequester | null;
   category: TicketCategory | null;
@@ -95,6 +96,7 @@ interface TicketListClientProps {
   currentPage: number;
   pageSize: number;
   currentAgentId: string | null;
+  organizationMap?: Record<string, string>;
   activeTab: string;
   searchQuery: string;
   filters: Filters;
@@ -296,6 +298,7 @@ export function TicketListClient({
   currentPage,
   pageSize,
   currentAgentId,
+  organizationMap = {},
   activeTab,
   searchQuery,
   filters,
@@ -533,6 +536,7 @@ export function TicketListClient({
               <TableHead>Type</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Priority</TableHead>
+              <TableHead>Client</TableHead>
               <TableHead>Requester</TableHead>
               <TableHead>Assignee</TableHead>
               <TableHead>SLA</TableHead>
@@ -544,7 +548,7 @@ export function TicketListClient({
             {displayTickets.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={11}
+                  colSpan={12}
                   className="py-12 text-center text-gray-500"
                 >
                   No tickets found.
@@ -615,6 +619,15 @@ export function TicketListClient({
                     >
                       {formatPriorityLabel(ticket.priority)}
                     </Badge>
+                  </TableCell>
+
+                  {/* Client (Organization) */}
+                  <TableCell>
+                    <span className="text-sm text-gray-700">
+                      {ticket.organization_id
+                        ? organizationMap[ticket.organization_id] ?? '--'
+                        : '--'}
+                    </span>
                   </TableCell>
 
                   {/* Requester */}
