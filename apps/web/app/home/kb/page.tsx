@@ -33,11 +33,11 @@ export default async function KnowledgeBasePage({ searchParams }: KBPageProps) {
       slug,
       status,
       view_count,
-      helpful_votes,
-      not_helpful_votes,
+      helpful_count,
+      not_helpful_count,
       updated_at,
       created_at,
-      category:kb_categories!kb_articles_category_id_fkey(id, name)
+      category_id
     `,
     )
     .eq('status', 'published')
