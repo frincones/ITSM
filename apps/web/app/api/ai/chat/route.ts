@@ -1,6 +1,5 @@
 import { NextRequest } from 'next/server';
 
-import { streamText } from 'ai';
 import { openai } from '@ai-sdk/openai';
 
 import { getSupabaseServerClient } from '@kit/supabase/server-client';
@@ -65,14 +64,26 @@ export async function POST(req: NextRequest) {
       `- Category: ${ticketContext.category ?? 'N/A'}`;
   }
 
-  // ── Stream response ───────────────────────────────────────────────────────
-  const result = streamText({
-    model: openai('gpt-4o-mini'),
-    system: systemPrompt,
-    messages,
-    temperature: 0.4,
-    maxTokens: 1024,
-  });
+  // ── Generate response (non-streaming for reliability) ─────────────────────
+  try {
+    const { generateText } = await import('ai');
+    const result = await generateText({
+      model: openai('gpt-4o-mini'),
+      system: systemPrompt,
+      messages,
+      temperature: 0.4,
+      maxTokens: 1024,
+    });
 
-  return result.toDataStreamResponse();
+    return new Response(result.text, {
+      status: 200,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  } catch (err) {
+    console.error('[AI Chat] Error:', err);
+    return new Response(
+      JSON.stringify({ error: 'AI chat failed', details: err instanceof Error ? err.message : 'Unknown' }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
 }
