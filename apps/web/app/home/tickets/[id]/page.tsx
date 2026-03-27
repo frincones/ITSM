@@ -14,17 +14,10 @@ export default async function TicketDetailPage({
   const { id } = await params;
   const client = getSupabaseServerClient();
 
-  // ---------- Fetch ticket with related data ----------
+  // ---------- Fetch ticket (plain, no joins) ----------
   const { data: ticket, error } = await client
     .from('tickets')
-    .select(
-      `
-      *,
-      assigned_agent:agents!tickets_assigned_agent_id_fkey(id, name, avatar_url, email),
-      assigned_group:groups!tickets_assigned_group_id_fkey(id, name),
-      category:categories!tickets_category_id_fkey(id, name)
-    `,
-    )
+    .select('*')
     .eq('id', id)
     .is('deleted_at', null)
     .single();
@@ -33,79 +26,107 @@ export default async function TicketDetailPage({
     notFound();
   }
 
-  // ---------- Fetch followups ----------
-  const { data: followups } = await client
-    .from('ticket_followups')
-    .select('*, author:agents!ticket_followups_created_by_fkey(id, name, avatar_url)')
-    .eq('ticket_id', id)
-    .order('created_at', { ascending: true });
+  // ---------- Fetch related data in parallel ----------
+  const [
+    followupsResult,
+    tasksResult,
+    solutionsResult,
+    attachmentsResult,
+    agentsResult,
+    groupsResult,
+    categoriesResult,
+  ] = await Promise.all([
+    client
+      .from('ticket_followups')
+      .select('*')
+      .eq('ticket_id', id)
+      .order('created_at', { ascending: true }),
+    client
+      .from('ticket_tasks')
+      .select('*')
+      .eq('ticket_id', id)
+      .order('created_at', { ascending: true }),
+    client
+      .from('ticket_solutions')
+      .select('*')
+      .eq('ticket_id', id)
+      .order('created_at', { ascending: true }),
+    client
+      .from('ticket_attachments')
+      .select('*')
+      .eq('ticket_id', id)
+      .order('created_at', { ascending: true }),
+    client
+      .from('agents')
+      .select('id, name, avatar_url, email')
+      .order('name'),
+    client
+      .from('groups')
+      .select('id, name')
+      .order('name'),
+    client
+      .from('categories')
+      .select('id, name')
+      .order('name'),
+  ]);
 
-  // ---------- Fetch tasks ----------
-  const { data: tasks } = await client
-    .from('ticket_tasks')
-    .select('*, assigned_agent:agents!ticket_tasks_assigned_agent_id_fkey(id, name, avatar_url)')
-    .eq('ticket_id', id)
-    .order('created_at', { ascending: true });
+  // ---------- Resolve assigned agent name ----------
+  let assignedAgent = null;
+  if (ticket.assigned_agent_id) {
+    const match = agentsResult.data?.find(
+      (a: any) => a.id === ticket.assigned_agent_id,
+    );
+    assignedAgent = match ?? null;
+  }
 
-  // ---------- Fetch solutions ----------
-  const { data: solutions } = await client
-    .from('ticket_solutions')
-    .select('*, author:agents!ticket_solutions_created_by_fkey(id, name, avatar_url)')
-    .eq('ticket_id', id)
-    .order('created_at', { ascending: true });
+  // ---------- Resolve assigned group name ----------
+  let assignedGroup = null;
+  if (ticket.assigned_group_id) {
+    const match = groupsResult.data?.find(
+      (g: any) => g.id === ticket.assigned_group_id,
+    );
+    assignedGroup = match ?? null;
+  }
 
-  // ---------- Fetch attachments ----------
-  const { data: attachments } = await client
-    .from('ticket_attachments')
-    .select('*')
-    .eq('ticket_id', id)
-    .order('created_at', { ascending: true });
+  // ---------- Resolve category name ----------
+  let category = null;
+  if (ticket.category_id) {
+    const match = categoriesResult.data?.find(
+      (c: any) => c.id === ticket.category_id,
+    );
+    category = match ?? null;
+  }
 
   // ---------- Fetch requester contact info ----------
   let requester = null;
-
   if (ticket.requester_email) {
     const { data } = await client
       .from('contacts')
-      .select('id, name, email, phone, company, title')
+      .select('id, name, email, phone, company')
       .eq('email', ticket.requester_email)
-      .single();
-
+      .maybeSingle();
     requester = data;
   }
 
-  // ---------- Fetch agents for assignment dropdown ----------
-  const { data: agents } = await client
-    .from('agents')
-    .select('id, name, avatar_url, email')
-    .eq('tenant_id', ticket.tenant_id)
-    .order('name');
-
-  // ---------- Fetch groups for assignment dropdown ----------
-  const { data: groups } = await client
-    .from('groups')
-    .select('id, name')
-    .eq('tenant_id', ticket.tenant_id)
-    .order('name');
-
-  // ---------- Fetch categories for dropdown ----------
-  const { data: categories } = await client
-    .from('categories')
-    .select('id, name')
-    .eq('tenant_id', ticket.tenant_id)
-    .order('name');
+  // Attach resolved relations to ticket object
+  const enrichedTicket = {
+    ...ticket,
+    assigned_agent: assignedAgent,
+    assigned_group: assignedGroup,
+    category: category,
+  };
 
   return (
     <TicketDetailClient
-      ticket={ticket}
-      followups={followups ?? []}
-      tasks={tasks ?? []}
-      solutions={solutions ?? []}
-      attachments={attachments ?? []}
+      ticket={enrichedTicket}
+      followups={followupsResult.data ?? []}
+      tasks={tasksResult.data ?? []}
+      solutions={solutionsResult.data ?? []}
+      attachments={attachmentsResult.data ?? []}
       requester={requester}
-      agents={agents ?? []}
-      groups={groups ?? []}
-      categories={categories ?? []}
+      agents={agentsResult.data ?? []}
+      groups={groupsResult.data ?? []}
+      categories={categoriesResult.data ?? []}
     />
   );
 }
