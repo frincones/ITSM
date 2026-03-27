@@ -49,7 +49,7 @@ interface AgentRow {
   name: string;
   email: string;
   role: string;
-  status: string;
+  is_active: boolean;
   avatar_url: string | null;
 }
 
@@ -70,8 +70,11 @@ interface CategoryRow {
 interface SLAConfigRow {
   id: string;
   name: string;
-  first_response_minutes: number | null;
-  resolution_minutes: number | null;
+  description: string | null;
+  target_critical: number | null;
+  target_high: number | null;
+  target_medium: number | null;
+  target_low: number | null;
   is_active: boolean;
 }
 
@@ -340,12 +343,12 @@ export function SettingsClient({
                               </h4>
                               <Badge
                                 className={
-                                  agent.status === 'active'
+                                  agent.is_active
                                     ? 'bg-green-100 text-green-700'
                                     : 'bg-gray-100 text-gray-700'
                                 }
                               >
-                                {agent.status}
+                                {agent.is_active ? 'Active' : 'Inactive'}
                               </Badge>
                               <Badge className="bg-indigo-100 text-indigo-700">
                                 {agent.role}
@@ -563,17 +566,16 @@ export function SettingsClient({
                               </Badge>
                             </div>
                             <div className="flex items-center gap-4 text-sm text-gray-600">
-                              <span>
-                                First Response:{' '}
-                                {formatMinutes(
-                                  sla.first_response_minutes,
-                                )}
-                              </span>
+                              {sla.description && (
+                                <span className="text-gray-500">{sla.description}</span>
+                              )}
+                              <span>Critical: {sla.target_critical ?? '--'}min</span>
                               <span>|</span>
-                              <span>
-                                Resolution:{' '}
-                                {formatMinutes(sla.resolution_minutes)}
-                              </span>
+                              <span>High: {sla.target_high ?? '--'}min</span>
+                              <span>|</span>
+                              <span>Medium: {sla.target_medium ?? '--'}min</span>
+                              <span>|</span>
+                              <span>Low: {sla.target_low ?? '--'}min</span>
                             </div>
                           </div>
                           <Button variant="outline" size="sm">
