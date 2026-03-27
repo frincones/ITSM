@@ -10,31 +10,6 @@ overrides:
 importers:
 
   .:
-    dependencies:
-      '@ai-sdk/anthropic':
-        specifier: ^3.0.64
-        version: 3.0.64(zod@3.25.76)
-      '@ai-sdk/openai':
-        specifier: ^3.0.48
-        version: 3.0.48(zod@3.25.76)
-      '@ai-sdk/react':
-        specifier: ^3.0.134
-        version: 3.0.142(react@19.2.1)(zod@3.25.76)
-      '@tiptap/extension-placeholder':
-        specifier: ^3.20.5
-        version: 3.20.5(@tiptap/extensions@3.20.5(@tiptap/core@3.20.5(@tiptap/pm@3.20.5))(@tiptap/pm@3.20.5))
-      '@tiptap/react':
-        specifier: ^3.20.5
-        version: 3.20.5(@floating-ui/dom@1.7.4)(@tiptap/core@3.20.5(@tiptap/pm@3.20.5))(@tiptap/pm@3.20.5)(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
-      '@tiptap/starter-kit':
-        specifier: ^3.20.5
-        version: 3.20.5
-      ai:
-        specifier: ^6.0.140
-        version: 6.0.140(zod@3.25.76)
-      openai:
-        specifier: ^6.33.0
-        version: 6.33.0(ws@8.18.3)(zod@3.25.76)
     devDependencies:
       '@manypkg/cli':
         specifier: ^0.25.1
@@ -69,6 +44,15 @@ importers:
 
   apps/web:
     dependencies:
+      '@ai-sdk/anthropic':
+        specifier: ^3.0.64
+        version: 3.0.64(zod@3.25.76)
+      '@ai-sdk/openai':
+        specifier: ^3.0.48
+        version: 3.0.48(zod@3.25.76)
+      '@ai-sdk/react':
+        specifier: ^3.0.134
+        version: 3.0.142(react@19.2.1)(zod@3.25.76)
       '@edge-csrf/nextjs':
         specifier: 2.5.3-cloudflare-rc1
         version: 2.5.3-cloudflare-rc1(next@15.5.9(@opentelemetry/api@1.9.0)(@playwright/test@1.56.0)(babel-plugin-react-compiler@19.1.0-rc.3)(react-dom@19.2.1(react@19.2.1))(react@19.2.1))
@@ -114,6 +98,18 @@ importers:
       '@tanstack/react-table':
         specifier: ^8.21.3
         version: 8.21.3(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
+      '@tiptap/extension-placeholder':
+        specifier: ^3.20.5
+        version: 3.20.5(@tiptap/extensions@3.20.5(@tiptap/core@3.20.5(@tiptap/pm@3.20.5))(@tiptap/pm@3.20.5))
+      '@tiptap/react':
+        specifier: ^3.20.5
+        version: 3.20.5(@floating-ui/dom@1.7.4)(@tiptap/core@3.20.5(@tiptap/pm@3.20.5))(@tiptap/pm@3.20.5)(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
+      '@tiptap/starter-kit':
+        specifier: ^3.20.5
+        version: 3.20.5
+      ai:
+        specifier: ^6.0.140
+        version: 6.0.140(zod@3.25.76)
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
@@ -129,6 +125,9 @@ importers:
       next-themes:
         specifier: 0.4.6
         version: 0.4.6(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
+      openai:
+        specifier: ^6.33.0
+        version: 6.33.0(ws@8.18.3)(zod@3.25.76)
       react:
         specifier: 19.2.1
         version: 19.2.1
@@ -3121,10 +3120,6 @@ packages:
 
   fast-deep-equal@3.1.3:
     resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
-
-  fast-equals@5.3.2:
-    resolution: {integrity: sha512-6rxyATwPCkaFIL3JLqw8qXqMpIZ942pTX/tbQFkRsDGblS8tNGtlUauA/+mt6RUfqn/4MoEr+WDkYoIQbibWuQ==}
-    engines: {node: '>=6.0.0'}
 
   fast-equals@5.4.0:
     resolution: {integrity: sha512-jt2DW/aNFNwke7AUd+Z+e6pz39KO5rzdbbFCg2sGafS4mk13MI7Z8O5z9cADNn5lhGODIgLwug6TZO2ctf7kcw==}
@@ -7783,8 +7778,6 @@ snapshots:
 
   fast-deep-equal@3.1.3: {}
 
-  fast-equals@5.3.2: {}
-
   fast-equals@5.4.0: {}
 
   fast-glob@3.3.1:
@@ -9030,7 +9023,7 @@ snapshots:
 
   react-smooth@4.0.4(react-dom@19.2.1(react@19.2.1))(react@19.2.1):
     dependencies:
-      fast-equals: 5.3.2
+      fast-equals: 5.4.0
       prop-types: 15.8.1
       react: 19.2.1
       react-dom: 19.2.1(react@19.2.1)

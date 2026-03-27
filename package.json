@@ -39,17 +39,9 @@
     }
   },
   "devDependencies": {
-    "@ai-sdk/anthropic": "^3.0.64",
-    "@ai-sdk/openai": "^3.0.48",
-    "@ai-sdk/react": "^3.0.134",
     "@manypkg/cli": "^0.25.1",
-    "@tiptap/extension-placeholder": "^3.20.5",
-    "@tiptap/react": "^3.20.5",
-    "@tiptap/starter-kit": "^3.20.5",
     "@turbo/gen": "^2.5.8",
-    "ai": "^6.0.140",
     "cross-env": "^10.1.0",
-    "openai": "^6.33.0",
     "prettier": "^3.6.2",
     "turbo": "2.5.8",
     "typescript": "^5.9.3"
