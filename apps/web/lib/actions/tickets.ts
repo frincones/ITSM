@@ -337,10 +337,11 @@ export async function addFollowup(
       .from('ticket_followups')
       .insert({
         ticket_id: ticketId,
-        tenant_id: agent.tenant_id, // NEVER from frontend
+        tenant_id: agent.tenant_id,
         content: validated.content,
         is_private: validated.is_private,
-        created_by: user.id,
+        author_id: user.id,
+        author_type: 'agent',
       })
       .select()
       .single();
@@ -453,9 +454,9 @@ export async function addSolution(
       .from('ticket_solutions')
       .insert({
         ticket_id: ticketId,
-        tenant_id: agent.tenant_id, // NEVER from frontend
+        tenant_id: agent.tenant_id,
         content: validated.content,
-        created_by: user.id,
+        author_id: user.id,
       })
       .select()
       .single();

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "type": "stdio",
+      "command": "playwright-mcp",
+      "args": [
+        "--headless"
+      ],
+      "env": {}
+    }
+  }
+}

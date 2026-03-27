@@ -45,7 +45,21 @@
       "Bash(curl -s -X POST \"https://cocfiotnnyrsymytsuxh.supabase.co/auth/v1/signup\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvY2Zpb3Rubnlyc3lteXRzdXhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1NTY0MDYsImV4cCI6MjA5MDEzMjQwNn0.y6sNVTuQpDaLLVhz5ZzmsUdFxA7ODwQdJKV4S57Rrw0\" -H \"Content-Type: application/json\" -d '{\"\"email\"\":\"\"admin@novadesk.com\"\",\"\"password\"\":\"\"NovaDesk2026!\"\",\"\"data\"\":{\"\"name\"\":\"\"Admin NovaDesk\"\"}}')",
       "Bash(curl -s -X POST \"https://cocfiotnnyrsymytsuxh.supabase.co/auth/v1/signup\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvY2Zpb3Rubnlyc3lteXRzdXhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1NTY0MDYsImV4cCI6MjA5MDEzMjQwNn0.y6sNVTuQpDaLLVhz5ZzmsUdFxA7ODwQdJKV4S57Rrw0\" -H \"Content-Type: application/json\" --data-raw \"{\"\"email\"\":\"\"admin@novadesk.com\"\",\"\"password\"\":\"\"NovaDesk2026\"\",\"\"data\"\":{\"\"name\"\":\"\"Admin NovaDesk\"\"}}\")",
       "Bash(curl -s -X PUT \"https://cocfiotnnyrsymytsuxh.supabase.co/auth/v1/admin/users/c00d7ac0-6cbf-4db8-8837-73d839b108fa\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvY2Zpb3Rubnlyc3lteXRzdXhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDU1NjQwNiwiZXhwIjoyMDkwMTMyNDA2fQ.nO_VWYTysuHXD71m4W11uQd59lClNOK6C1wfIQ7iD78\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvY2Zpb3Rubnlyc3lteXRzdXhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDU1NjQwNiwiZXhwIjoyMDkwMTMyNDA2fQ.nO_VWYTysuHXD71m4W11uQd59lClNOK6C1wfIQ7iD78\" -H \"Content-Type: application/json\" --data-raw \"{\"\"email_confirm\"\":true}\")",
-      "Bash(curl -s -X POST \"https://cocfiotnnyrsymytsuxh.supabase.co/rest/v1/tenant_settings\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvY2Zpb3Rubnlyc3lteXRzdXhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDU1NjQwNiwiZXhwIjoyMDkwMTMyNDA2fQ.nO_VWYTysuHXD71m4W11uQd59lClNOK6C1wfIQ7iD78\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvY2Zpb3Rubnlyc3lteXRzdXhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDU1NjQwNiwiZXhwIjoyMDkwMTMyNDA2fQ.nO_VWYTysuHXD71m4W11uQd59lClNOK6C1wfIQ7iD78\" -H \"Content-Type: application/json\" -H \"Prefer: return=representation\" --data-raw \"{\"\"tenant_id\"\":\"\"8be06573-2e43-4d8f-b81d-48b9cddb060d\"\",\"\"ticket_prefix\"\":\"\"TKT\"\"}\")"
+      "Bash(curl -s -X POST \"https://cocfiotnnyrsymytsuxh.supabase.co/rest/v1/tenant_settings\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvY2Zpb3Rubnlyc3lteXRzdXhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDU1NjQwNiwiZXhwIjoyMDkwMTMyNDA2fQ.nO_VWYTysuHXD71m4W11uQd59lClNOK6C1wfIQ7iD78\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvY2Zpb3Rubnlyc3lteXRzdXhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDU1NjQwNiwiZXhwIjoyMDkwMTMyNDA2fQ.nO_VWYTysuHXD71m4W11uQd59lClNOK6C1wfIQ7iD78\" -H \"Content-Type: application/json\" -H \"Prefer: return=representation\" --data-raw \"{\"\"tenant_id\"\":\"\"8be06573-2e43-4d8f-b81d-48b9cddb060d\"\",\"\"ticket_prefix\"\":\"\"TKT\"\"}\")",
+      "Bash(npx @anthropic-ai/claude-code mcp list)",
+      "Bash(claude mcp:*)",
+      "Bash(npx -y @playwright/mcp@latest --help)",
+      "Bash(npx @playwright/mcp@latest --version)",
+      "Bash(npm install:*)",
+      "Bash(where playwright-mcp:*)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_type",
+      "mcp__playwright__browser_take_screenshot",
+      "mcp__playwright__browser_snapshot",
+      "mcp__playwright__browser_wait_for",
+      "mcp__playwright__browser_console_messages",
+      "Bash(curl -s \"https://cocfiotnnyrsymytsuxh.supabase.co/rest/v1/ticket_followups?select=id,content,is_private,created_at&ticket_id=eq.56515a4e-209f-469e-9cac-718a5351d43e\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvY2Zpb3Rubnlyc3lteXRzdXhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDU1NjQwNiwiZXhwIjoyMDkwMTMyNDA2fQ.nO_VWYTysuHXD71m4W11uQd59lClNOK6C1wfIQ7iD78\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvY2Zpb3Rubnlyc3lteXRzdXhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDU1NjQwNiwiZXhwIjoyMDkwMTMyNDA2fQ.nO_VWYTysuHXD71m4W11uQd59lClNOK6C1wfIQ7iD78\")"
     ]
   }
 }
