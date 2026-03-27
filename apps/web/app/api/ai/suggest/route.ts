@@ -68,9 +68,7 @@ export async function POST(req: NextRequest) {
   if (ticketId) {
     const { data: ticket } = await client
       .from('tickets')
-      .select(
-        '*, category:categories!tickets_category_id_fkey(id, name)',
-      )
+      .select('*')
       .eq('id', ticketId)
       .single();
 
@@ -83,8 +81,16 @@ export async function POST(req: NextRequest) {
 
     ticketTitle = ticket.title;
     ticketDescription = ticket.description ?? '';
-    ticketCategory = (ticket.category as { name: string } | null)?.name ?? '';
     tenantId = ticket.tenant_id;
+
+    if (ticket.category_id) {
+      const { data: cat } = await client
+        .from('categories')
+        .select('name')
+        .eq('id', ticket.category_id)
+        .single();
+      ticketCategory = cat?.name ?? '';
+    }
   }
 
   if (!ticketTitle) {
@@ -98,47 +104,48 @@ export async function POST(req: NextRequest) {
   let kbContext = '';
 
   if (tenantId) {
-    // Search knowledge documents by keyword (text match since embedding
-    // generation depends on external pipeline). Fall back gracefully.
-    const { data: kbDocs } = await client
-      .from('knowledge_documents')
-      .select('id, title, content, source_type')
-      .eq('tenant_id', tenantId)
-      .textSearch('content', ticketTitle.split(' ').slice(0, 5).join(' | '), {
-        type: 'websearch',
-        config: 'english',
-      })
-      .limit(5);
+    // Search knowledge documents by keyword match (ilike)
+    try {
+      const searchTerms = ticketTitle.split(' ').filter(w => w.length > 3).slice(0, 3);
+      if (searchTerms.length > 0) {
+        const { data: kbDocs } = await client
+          .from('knowledge_documents')
+          .select('id, title, content, source_type')
+          .eq('tenant_id', tenantId)
+          .or(searchTerms.map(t => `title.ilike.%${t}%`).join(','))
+          .limit(5);
 
-    if (kbDocs && kbDocs.length > 0) {
-      kbContext =
-        '\n\nRelevant Knowledge Base articles:\n' +
-        kbDocs
-          .map(
-            (doc, i) =>
-              `${i + 1}. [${doc.source_type}] ${doc.title}\n   ${doc.content.slice(0, 300)}...`,
-          )
-          .join('\n');
-    }
+        if (kbDocs && kbDocs.length > 0) {
+          kbContext =
+            '\n\nRelevant Knowledge Base articles:\n' +
+            kbDocs
+              .map(
+                (doc: any, i: number) =>
+                  `${i + 1}. [${doc.source_type}] ${doc.title}\n   ${(doc.content ?? '').slice(0, 300)}...`,
+              )
+              .join('\n');
+        }
+      }
+    } catch { /* KB search is optional, continue without it */ }
 
-    // Also check previous solutions for similar tickets
-    const { data: similarSolutions } = await client
-      .from('ticket_solutions')
-      .select(
-        'id, content, ticket:tickets!ticket_solutions_ticket_id_fkey(title)',
-      )
-      .limit(3);
+    // Previous ticket solutions (simple query, no FK hints)
+    try {
+      const { data: similarSolutions } = await client
+        .from('ticket_solutions')
+        .select('id, content, ticket_id')
+        .limit(3);
 
-    if (similarSolutions && similarSolutions.length > 0) {
-      kbContext +=
-        '\n\nPrevious ticket solutions:\n' +
-        similarSolutions
-          .map(
-            (sol, i) =>
-              `${i + 1}. Ticket: ${(sol.ticket as { title: string } | null)?.title ?? 'Unknown'}\n   Solution: ${sol.content.slice(0, 300)}`,
-          )
-          .join('\n');
-    }
+      if (similarSolutions && similarSolutions.length > 0) {
+        kbContext +=
+          '\n\nPrevious ticket solutions:\n' +
+          similarSolutions
+            .map(
+              (sol: any, i: number) =>
+                `${i + 1}. Solution: ${(sol.content ?? '').slice(0, 300)}`,
+            )
+            .join('\n');
+      }
+    } catch { /* Solutions search is optional */ }
   }
 
   // ── AI Suggestion Generation ─────────────────────────────────────────────
