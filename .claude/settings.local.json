@@ -6,7 +6,18 @@
       "Bash(cp /tmp/nextjs-saas-temp/.* /c/Users/freddyrs/Desktop/ITSM/ITSM/)",
       "Bash(git remote:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(ls -la /tmp/glpi-analysis/*.php)",
+      "Read(//c/Users/freddyrs/Desktop/ITSM/ITSM/**)",
+      "Read(//c/Users/freddyrs/Desktop/**)",
+      "Bash(find C:/Users/freddyrs/Desktop/ITSM/ITSM -name *.php)",
+      "Bash(ls -d src/Glpi/*/)",
+      "Bash(grep -l \"class Ticket\\\\|class Problem\\\\|class Change\\\\|class Computer\\\\|class Network\\\\|class Printer\" src/*.php)",
+      "Bash(grep -r \"getMenuContent\" src/*.php)",
+      "Bash(grep -l \"class.*Database\\\\|class DB\\\\|class DbConnection\" /tmp/glpi-analysis/src/*.php)",
+      "Bash(cp -r /tmp/glpi-analysis/* /c/Users/freddyrs/Desktop/ITSM/ITSM/GLPI/)",
+      "Bash(cp /tmp/glpi-analysis/.* /c/Users/freddyrs/Desktop/ITSM/ITSM/GLPI/)"
     ]
   }
 }

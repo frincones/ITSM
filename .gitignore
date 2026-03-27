@@ -45,3 +45,6 @@ yarn-error.log*
 
 # contentlayer
 .contentlayer/
+
+# GLPI reference (read-only, not part of the project)
+GLPI/
