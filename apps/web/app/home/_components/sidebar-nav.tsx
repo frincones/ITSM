@@ -29,20 +29,24 @@ import {
 import { Separator } from '@kit/ui/separator';
 
 const navItems = [
-  { icon: LayoutDashboard, label: 'Dashboard', path: '/home' },
-  { icon: Inbox, label: 'Inbox', path: '/home/inbox' },
-  { icon: Ticket, label: 'Tickets', path: '/home/tickets' },
-  { icon: AlertTriangle, label: 'Problems', path: '/home/problems' },
-  { icon: GitBranch, label: 'Changes', path: '/home/changes' },
-  { icon: FolderKanban, label: 'Projects', path: '/home/projects' },
-  { icon: Monitor, label: 'Assets', path: '/home/assets' },
-  { icon: BookOpen, label: 'Knowledge', path: '/home/kb' },
-  { icon: ShoppingBag, label: 'Catalog', path: '/home/service-catalog' },
-  { icon: Workflow, label: 'Automations', path: '/home/automations' },
-  { icon: BarChart3, label: 'Reports', path: '/home/reports' },
+  { icon: LayoutDashboard, label: 'Dashboard', path: '/home', module: 'dashboard' },
+  { icon: Inbox, label: 'Inbox', path: '/home/inbox', module: 'inbox' },
+  { icon: Ticket, label: 'Tickets', path: '/home/tickets', module: 'tickets' },
+  { icon: AlertTriangle, label: 'Problems', path: '/home/problems', module: 'problems' },
+  { icon: GitBranch, label: 'Changes', path: '/home/changes', module: 'changes' },
+  { icon: FolderKanban, label: 'Projects', path: '/home/projects', module: 'projects' },
+  { icon: Monitor, label: 'Assets', path: '/home/assets', module: 'assets' },
+  { icon: BookOpen, label: 'Knowledge', path: '/home/kb', module: 'kb' },
+  { icon: ShoppingBag, label: 'Catalog', path: '/home/service-catalog', module: 'service_catalog' },
+  { icon: Workflow, label: 'Automations', path: '/home/automations', module: 'automations' },
+  { icon: BarChart3, label: 'Reports', path: '/home/reports', module: 'reports' },
 ];
 
-export function SidebarNav() {
+interface SidebarNavProps {
+  allowedModules?: string[] | null;
+}
+
+export function SidebarNav({ allowedModules }: SidebarNavProps = {}) {
   const pathname = usePathname();
 
   const isActive = (path: string) => {
@@ -52,6 +56,11 @@ export function SidebarNav() {
 
     return pathname.startsWith(path);
   };
+
+  // Filter by allowed modules (null = show all = backwards compatible)
+  const visibleItems = allowedModules
+    ? navItems.filter((item) => allowedModules.includes(item.module))
+    : navItems;
 
   return (
     <aside className="flex w-16 flex-col items-center border-r border-border bg-card py-4">
@@ -67,7 +76,7 @@ export function SidebarNav() {
       {/* Navigation */}
       <TooltipProvider delayDuration={0}>
         <nav className="flex flex-1 flex-col gap-2">
-          {navItems.map((item) => (
+          {visibleItems.map((item) => (
             <Tooltip key={item.path}>
               <TooltipTrigger asChild>
                 <Link
