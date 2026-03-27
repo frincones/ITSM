@@ -38,7 +38,10 @@
       "Bash(wc -l /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/tickets/[id]/_components/ticket-detail-client.tsx)",
       "Bash(for m:*)",
       "Bash(do npx:*)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(grep -r recharts apps/web/package.json packages/*/package.json)",
+      "Bash(grep -r recharts apps/web/ --include=*.tsx -l)",
+      "Bash(find /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/lib/services/notification.service.ts /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/lib/services/metrics.service.ts /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/lib/services/webhook.service.ts /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/lib/actions/reports.ts /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/api/v1/tickets/route.ts \"/c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/api/v1/tickets/[id]/route.ts\" /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/api/cron/sla-check/route.ts /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/api/cron/metrics-snapshot/route.ts /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/api/cron/notification-processor/route.ts -type f -printf \"%p \\(%s bytes\\)\\\\n\")"
     ]
   }
 }
