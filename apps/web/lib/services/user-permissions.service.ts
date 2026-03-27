@@ -459,7 +459,8 @@ async function getModulesFromProfile(
     .select('resource')
     .eq('profile_id', profileId);
 
-  if (error || !data) return null;
+  // If RLS blocks access or no data, return null (= all allowed, backwards compatible)
+  if (error || !data || data.length === 0) return null;
 
   return data.map((row) => row.resource as string);
 }
