@@ -1,0 +1,36 @@
+[    7669ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://itsm-web.vercel.app/portal/tickets?_rsc=7adhr:0
+[    7727ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://itsm-web.vercel.app/portal/tickets/new?_rsc=7adhr:0
+[    7817ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://itsm-web.vercel.app/portal/kb?_rsc=7adhr:0
+[    7964ms] [ERROR] TypeError: Cannot read properties of undefined (reading 'trim')
+    at v (https://itsm-web.vercel.app/_next/static/chunks/app/portal/chat/page-9ac74a6258c18c62.js:1:7489)
+    at l9 (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:51130)
+    at o_ (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:70990)
+    at oq (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:82020)
+    at ik (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:114682)
+    at https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:110730
+    at iu (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:110831)
+    at iX (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:132934)
+    at MessagePort.w (https://itsm-web.vercel.app/_next/static/chunks/7320-c8c1482920224f7c.js:1:143473) @ https://itsm-web.vercel.app/_next/static/chunks/app/error-dd887f44975ecb4c.js:0
+[    8008ms] [ERROR] TypeError: Cannot read properties of undefined (reading 'trim')
+    at v (https://itsm-web.vercel.app/_next/static/chunks/app/portal/chat/page-9ac74a6258c18c62.js:1:7489)
+    at l9 (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:51130)
+    at o_ (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:70990)
+    at oq (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:82020)
+    at ik (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:114682)
+    at https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:114527
+    at ib (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:114535)
+    at iu (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:111618)
+    at iX (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:132934)
+    at MessagePort.w (https://itsm-web.vercel.app/_next/static/chunks/7320-c8c1482920224f7c.js:1:143473) @ https://itsm-web.vercel.app/_next/static/chunks/app/error-dd887f44975ecb4c.js:0
+[    8015ms] [ERROR] TypeError: Cannot read properties of undefined (reading 'trim')
+    at v (https://itsm-web.vercel.app/_next/static/chunks/app/portal/chat/page-9ac74a6258c18c62.js:1:7489)
+    at l9 (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:51130)
+    at o_ (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:70990)
+    at oq (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:82020)
+    at ik (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:114682)
+    at https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:114527
+    at ib (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:114535)
+    at iu (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:111618)
+    at iX (https://itsm-web.vercel.app/_next/static/chunks/fcd09107-97dd702d86d3f7dc.js:1:132934)
+    at MessagePort.w (https://itsm-web.vercel.app/_next/static/chunks/7320-c8c1482920224f7c.js:1:143473) @ https://itsm-web.vercel.app/_next/static/chunks/7320-c8c1482920224f7c.js:0
+[    8189ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://itsm-web.vercel.app/contact?_rsc=lc6bh:0
