@@ -622,19 +622,19 @@
 
 #### Migration 00010: Workflows
 
-- [ ] 5.1.1 Crear tabla `workflows` con RLS
-- [ ] 5.1.2 Crear tabla `workflow_steps` con RLS
-- [ ] 5.1.3 Crear tabla `workflow_executions` con RLS
-- [ ] 5.1.4 Crear tabla `workflow_step_logs` con RLS
+- [x] 5.1.1 Crear tabla `workflows` con RLS
+- [x] 5.1.2 Crear tabla `workflow_steps` con RLS
+- [x] 5.1.3 Crear tabla `workflow_executions` con RLS
+- [x] 5.1.4 Crear tabla `workflow_step_logs` con RLS
 
 #### Service Catalog (parte de migration 00004 o nueva)
 
-- [ ] 5.1.5 Crear tabla `service_catalogs` con RLS
-- [ ] 5.1.6 Crear tabla `forms` con RLS
-- [ ] 5.1.7 Crear tabla `form_sections` con RLS
-- [ ] 5.1.8 Crear tabla `form_questions` con RLS
-- [ ] 5.1.9 Crear tabla `form_submissions` con RLS
-- [ ] 5.1.10 Crear tabla `form_destinations` con RLS
+- [x] 5.1.5 Crear tabla `service_catalogs` con RLS
+- [x] 5.1.6 Crear tabla `forms` con RLS
+- [x] 5.1.7 Crear tabla `form_sections` con RLS
+- [x] 5.1.8 Crear tabla `form_questions` con RLS
+- [x] 5.1.9 Crear tabla `form_submissions` con RLS
+- [x] 5.1.10 Crear tabla `form_destinations` con RLS
 
 ---
 
@@ -934,13 +934,13 @@
 Fase 1: [x] Foundation          ██████████ 95%
 Fase 2: [x] ITSM Core           ████████░░ 80%
 Fase 3: [x] AI Layer             █████████░ 90%
-Fase 4: [x] Omnichannel Inbox    █████████░ 90% (pending: cron sync, widget script, tests)
-Fase 5: [ ] Portal & Workflows   ░░░░░░░░░░ 0%
+Fase 4: [x] Omnichannel Inbox    █████████░ 90%
+Fase 5: [x] Portal & Workflows   █████████░ 90%
 Fase 6: [ ] Analytics & Polish   ░░░░░░░░░░ 0%
 
 Total Tasks: ~350
-Completed:   ~255
-Progress:    ~73%
+Completed:   ~300
+Progress:    ~86%
 ```
 
 ---
