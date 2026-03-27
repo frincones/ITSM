@@ -25,7 +25,17 @@
       "Bash(npx supabase:*)",
       "Bash(SUPABASE_ACCESS_TOKEN=sbp_fc87c727bc65fa26714ee3ad16e517328fd26e98 npx supabase link --project-ref cocfiotnnyrsymytsuxh -p \"ITSM*.2026*.\")",
       "Bash(SUPABASE_ACCESS_TOKEN=sbp_fc87c727bc65fa26714ee3ad16e517328fd26e98 npx supabase db push --project-ref cocfiotnnyrsymytsuxh -p \"ITSM*.2026*.\")",
-      "Bash(SUPABASE_ACCESS_TOKEN=sbp_fc87c727bc65fa26714ee3ad16e517328fd26e98 npx supabase link --project-ref cocfiotnnyrsymytsuxh --debug)"
+      "Bash(SUPABASE_ACCESS_TOKEN=sbp_fc87c727bc65fa26714ee3ad16e517328fd26e98 npx supabase link --project-ref cocfiotnnyrsymytsuxh --debug)",
+      "Bash(ls /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/tickets/[id]/)",
+      "Bash(ls /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/tickets/[id]/_components/)",
+      "Bash(node -e \"const pkg = require\\(''/c/Users/freddyrs/Desktop/ITSM/ITSM/node_modules/ai/package.json''\\); console.log\\(pkg.version\\); console.log\\(Object.keys\\(pkg.exports || {}\\).filter\\(k => k.includes\\(''react''\\)\\).join\\(''\\\\n''\\)\\)\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(list\\(d.get\\(''''exports'''',{}\\).keys\\(\\)\\)[:20], indent=2\\)\\)\")",
+      "Bash(ls -la /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/api/ai/*/route.ts)",
+      "Bash(ls -la /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/tickets/[id]/_components/ai-chat-panel.tsx /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/settings/ai/page.tsx /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/settings/ai/_components/ai-settings-client.tsx)",
+      "Bash(pnpm install:*)",
+      "Bash(wc -l /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/api/ai/*/route.ts)",
+      "Bash(wc -l /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/tickets/[id]/_components/ai-chat-panel.tsx /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/settings/ai/page.tsx /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/settings/ai/_components/ai-settings-client.tsx)",
+      "Bash(wc -l /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/tickets/[id]/_components/ticket-detail-client.tsx)"
     ]
   }
 }

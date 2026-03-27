@@ -254,50 +254,50 @@
 
 #### Migration 00005: Problems & Changes
 
-- [ ] 2.1.1 Crear tipo `problem_status` ENUM
-- [ ] 2.1.2 Crear tabla `problems` con RLS + FORCE + índices
-- [ ] 2.1.3 Crear tabla `problem_ticket_links` con RLS
-- [ ] 2.1.4 Crear tabla `problem_tasks` con RLS
-- [ ] 2.1.5 Crear tipo `change_status` ENUM
-- [ ] 2.1.6 Crear tipo `change_type` ENUM (standard, normal, emergency)
-- [ ] 2.1.7 Crear tabla `changes` con RLS + FORCE + índices
-- [ ] 2.1.8 Crear tabla `change_tasks` con RLS
-- [ ] 2.1.9 Crear tabla `change_validations` (CAB approval) con RLS
-- [ ] 2.1.10 Crear tabla `change_costs` con RLS
-- [ ] 2.1.11 Crear funciones de generación de números (problem_number, change_number)
+- [x] 2.1.1 Crear tipo `problem_status` ENUM
+- [x] 2.1.2 Crear tabla `problems` con RLS + FORCE + índices
+- [x] 2.1.3 Crear tabla `problem_ticket_links` con RLS
+- [x] 2.1.4 Crear tabla `problem_tasks` con RLS
+- [x] 2.1.5 Crear tipo `change_status` ENUM
+- [x] 2.1.6 Crear tipo `change_type` ENUM (standard, normal, emergency)
+- [x] 2.1.7 Crear tabla `changes` con RLS + FORCE + índices
+- [x] 2.1.8 Crear tabla `change_tasks` con RLS
+- [x] 2.1.9 Crear tabla `change_validations` (CAB approval) con RLS
+- [x] 2.1.10 Crear tabla `change_costs` con RLS
+- [x] 2.1.11 Crear funciones de generación de números (problem_number, change_number)
 
 #### Migration 00006: SLA/OLA
 
-- [ ] 2.1.12 Crear tabla `calendars` con RLS
-- [ ] 2.1.13 Crear tabla `calendar_schedules` con RLS
-- [ ] 2.1.14 Crear tabla `calendar_holidays` con RLS
-- [ ] 2.1.15 Crear tabla `slas` con RLS
-- [ ] 2.1.16 Crear tabla `sla_levels` con RLS
-- [ ] 2.1.17 Crear tabla `sla_level_actions` con RLS
-- [ ] 2.1.18 Crear tabla `olas` con RLS
-- [ ] 2.1.19 Crear tabla `ola_levels` + `ola_level_actions` con RLS
-- [ ] 2.1.20 Agregar FKs pendientes: tickets.sla_id, tickets.ola_id, groups.sla_id, groups.calendar_id, categories.default_sla_id
+- [x] 2.1.12 Crear tabla `calendars` con RLS
+- [x] 2.1.13 Crear tabla `calendar_schedules` con RLS
+- [x] 2.1.14 Crear tabla `calendar_holidays` con RLS
+- [x] 2.1.15 Crear tabla `slas` con RLS
+- [x] 2.1.16 Crear tabla `sla_levels` con RLS
+- [x] 2.1.17 Crear tabla `sla_level_actions` con RLS
+- [x] 2.1.18 Crear tabla `olas` con RLS
+- [x] 2.1.19 Crear tabla `ola_levels` + `ola_level_actions` con RLS
+- [x] 2.1.20 Agregar FKs pendientes: tickets.sla_id, tickets.ola_id, groups.sla_id, groups.calendar_id, categories.default_sla_id
 
 #### Migration 00008: Knowledge Base
 
-- [ ] 2.1.21 Crear tabla `kb_categories` (jerárquica) con RLS
-- [ ] 2.1.22 Crear tabla `kb_articles` con RLS + soft delete
-- [ ] 2.1.23 Crear tabla `kb_article_revisions` con RLS
-- [ ] 2.1.24 Crear tabla `kb_article_feedback` con RLS
+- [x] 2.1.21 Crear tabla `kb_categories` (jerárquica) con RLS
+- [x] 2.1.22 Crear tabla `kb_articles` con RLS + soft delete
+- [x] 2.1.23 Crear tabla `kb_article_revisions` con RLS
+- [x] 2.1.24 Crear tabla `kb_article_feedback` con RLS
 
 #### Migration 00011: Rules Engine
 
-- [ ] 2.1.25 Crear tabla `rules` con RLS
-- [ ] 2.1.26 Crear tabla `rule_conditions` con RLS
-- [ ] 2.1.27 Crear tabla `rule_actions` con RLS
-- [ ] 2.1.28 Crear tabla `rule_execution_logs` con RLS
+- [x] 2.1.25 Crear tabla `rules` con RLS
+- [x] 2.1.26 Crear tabla `rule_conditions` con RLS
+- [x] 2.1.27 Crear tabla `rule_actions` con RLS
+- [x] 2.1.28 Crear tabla `rule_execution_logs` con RLS
 
 ---
 
 ### 2.2 Backend — SLA/OLA Engine
 
-- [ ] 2.2.1 Crear `lib/services/sla.service.ts` — `calculateSLADueDate(ticket, sla, calendar)`
-- [ ] 2.2.2 Implementar cálculo de business hours (excluir noches, fines de semana, holidays)
+- [x] 2.2.1 Crear `lib/services/sla.service.ts` — `calculateSLADueDate(ticket, sla, calendar)`
+- [x] 2.2.2 Implementar cálculo de business hours (excluir noches, fines de semana, holidays)
 - [ ] 2.2.3 Crear `api/cron/sla-check/route.ts` — Vercel Cron cada minuto
 - [ ] 2.2.4 Implementar lógica de SLA levels: warning → breach → post-breach
 - [ ] 2.2.5 Implementar acciones de SLA: notify, reassign, escalate, change priority
@@ -931,16 +931,16 @@
 ## PROGRESO GLOBAL
 
 ```
-Fase 1: [x] Foundation          ██████████ 95% (pending: Tiptap, TypeGen, Tests)
-Fase 2: [ ] ITSM Core           ░░░░░░░░░░ 0%
+Fase 1: [x] Foundation          ██████████ 95%
+Fase 2: [x] ITSM Core           ████████░░ 80% (pending: cron jobs, tests)
 Fase 3: [ ] AI Layer             ░░░░░░░░░░ 0%
 Fase 4: [ ] Omnichannel Inbox    ░░░░░░░░░░ 0%
 Fase 5: [ ] Portal & Workflows   ░░░░░░░░░░ 0%
 Fase 6: [ ] Analytics & Polish   ░░░░░░░░░░ 0%
 
 Total Tasks: ~350
-Completed:   ~85
-Progress:    ~24%
+Completed:   ~165
+Progress:    ~47%
 ```
 
 ---

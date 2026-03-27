@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useTransition } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -9,7 +9,6 @@ import {
   Phone,
   Building,
   MoreHorizontal,
-  Brain,
   User,
   Calendar,
   Tag,
@@ -44,8 +43,6 @@ import {
   SLAIndicator,
   ChannelIcon,
   getChannelLabel,
-  AIInsight,
-  AIAssistChip,
 } from '@kit/ui/itsm';
 import type { TicketStatus, SeverityLevel, TicketChannel } from '@kit/ui/itsm';
 
@@ -64,6 +61,7 @@ import {
   type TimelineAttachment,
 } from './ticket-timeline';
 import { ReplyComposer } from './reply-composer';
+import { AiChatPanel } from './ai-chat-panel';
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                      */
@@ -192,7 +190,6 @@ export function TicketDetailClient({
   categories,
 }: TicketDetailClientProps) {
   const [isPending, startTransition] = useTransition();
-  const [aiQuery, setAiQuery] = useState('');
 
   // ---- Handlers ----
 
@@ -253,71 +250,18 @@ export function TicketDetailClient({
       {/* ================================================================== */}
       {/* LEFT PANEL — AI Assistant                                          */}
       {/* ================================================================== */}
-      <aside className="hidden w-80 flex-shrink-0 overflow-auto border-r border-gray-200 bg-gray-50/50 dark:border-gray-800 dark:bg-gray-900/50 xl:block">
-        <div className="space-y-6 p-6">
-          {/* Header */}
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              AI Assistant
-            </h3>
-            <AIAssistChip />
-          </div>
-
-          {/* Auto Classification */}
-          <AIInsight
-            type="classification"
-            title="Auto Classification"
-            content={`${getTypeLabel(ticket.type)} - ${ticket.category?.name ?? 'Uncategorized'}`}
-            confidence={92}
-          />
-
-          {/* Suggested Solution */}
-          <AIInsight
-            type="suggestion"
-            title="Suggested Solution"
-            content="Analyzing ticket content to suggest resolution steps from the knowledge base..."
-            confidence={85}
-          />
-
-          {/* Similar Tickets */}
-          <div className="rounded-lg border border-purple-200 bg-purple-50 p-3 dark:border-purple-500/30 dark:bg-purple-500/10">
-            <div className="mb-2 flex items-center gap-2">
-              <Brain className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-              <span className="text-sm font-medium text-purple-900 dark:text-purple-300">
-                Similar Tickets
-              </span>
-            </div>
-            <div className="space-y-2">
-              <div className="text-xs text-purple-800 dark:text-purple-300">
-                <p className="font-medium">Analyzing...</p>
-                <p className="text-purple-700 dark:text-purple-400">
-                  Searching for similar tickets in your workspace
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <Separator />
-
-          {/* Ask AI Input */}
-          <div>
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              Ask AI
-            </h4>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={aiQuery}
-                onChange={(e) => setAiQuery(e.target.value)}
-                placeholder="Ask about this ticket..."
-                className="flex-1 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-400 dark:border-gray-700 dark:bg-gray-800 dark:placeholder:text-gray-500"
-              />
-              <Button size="sm" variant="outline" disabled>
-                Ask
-              </Button>
-            </div>
-          </div>
-        </div>
+      <aside className="hidden w-80 flex-shrink-0 overflow-hidden border-r border-gray-200 bg-gray-50/50 dark:border-gray-800 dark:bg-gray-900/50 xl:block">
+        <AiChatPanel
+          ticket={{
+            ticketId: ticket.id,
+            title: ticket.title,
+            description: ticket.description,
+            status: ticket.status,
+            type: ticket.type,
+            urgency: ticket.urgency,
+            category: ticket.category?.name,
+          }}
+        />
       </aside>
 
       {/* ================================================================== */}
