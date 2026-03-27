@@ -44,9 +44,9 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
       sla_due_date,
       sla_breached,
       created_at,
-      assigned_agent:agents!tickets_assigned_agent_id_fkey(name, avatar_url),
-      requester:contacts!tickets_contact_id_fkey(name, email),
-      category:categories!tickets_category_id_fkey(name)
+      requester_email,
+      assigned_agent_id,
+      category_id
     `,
       { count: 'exact' },
     )
@@ -59,7 +59,7 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
   } else if (params.tab === 'overdue') {
     query = query.eq('sla_breached', true);
   } else if (params.tab === 'critical') {
-    query = query.eq('priority', 'critical');
+    query = query.gte('priority', 12);
   }
 
   // Apply search filter
