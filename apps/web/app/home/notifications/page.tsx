@@ -33,7 +33,7 @@ export default async function NotificationsPage() {
   const { data: notifications } = await client
     .from('notifications')
     .select('*')
-    .eq('agent_id', agent.id)
+    .eq('user_id', user.id)
     .order('created_at', { ascending: false })
     .limit(50);
 
