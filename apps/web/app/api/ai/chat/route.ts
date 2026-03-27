@@ -68,174 +68,50 @@ Rules:
 - Detect urgency from context (low, medium, high, critical)`;
 
     try {
-      const { generateText, tool } = await import('ai');
-      const { z } = await import('zod');
+      // Pre-search KB for context (before AI call)
+      const lastUserMsg = portalMessages.filter(m => m.role === 'user').pop()?.content ?? '';
+      const searchTerms = lastUserMsg.split(' ').filter((w: string) => w.length > 3).slice(0, 4);
+      let kbContext = '';
+      let articles: any[] = [];
+
+      if (searchTerms.length > 0) {
+        try {
+          const { data: kbResults } = await client
+            .from('kb_articles')
+            .select('id, title, slug, content_markdown')
+            .eq('status', 'published')
+            .or(searchTerms.map((t: string) => `title.ilike.%${t}%`).join(','))
+            .limit(3);
+
+          if (kbResults && kbResults.length > 0) {
+            articles = kbResults.map((a: any) => ({
+              id: a.id,
+              title: a.title,
+              slug: a.slug,
+              preview: (a.content_markdown ?? '').slice(0, 200),
+            }));
+            kbContext = '\n\nArtículos relevantes encontrados en la base de conocimiento:\n' +
+              kbResults.map((a: any, i: number) => `${i + 1}. "${a.title}": ${(a.content_markdown ?? '').slice(0, 300)}`).join('\n');
+          }
+        } catch { /* KB search optional */ }
+      }
+
+      const fullSystemPrompt = portalSystemPrompt + kbContext;
+
+      const { generateText } = await import('ai');
 
       const result = await generateText({
         model: openai('gpt-4o-mini'),
-        system: portalSystemPrompt,
+        system: fullSystemPrompt,
         messages: portalMessages,
-        tools: {
-          searchKnowledgeBase: tool({
-            description:
-              'Search the knowledge base for articles related to the user query',
-            parameters: z.object({
-              query: z.string().describe('Search query'),
-            }),
-            execute: async ({ query }) => {
-              const searchClient = getSupabaseServerClient();
-              const searchTerms = query
-                .split(' ')
-                .filter((w) => w.length > 3)
-                .slice(0, 3);
-
-              if (searchTerms.length === 0) return { articles: [] };
-
-              const { data } = await searchClient
-                .from('kb_articles')
-                .select('id, title, slug, content_markdown')
-                .eq('status', 'published')
-                .or(
-                  searchTerms.map((t) => `title.ilike.%${t}%`).join(','),
-                )
-                .limit(3);
-
-              return {
-                articles: (data ?? []).map((a: any) => ({
-                  id: a.id,
-                  title: a.title,
-                  slug: a.slug,
-                  preview: (a.content_markdown ?? '').slice(0, 200),
-                })),
-              };
-            },
-          }),
-
-          createSupportTicket: tool({
-            description:
-              'Create a support ticket when the AI cannot resolve the issue. Include all conversation context.',
-            parameters: z.object({
-              title: z
-                .string()
-                .describe('Ticket title summarizing the issue'),
-              description: z
-                .string()
-                .describe(
-                  'Detailed description including all info from the conversation',
-                ),
-              type: z.enum([
-                'incident',
-                'request',
-                'warranty',
-                'support',
-                'backlog',
-              ]),
-              urgency: z.enum(['low', 'medium', 'high', 'critical']),
-            }),
-            execute: async ({ title, description, type, urgency }) => {
-              // Get tenant info from the authenticated user
-              const ticketClient = getSupabaseServerClient();
-
-              const { data: agent } = await ticketClient
-                .from('agents')
-                .select('id, tenant_id')
-                .eq('user_id', user.id)
-                .maybeSingle();
-
-              const { data: orgUser } = await ticketClient
-                .from('organization_users')
-                .select('tenant_id, organization_id')
-                .eq('user_id', user.id)
-                .maybeSingle();
-
-              const tenantId =
-                agent?.tenant_id ?? (orgUser as any)?.tenant_id;
-              const organizationId =
-                orgId ?? (orgUser as any)?.organization_id;
-
-              if (!tenantId) return { error: 'No tenant found' };
-
-              // Try to use admin client (service role) for insert, fall back to regular client
-              let insertClient: any;
-
-              try {
-                const { getSupabaseServerAdminClient } = await import(
-                  '@kit/supabase/server-admin-client'
-                );
-                insertClient = getSupabaseServerAdminClient();
-              } catch {
-                // Admin client not available — fall back to regular client
-                insertClient = ticketClient;
-              }
-
-              const { data: ticket, error: insertError } = await insertClient
-                .from('tickets')
-                .insert({
-                  tenant_id: tenantId,
-                  organization_id: organizationId,
-                  title,
-                  description,
-                  type,
-                  urgency,
-                  impact: urgency,
-                  status: 'new',
-                  channel: 'ai_agent',
-                  requester_email: user.email,
-                  created_by: user.id,
-                  tags: ['portal', 'ai-created'],
-                  ai_summary: `Ticket created by AI assistant after conversation. Type: ${type}, Urgency: ${urgency}.`,
-                })
-                .select('id, ticket_number, title, type, urgency, status')
-                .single();
-
-              if (insertError) return { error: insertError.message };
-
-              return {
-                ticket: {
-                  id: ticket.id,
-                  number: ticket.ticket_number,
-                  title: ticket.title,
-                  type: ticket.type,
-                  urgency: ticket.urgency,
-                  status: ticket.status,
-                },
-              };
-            },
-          }),
-        },
-        maxSteps: 3,
         temperature: 0.4,
         maxTokens: 1024,
       });
 
-      // Extract tool results from steps
-      let articles: any[] = [];
-      let ticketCreated: any = null;
-
-      for (const step of result.steps ?? []) {
-        for (const tc of step.toolCalls ?? []) {
-          const toolResult = (tc as any).result;
-
-          if (
-            tc.toolName === 'searchKnowledgeBase' &&
-            toolResult?.articles
-          ) {
-            articles = toolResult.articles;
-          }
-
-          if (
-            tc.toolName === 'createSupportTicket' &&
-            toolResult?.ticket
-          ) {
-            ticketCreated = toolResult.ticket;
-          }
-        }
-      }
-
       return Response.json({
         text: result.text,
         articles,
-        ticketCreated,
+        ticketCreated: null,
       });
     } catch (err) {
       console.error('[AI Chat Portal] Error:', err);
