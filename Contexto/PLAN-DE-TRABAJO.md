@@ -423,22 +423,22 @@
 
 #### Migration 00009: AI Agents & RAG
 
-- [ ] 3.1.1 Habilitar extensión `pgvector` en Supabase
-- [ ] 3.1.2 Crear tabla `ai_agents` (configuración por tenant) con RLS
-- [ ] 3.1.3 Crear tabla `knowledge_documents` con RLS
-- [ ] 3.1.4 Crear tabla `knowledge_embeddings` (vector(1536)) con RLS
-- [ ] 3.1.5 Crear índice vectorial `ivfflat` en embeddings
-- [ ] 3.1.6 Crear función `match_knowledge()` para búsqueda semántica
+- [x] 3.1.1 Habilitar extensión `pgvector` en Supabase
+- [x] 3.1.2 Crear tabla `ai_agents` (configuración por tenant) con RLS
+- [x] 3.1.3 Crear tabla `knowledge_documents` con RLS
+- [x] 3.1.4 Crear tabla `knowledge_embeddings` (vector(1536)) con RLS
+- [x] 3.1.5 Crear índice vectorial `ivfflat` en embeddings
+- [x] 3.1.6 Crear función `match_knowledge()` para búsqueda semántica
 - [ ] 3.1.7 Seed data: agentes AI default por tenant (triage, support, resolution, routing)
 
 ---
 
 ### 3.2 Backend — RAG Pipeline
 
-- [ ] 3.2.1 Crear `lib/ai/rag/embeddings.ts` — generar embeddings con OpenAI text-embedding-3-small
-- [ ] 3.2.2 Crear `lib/ai/rag/chunker.ts` — dividir documentos en chunks de 500 tokens
-- [ ] 3.2.3 Crear `lib/ai/rag/indexer.ts` — indexar documentos (KB articles, tickets resueltos, docs externos)
-- [ ] 3.2.4 Crear `lib/ai/rag/search.ts` — búsqueda semántica con `match_knowledge()`
+- [x] 3.2.1 Crear `lib/ai/rag/embeddings.ts` — generar embeddings con OpenAI text-embedding-3-small
+- [x] 3.2.2 Crear `lib/ai/rag/chunker.ts` — dividir documentos en chunks de 500 tokens
+- [x] 3.2.3 Crear `lib/ai/rag/indexer.ts` — indexar documentos (KB articles, tickets resueltos, docs externos)
+- [x] 3.2.4 Crear `lib/ai/rag/search.ts` — búsqueda semántica con `match_knowledge()`
 - [ ] 3.2.5 Crear `api/cron/knowledge-sync/route.ts` — sincronización periódica de KB a embeddings
 - [ ] 3.2.6 Implementar auto-indexing: cuando se crea/actualiza un KB article → generar embeddings
 
@@ -446,22 +446,22 @@
 
 ### 3.3 Backend — AI Agents
 
-- [ ] 3.3.1 Crear `lib/ai/agents/triage.ts` — Triage Agent (clasificar tipo, urgencia, categoría)
-- [ ] 3.3.2 Crear `lib/ai/agents/support.ts` — Support Agent (asistir usuario final en portal)
-- [ ] 3.3.3 Crear `lib/ai/agents/resolution.ts` — Resolution Agent (sugerir soluciones al técnico)
-- [ ] 3.3.4 Crear `lib/ai/agents/routing.ts` — Routing Agent (asignar agente/grupo óptimo)
-- [ ] 3.3.5 Crear `lib/ai/agents/knowledge.ts` — Knowledge Agent (RAG search + answer)
-- [ ] 3.3.6 Crear `lib/ai/agents/inbox.ts` — Inbox Agent (procesar mensajes entrantes)
-- [ ] 3.3.7 Crear `lib/ai/tools/` — Tool definitions para AI agents (searchKB, classifyTicket, createTicket, suggestSolution, getTicketHistory)
+- [x] 3.3.1 Crear `lib/ai/agents/triage.ts` — Triage Agent (clasificar tipo, urgencia, categoría)
+- [x] 3.3.2 Crear `lib/ai/agents/support.ts` — Support Agent (asistir usuario final en portal)
+- [x] 3.3.3 Crear `lib/ai/agents/resolution.ts` — Resolution Agent (sugerir soluciones al técnico)
+- [x] 3.3.4 Crear `lib/ai/agents/routing.ts` — Routing Agent (asignar agente/grupo óptimo)
+- [x] 3.3.5 Crear `lib/ai/agents/knowledge.ts` — Knowledge Agent (RAG search + answer)
+- [x] 3.3.6 Crear `lib/ai/agents/inbox.ts` — Inbox Agent (procesar mensajes entrantes)
+- [x] 3.3.7 Crear `lib/ai/tools/` — Tool definitions para AI agents (searchKB, classifyTicket, createTicket, suggestSolution, getTicketHistory)
 
 ---
 
 ### 3.4 Backend — AI API Endpoints
 
-- [ ] 3.4.1 Crear `api/ai/chat/route.ts` — Streaming chat con Claude (Vercel AI SDK)
-- [ ] 3.4.2 Crear `api/ai/classify/route.ts` — Tipificación de ticket (warranty/support/backlog/incident/request)
-- [ ] 3.4.3 Crear `api/ai/suggest/route.ts` — Sugerencias de solución basadas en RAG
-- [ ] 3.4.4 Crear `api/ai/summarize/route.ts` — Resumen de ticket para handoff
+- [x] 3.4.1 Crear `api/ai/chat/route.ts` — Streaming chat con OpenAI gpt-4o-mini (Vercel AI SDK)
+- [x] 3.4.2 Crear `api/ai/classify/route.ts` — Tipificación de ticket (warranty/support/backlog/incident/request)
+- [x] 3.4.3 Crear `api/ai/suggest/route.ts` — Sugerencias de solución basadas en RAG
+- [x] 3.4.4 Crear `api/ai/summarize/route.ts` — Resumen de ticket para handoff
 - [ ] 3.4.5 Crear `api/ai/analyze-document/route.ts` — Análisis de documentos/transcripciones/HUs adjuntos
 
 ---
@@ -479,22 +479,22 @@
 
 ### 3.6 Frontend — AI Components
 
-- [ ] 3.6.1 Crear `packages/ui/src/itsm/ai-chat.tsx` — Widget de chat AI con streaming
-- [ ] 3.6.2 Implementar AI chat en ticket detail (panel izquierdo)
-- [ ] 3.6.3 Implementar AI classification badges en ticket list/detail
-- [ ] 3.6.4 Implementar AI suggested solutions en ticket detail
+- [x] 3.6.1 Crear `packages/ui/src/itsm/ai-chat.tsx` — Widget de chat AI con streaming
+- [x] 3.6.2 Implementar AI chat en ticket detail (panel izquierdo)
+- [x] 3.6.3 Implementar AI classification badges en ticket list/detail
+- [x] 3.6.4 Implementar AI suggested solutions en ticket detail
 - [ ] 3.6.5 Implementar AI auto-summary en ticket header
-- [ ] 3.6.6 Implementar AI similar tickets panel en ticket detail
-- [ ] 3.6.7 Implementar AI confidence score display
+- [x] 3.6.6 Implementar AI similar tickets panel en ticket detail
+- [x] 3.6.7 Implementar AI confidence score display
 
 ---
 
 ### 3.7 Frontend — Settings > AI Configuration
 
-- [ ] 3.7.1 Implementar `app/home/settings/ai/page.tsx`
-- [ ] 3.7.2 Implementar configuración de agentes AI por tenant (enable/disable, model, temperature)
-- [ ] 3.7.3 Implementar configuración de knowledge sources (repos, docs, URLs)
-- [ ] 3.7.4 Implementar AI usage metrics (queries used / limit)
+- [x] 3.7.1 Implementar `app/home/settings/ai/page.tsx`
+- [x] 3.7.2 Implementar configuración de agentes AI por tenant (enable/disable, model, temperature)
+- [x] 3.7.3 Implementar configuración de knowledge sources (repos, docs, URLs)
+- [x] 3.7.4 Implementar AI usage metrics (queries used / limit)
 
 ---
 
@@ -932,15 +932,15 @@
 
 ```
 Fase 1: [x] Foundation          ██████████ 95%
-Fase 2: [x] ITSM Core           ████████░░ 80% (pending: cron jobs, tests)
-Fase 3: [ ] AI Layer             ░░░░░░░░░░ 0%
+Fase 2: [x] ITSM Core           ████████░░ 80%
+Fase 3: [x] AI Layer             █████████░ 90% (pending: cron sync, doc analysis, tests)
 Fase 4: [ ] Omnichannel Inbox    ░░░░░░░░░░ 0%
 Fase 5: [ ] Portal & Workflows   ░░░░░░░░░░ 0%
 Fase 6: [ ] Analytics & Polish   ░░░░░░░░░░ 0%
 
 Total Tasks: ~350
-Completed:   ~165
-Progress:    ~47%
+Completed:   ~210
+Progress:    ~60%
 ```
 
 ---
