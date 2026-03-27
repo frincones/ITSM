@@ -59,7 +59,8 @@
       "mcp__playwright__browser_snapshot",
       "mcp__playwright__browser_wait_for",
       "mcp__playwright__browser_console_messages",
-      "Bash(curl -s \"https://cocfiotnnyrsymytsuxh.supabase.co/rest/v1/ticket_followups?select=id,content,is_private,created_at&ticket_id=eq.56515a4e-209f-469e-9cac-718a5351d43e\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvY2Zpb3Rubnlyc3lteXRzdXhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDU1NjQwNiwiZXhwIjoyMDkwMTMyNDA2fQ.nO_VWYTysuHXD71m4W11uQd59lClNOK6C1wfIQ7iD78\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvY2Zpb3Rubnlyc3lteXRzdXhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDU1NjQwNiwiZXhwIjoyMDkwMTMyNDA2fQ.nO_VWYTysuHXD71m4W11uQd59lClNOK6C1wfIQ7iD78\")"
+      "Bash(curl -s \"https://cocfiotnnyrsymytsuxh.supabase.co/rest/v1/ticket_followups?select=id,content,is_private,created_at&ticket_id=eq.56515a4e-209f-469e-9cac-718a5351d43e\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvY2Zpb3Rubnlyc3lteXRzdXhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDU1NjQwNiwiZXhwIjoyMDkwMTMyNDA2fQ.nO_VWYTysuHXD71m4W11uQd59lClNOK6C1wfIQ7iD78\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvY2Zpb3Rubnlyc3lteXRzdXhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDU1NjQwNiwiZXhwIjoyMDkwMTMyNDA2fQ.nO_VWYTysuHXD71m4W11uQd59lClNOK6C1wfIQ7iD78\")",
+      "mcp__playwright__browser_press_key"
     ]
   }
 }

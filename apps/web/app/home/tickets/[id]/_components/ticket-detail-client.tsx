@@ -1,6 +1,6 @@
 'use client';
 
-import { useTransition } from 'react';
+import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -192,10 +192,12 @@ export function TicketDetailClient({
   categories,
 }: TicketDetailClientProps) {
   const [isPending, startTransition] = useTransition();
+  const [currentStatus, setCurrentStatus] = useState(ticket.status);
 
   // ---- Handlers ----
 
   function handleStatusChange(newStatus: string) {
+    setCurrentStatus(newStatus);
     startTransition(async () => {
       await changeTicketStatus(ticket.id, newStatus as TicketStatus);
     });
@@ -326,7 +328,7 @@ export function TicketDetailClient({
           {/* Actions Row */}
           <div className="flex items-center gap-2">
             <Select
-              defaultValue={ticket.status}
+              value={currentStatus}
               onValueChange={handleStatusChange}
             >
               <SelectTrigger className="w-40">
@@ -398,6 +400,11 @@ export function TicketDetailClient({
               tasks={tasks}
               solutions={solutions}
               attachments={attachments}
+              agentMap={Object.fromEntries(
+                agents
+                  .filter((a: any) => a.user_id)
+                  .map((a: any) => [a.user_id, { name: a.name, avatar_url: a.avatar_url }])
+              )}
             />
           </div>
         </ScrollArea>

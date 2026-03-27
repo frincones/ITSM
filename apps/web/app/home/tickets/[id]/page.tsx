@@ -53,7 +53,7 @@ export default async function TicketDetailPage({
     client.from('ticket_tasks').select('*').eq('ticket_id', id).order('created_at', { ascending: true }),
     client.from('ticket_solutions').select('*').eq('ticket_id', id).order('created_at', { ascending: true }),
     client.from('ticket_attachments').select('*').eq('ticket_id', id).order('created_at', { ascending: true }),
-    client.from('agents').select('id, name, avatar_url, email').order('name'),
+    client.from('agents').select('id, user_id, name, avatar_url, email').order('name'),
     client.from('groups').select('id, name').order('name'),
     client.from('categories').select('id, name').order('name'),
   ]);

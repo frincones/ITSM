@@ -75,7 +75,7 @@ export function Topbar() {
           variant="default"
           size="sm"
           className="gap-2"
-          onClick={() => router.push('/home/tickets?action=new')}
+          onClick={() => router.push('/home/tickets/new')}
         >
           <Plus className="h-4 w-4" />
           New Ticket

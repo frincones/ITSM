@@ -67,6 +67,7 @@ interface TicketTimelineProps {
   tasks: TimelineTask[];
   solutions: TimelineSolution[];
   attachments: TimelineAttachment[];
+  agentMap?: Record<string, { name: string; avatar_url?: string | null }>;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -122,12 +123,13 @@ function buildTimeline(props: TicketTimelineProps): TimelineEntry[] {
       )
       .map((a) => a.filename);
 
+    const authorInfo = f.author ?? (f as any).author_id ? props.agentMap?.[(f as any).author_id] : undefined;
     entries.push({
       id: `followup-${f.id}`,
       type: 'followup',
       timestamp: f.created_at,
-      user: f.author?.name ?? 'Unknown',
-      avatarUrl: f.author?.avatar_url,
+      user: f.author?.name ?? authorInfo?.name ?? 'Agent',
+      avatarUrl: f.author?.avatar_url ?? authorInfo?.avatar_url,
       isPrivate: f.is_private,
       content: f.content,
       attachments: relatedAttachments.length > 0 ? relatedAttachments : undefined,
@@ -136,24 +138,26 @@ function buildTimeline(props: TicketTimelineProps): TimelineEntry[] {
 
   // Tasks
   for (const t of props.tasks) {
+    const taskAgent = t.assigned_agent ?? ((t as any).assigned_agent_id ? props.agentMap?.[(t as any).assigned_agent_id] : undefined);
     entries.push({
       id: `task-${t.id}`,
       type: 'task',
       timestamp: t.created_at,
-      user: t.assigned_agent?.name ?? 'Unassigned',
-      avatarUrl: t.assigned_agent?.avatar_url,
+      user: t.assigned_agent?.name ?? taskAgent?.name ?? 'Unassigned',
+      avatarUrl: t.assigned_agent?.avatar_url ?? taskAgent?.avatar_url,
       content: `Task: ${t.title}${t.description ? ` - ${t.description}` : ''}`,
     });
   }
 
   // Solutions
   for (const s of props.solutions) {
+    const solAuthor = s.author ?? ((s as any).author_id ? props.agentMap?.[(s as any).author_id] : undefined);
     entries.push({
       id: `solution-${s.id}`,
       type: 'solution',
       timestamp: s.created_at,
-      user: s.author?.name ?? 'Unknown',
-      avatarUrl: s.author?.avatar_url,
+      user: s.author?.name ?? solAuthor?.name ?? 'Agent',
+      avatarUrl: s.author?.avatar_url ?? solAuthor?.avatar_url,
       content: s.content,
     });
   }
