@@ -122,8 +122,13 @@ interface Ticket {
   category_id?: string | null;
 }
 
+interface Organization {
+  id: string;
+  name: string;
+}
+
 interface TicketDetailClientProps {
-  ticket: Ticket;
+  ticket: Ticket & { organization_id?: string | null; organization?: Organization | null };
   followups: TimelineFollowup[];
   tasks: TimelineTask[];
   solutions: TimelineSolution[];
@@ -132,6 +137,7 @@ interface TicketDetailClientProps {
   agents: Agent[];
   groups: Group[];
   categories: Category[];
+  organizations?: Organization[];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -190,6 +196,7 @@ export function TicketDetailClient({
   agents,
   groups,
   categories,
+  organizations = [],
 }: TicketDetailClientProps) {
   const [isPending, startTransition] = useTransition();
   const [currentStatus, setCurrentStatus] = useState(ticket.status);
@@ -619,6 +626,37 @@ export function TicketDetailClient({
                 {categories.map((cat) => (
                   <SelectItem key={cat.id} value={cat.id}>
                     {cat.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Separator />
+
+          {/* Client / Organization */}
+          <div>
+            <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">
+              Client
+            </h3>
+            <Select
+              defaultValue={ticket.organization_id ?? 'none'}
+              onValueChange={(orgId) => {
+                startTransition(async () => {
+                  await updateTicket(ticket.id, {
+                    organization_id: orgId === 'none' ? undefined : orgId,
+                  } as any);
+                });
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="No client" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No client</SelectItem>
+                {organizations.map((org) => (
+                  <SelectItem key={org.id} value={org.id}>
+                    {org.name}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -9,25 +9,24 @@ export const metadata = {
 export default async function NewTicketPage() {
   const client = getSupabaseServerClient();
 
-  // Fetch categories for the dropdown (RLS filters by tenant_id automatically)
+  // Fetch categories for the dropdown
   const { data: categories } = await client
     .from('categories')
     .select('id, name')
-    .is('deleted_at', null)
+    .eq('is_active', true)
     .order('name', { ascending: true });
 
-  // Fetch organizations for the dropdown (RLS filters by tenant_id)
+  // Fetch organizations for the dropdown
   const { data: organizations } = await client
     .from('organizations')
     .select('id, name')
-    .is('deleted_at', null)
+    .eq('is_active', true)
     .order('name', { ascending: true });
 
-  // Fetch contacts for the requester autocomplete (RLS filters by tenant_id)
+  // Fetch contacts for the requester autocomplete
   const { data: contacts } = await client
     .from('contacts')
     .select('id, name, email')
-    .is('deleted_at', null)
     .order('name', { ascending: true })
     .limit(500);
 

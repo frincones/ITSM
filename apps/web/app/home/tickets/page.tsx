@@ -131,7 +131,7 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
   const { data: orgs } = await client
     .from('organizations')
     .select('id, name')
-    .is('deleted_at', null);
+    .eq('is_active', true);
 
   const organizationMap: Record<string, string> = {};
   if (orgs) {

@@ -48,6 +48,7 @@ export default async function TicketDetailPage({
     agentsResult,
     groupsResult,
     categoriesResult,
+    organizationsResult,
   ] = await Promise.all([
     client.from('ticket_followups').select('*').eq('ticket_id', id).order('created_at', { ascending: true }),
     client.from('ticket_tasks').select('*').eq('ticket_id', id).order('created_at', { ascending: true }),
@@ -56,6 +57,7 @@ export default async function TicketDetailPage({
     client.from('agents').select('id, user_id, name, avatar_url, email').order('name'),
     client.from('groups').select('id, name').order('name'),
     client.from('categories').select('id, name').order('name'),
+    client.from('organizations').select('id, name').eq('is_active', true).order('name'),
   ]);
 
   console.log('[TicketDetail] Related data:', {
@@ -126,9 +128,13 @@ export default async function TicketDetailPage({
     assigned_agent_id: ticket.assigned_agent_id ?? null,
     assigned_group_id: ticket.assigned_group_id ?? null,
     category_id: ticket.category_id ?? null,
+    organization_id: ticket.organization_id ?? null,
     assigned_agent: assignedAgent,
     assigned_group: assignedGroup,
     category: category,
+    organization: ticket.organization_id
+      ? (organizationsResult.data ?? []).find((o: any) => o.id === ticket.organization_id) ?? null
+      : null,
     ai_classification: ticket.ai_classification ?? null,
     ai_summary: ticket.ai_summary ?? null,
     ai_suggested_solution: ticket.ai_suggested_solution ?? null,
@@ -152,6 +158,7 @@ export default async function TicketDetailPage({
       agents={agentsResult.data ?? []}
       groups={groupsResult.data ?? []}
       categories={categoriesResult.data ?? []}
+      organizations={organizationsResult.data ?? []}
     />
   );
 }
