@@ -61,7 +61,12 @@ import {
   type TimelineAttachment,
 } from './ticket-timeline';
 import { ReplyComposer } from './reply-composer';
-import { AiChatPanel } from './ai-chat-panel';
+import dynamic from 'next/dynamic';
+
+const AiChatPanel = dynamic(() => import('./ai-chat-panel').then(m => ({ default: m.AiChatPanel })), {
+  ssr: false,
+  loading: () => <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading AI...</div>,
+});
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                      */
