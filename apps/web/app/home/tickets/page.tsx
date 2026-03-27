@@ -12,6 +12,7 @@ interface TicketsPageProps {
     priority?: string;
     category?: string;
     agent?: string;
+    org?: string;
     from?: string;
     to?: string;
   }>;
@@ -46,12 +47,33 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
       created_at,
       requester_email,
       assigned_agent_id,
-      category_id
+      category_id,
+      organization_id
     `,
       { count: 'exact' },
     )
     .is('deleted_at', null)
     .order('created_at', { ascending: false });
+
+  // Filter by organization (from OrgSelector ?org= param or user context)
+  // If no org param → show all (backwards compatible for TDX admin)
+  if (params.org) {
+    query = query.eq('organization_id', params.org);
+  } else {
+    // Check if user is an org_user (not TDX agent) → auto-filter by their org
+    const { data: { user: authUser } } = await client.auth.getUser();
+    if (authUser) {
+      const { data: orgUser } = await client
+        .from('organization_users')
+        .select('organization_id')
+        .eq('user_id', authUser.id)
+        .eq('is_active', true)
+        .maybeSingle();
+      if (orgUser?.organization_id) {
+        query = query.eq('organization_id', orgUser.organization_id);
+      }
+    }
+  }
 
   // Apply tab-based filters
   if (params.tab === 'unassigned') {

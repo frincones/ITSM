@@ -101,8 +101,37 @@ function getDayLabel(dateStr: string): string {
 /*  Data Fetching                                                              */
 /* -------------------------------------------------------------------------- */
 
-async function fetchDashboardData(): Promise<DashboardData> {
+async function fetchDashboardData(orgId?: string | null): Promise<DashboardData> {
   const client = getSupabaseServerClient();
+
+  // Resolve organization filter for this user
+  // If orgId passed (from ?org= param) → filter by that org
+  // If no orgId → check if user is org_user → auto-filter by their org
+  // If neither → no filter (TDX admin sees all)
+  let effectiveOrgId: string | null = orgId ?? null;
+
+  if (!effectiveOrgId) {
+    try {
+      const { data: { user: authUser } } = await client.auth.getUser();
+      if (authUser) {
+        const { data: orgUser } = await client
+          .from('organization_users')
+          .select('organization_id')
+          .eq('user_id', authUser.id)
+          .eq('is_active', true)
+          .maybeSingle();
+        effectiveOrgId = orgUser?.organization_id ?? null;
+      }
+    } catch { /* ignore — no org filter */ }
+  }
+
+  // Helper: apply org filter to a ticket query builder
+  function applyOrgFilter<T>(query: T): T {
+    if (effectiveOrgId) {
+      return (query as any).eq('organization_id', effectiveOrgId);
+    }
+    return query;
+  }
 
   const now = new Date();
   const todayStart = new Date(now);
@@ -133,106 +162,108 @@ async function fetchDashboardData(): Promise<DashboardData> {
     userResult,
   ] = await Promise.all([
     // KPI: Open tickets (statuses that are not resolved/closed/cancelled)
-    client
-      .from('tickets')
-      .select('id', { count: 'exact', head: true })
-      .in('status', ['new', 'assigned', 'in_progress', 'pending', 'testing']),
+    applyOrgFilter(
+      client
+        .from('tickets')
+        .select('id', { count: 'exact', head: true })
+        .in('status', ['new', 'assigned', 'in_progress', 'pending', 'testing']),
+    ),
 
     // KPI: Overdue tickets (sla_breach_at in the past, still open)
-    client
+    applyOrgFilter(client
       .from('tickets')
       .select('id', { count: 'exact', head: true })
       .in('status', ['new', 'assigned', 'in_progress', 'pending', 'testing'])
-      .lt('sla_breach_at', now.toISOString()),
+      .lt('sla_breach_at', now.toISOString())),
 
     // KPI: Resolved today
-    client
+    applyOrgFilter(client
       .from('tickets')
       .select('id', { count: 'exact', head: true })
       .in('status', ['resolved', 'closed'])
-      .gte('resolved_at', todayStart.toISOString()),
+      .gte('resolved_at', todayStart.toISOString())),
 
     // For avg resolution time: resolved last 7 days
-    client
+    applyOrgFilter(client
       .from('tickets')
       .select('created_at, resolved_at')
       .in('status', ['resolved', 'closed'])
       .gte('resolved_at', lastWeekStart.toISOString())
-      .not('resolved_at', 'is', null),
+      .not('resolved_at', 'is', null)),
 
     // Previous week comparison: open tickets count at prev week
-    client
+    applyOrgFilter(client
       .from('tickets')
       .select('id', { count: 'exact', head: true })
       .in('status', ['new', 'assigned', 'in_progress', 'pending', 'testing'])
-      .lte('created_at', lastWeekStart.toISOString()),
+      .lte('created_at', lastWeekStart.toISOString())),
 
     // Previous week comparison: overdue
-    client
+    applyOrgFilter(client
       .from('tickets')
       .select('id', { count: 'exact', head: true })
       .in('status', ['new', 'assigned', 'in_progress', 'pending', 'testing'])
-      .lt('sla_breach_at', lastWeekStart.toISOString()),
+      .lt('sla_breach_at', lastWeekStart.toISOString())),
 
     // Previous week comparison: resolved in that day
-    client
+    applyOrgFilter(client
       .from('tickets')
       .select('id', { count: 'exact', head: true })
       .in('status', ['resolved', 'closed'])
       .gte('resolved_at', new Date(lastWeekStart.getTime() - 86400000).toISOString())
-      .lt('resolved_at', lastWeekStart.toISOString()),
+      .lt('resolved_at', lastWeekStart.toISOString())),
 
     // Weekly chart: tickets created per day (last 7 days)
-    client
+    applyOrgFilter(client
       .from('tickets')
       .select('created_at')
-      .gte('created_at', lastWeekStart.toISOString()),
+      .gte('created_at', lastWeekStart.toISOString())),
 
     // Weekly chart: tickets resolved per day (last 7 days)
-    client
+    applyOrgFilter(client
       .from('tickets')
       .select('resolved_at')
       .in('status', ['resolved', 'closed'])
       .gte('resolved_at', lastWeekStart.toISOString())
-      .not('resolved_at', 'is', null),
+      .not('resolved_at', 'is', null)),
 
     // Priority tickets: top critical/high open tickets
-    client
+    applyOrgFilter(client
       .from('tickets')
-      .select('id, number, title, severity, status, created_at, requester_name')
-      .in('severity', ['critical', 'high'])
+      .select('id, ticket_number, title, urgency, status, created_at, requester_email')
+      .in('urgency', ['critical', 'high'])
       .in('status', ['new', 'assigned', 'in_progress', 'pending'])
-      .order('severity', { ascending: true })
+      .order('priority', { ascending: false })
       .order('created_at', { ascending: false })
-      .limit(5),
+      .limit(5)),
 
-    // Recent activity from audit_logs
+    // Recent activity from audit_logs (NOT filtered by org — no org column)
     client
       .from('audit_logs')
-      .select('actor_name, action, entity_type, entity_id, created_at')
-      .eq('entity_type', 'ticket')
+      .select('user_id, action, resource_type, resource_id, created_at')
+      .eq('resource_type', 'ticket')
       .order('created_at', { ascending: false })
       .limit(6),
 
     // SLA Health
-    client
+    applyOrgFilter(client
       .from('tickets')
       .select('id', { count: 'exact', head: true })
       .in('status', ['new', 'assigned', 'in_progress', 'pending', 'testing'])
-      .gt('sla_breach_at', new Date(now.getTime() + 3600000).toISOString()),
+      .gt('sla_due_date', new Date(now.getTime() + 3600000).toISOString())),
 
-    client
+    applyOrgFilter(client
       .from('tickets')
       .select('id', { count: 'exact', head: true })
       .in('status', ['new', 'assigned', 'in_progress', 'pending', 'testing'])
-      .lte('sla_breach_at', new Date(now.getTime() + 3600000).toISOString())
-      .gt('sla_breach_at', now.toISOString()),
+      .lte('sla_due_date', new Date(now.getTime() + 3600000).toISOString())
+      .gt('sla_due_date', now.toISOString())),
 
-    client
+    applyOrgFilter(client
       .from('tickets')
       .select('id', { count: 'exact', head: true })
       .in('status', ['new', 'assigned', 'in_progress', 'pending', 'testing'])
-      .lte('sla_breach_at', now.toISOString()),
+      .lte('sla_due_date', now.toISOString())),
 
     // Current user
     client.auth.getUser(),
@@ -306,10 +337,10 @@ async function fetchDashboardData(): Promise<DashboardData> {
     };
 
     return {
-      id: `TKT-${t.number ?? t.id.slice(0, 4)}`,
+      id: t.ticket_number ?? `TKT-${t.id.slice(0, 4)}`,
       title: t.title,
-      priority: t.severity as PriorityTicket['priority'],
-      requester: t.requester_name ?? 'Unknown',
+      priority: (t.urgency ?? 'medium') as PriorityTicket['priority'],
+      requester: t.requester_email ?? 'Unknown',
       time: getRelativeTime(t.created_at),
       status: statusMap[t.status] ?? t.status,
     };
@@ -319,9 +350,9 @@ async function fetchDashboardData(): Promise<DashboardData> {
   const recentActivity: RecentActivityItem[] = (
     recentActivityResult.data ?? []
   ).map((a) => ({
-    user: a.actor_name ?? 'System',
+    user: a.user_id ?? 'System',
     action: a.action ?? 'updated',
-    ticket: `TKT-${a.entity_id?.slice(0, 4) ?? '0000'}`,
+    ticket: `TKT-${a.resource_id?.slice(0, 4) ?? '0000'}`,
     time: getRelativeTime(a.created_at),
   }));
 
@@ -400,13 +431,18 @@ async function fetchDashboardData(): Promise<DashboardData> {
 /*  Page (Server Component)                                                    */
 /* -------------------------------------------------------------------------- */
 
-export default async function HomePage() {
+interface HomePageProps {
+  searchParams: Promise<{ org?: string }>;
+}
+
+export default async function HomePage({ searchParams }: HomePageProps) {
   await requireUserInServerComponent();
+  const params = await searchParams;
 
   let data: DashboardData;
 
   try {
-    data = await fetchDashboardData();
+    data = await fetchDashboardData(params.org);
   } catch {
     // Fallback data when tables do not exist yet (pre-migration)
     data = {
