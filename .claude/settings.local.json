@@ -21,7 +21,11 @@
       "Bash(git check-ignore:*)",
       "Bash(pnpm add:*)",
       "Bash(npx tsc:*)",
-      "Bash(ls -la \"C:/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/tickets/\"* \"C:/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/tickets/_components/\"*)"
+      "Bash(ls -la \"C:/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/tickets/\"* \"C:/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/tickets/_components/\"*)",
+      "Bash(npx supabase:*)",
+      "Bash(SUPABASE_ACCESS_TOKEN=sbp_fc87c727bc65fa26714ee3ad16e517328fd26e98 npx supabase link --project-ref cocfiotnnyrsymytsuxh -p \"ITSM*.2026*.\")",
+      "Bash(SUPABASE_ACCESS_TOKEN=sbp_fc87c727bc65fa26714ee3ad16e517328fd26e98 npx supabase db push --project-ref cocfiotnnyrsymytsuxh -p \"ITSM*.2026*.\")",
+      "Bash(SUPABASE_ACCESS_TOKEN=sbp_fc87c727bc65fa26714ee3ad16e517328fd26e98 npx supabase link --project-ref cocfiotnnyrsymytsuxh --debug)"
     ]
   }
 }

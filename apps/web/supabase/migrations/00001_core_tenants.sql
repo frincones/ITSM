@@ -20,13 +20,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Función para obtener tenant_id del usuario autenticado
+-- Stub function — will be replaced in 00002 after agents table exists.
+-- Returns NULL until agents table is available.
 CREATE OR REPLACE FUNCTION get_current_tenant_id()
 RETURNS uuid AS $$
-  SELECT tenant_id FROM agents WHERE user_id = auth.uid()
-  UNION
-  SELECT tenant_id FROM partner_agents WHERE user_id = auth.uid()
-  LIMIT 1;
+BEGIN
+  RETURN NULL;
+END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 
 -- ---------------------------------------------------------------
@@ -45,7 +45,7 @@ CREATE TABLE tenants (
   name                text NOT NULL,
   slug                text UNIQUE NOT NULL,
   domain              text UNIQUE,
-  plan                tenant_plan NOT NULL DEFAULT 'trial',
+  plan                tenant_plan NOT NULL DEFAULT 'free',
   logo_url            text,
   brand_colors        jsonb DEFAULT '{"primary":"#4f46e5","secondary":"#7c3aed","accent":"#06b6d4"}'::jsonb,
   settings            jsonb DEFAULT '{}'::jsonb,

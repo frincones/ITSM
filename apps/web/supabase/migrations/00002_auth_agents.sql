@@ -14,6 +14,11 @@
 CREATE TYPE agent_role AS ENUM ('admin', 'supervisor', 'agent', 'readonly');
 
 -- ---------------------------------------------------------------
+-- NOTE: agents table is created below. After that, we replace
+-- the stub get_current_tenant_id() from migration 00001.
+-- ---------------------------------------------------------------
+
+-- ---------------------------------------------------------------
 -- 2. TABLE: agents
 -- ---------------------------------------------------------------
 
@@ -102,6 +107,21 @@ CREATE POLICY contacts_update ON contacts FOR UPDATE TO authenticated
   USING (tenant_id = get_current_tenant_id());
 CREATE POLICY contacts_delete ON contacts FOR DELETE TO authenticated
   USING (tenant_id = get_current_tenant_id());
+
+-- ---------------------------------------------------------------
+-- 4. REPLACE STUB: get_current_tenant_id()
+-- Now that agents table exists, replace the stub from 00001.
+-- ---------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION get_current_tenant_id()
+RETURNS uuid AS $$
+DECLARE
+  _tenant_id uuid;
+BEGIN
+  SELECT tenant_id INTO _tenant_id FROM agents WHERE user_id = auth.uid() LIMIT 1;
+  RETURN _tenant_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 
 -- ═══════════════════════════════════════════════════════════════
 -- ROLLBACK
