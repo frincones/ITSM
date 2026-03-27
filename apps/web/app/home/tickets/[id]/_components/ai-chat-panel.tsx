@@ -518,7 +518,7 @@ export function AiChatPanel({ ticket }: AiChatPanelProps) {
           <Button
             type="submit"
             size="sm"
-            disabled={isLoading || !input.trim()}
+            disabled={isLoading || !(input ?? '').trim()}
             className="h-9 w-9 p-0"
           >
             <Send className="h-4 w-4" />

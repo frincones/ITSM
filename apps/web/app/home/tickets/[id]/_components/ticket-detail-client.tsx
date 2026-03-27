@@ -61,12 +61,7 @@ import {
   type TimelineAttachment,
 } from './ticket-timeline';
 import { ReplyComposer } from './reply-composer';
-import dynamic from 'next/dynamic';
-
-const AiChatPanel = dynamic(() => import('./ai-chat-panel').then(m => ({ default: m.AiChatPanel })), {
-  ssr: false,
-  loading: () => <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading AI...</div>,
-});
+import { Bot, Sparkles, Lightbulb } from 'lucide-react';
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                      */
@@ -258,17 +253,45 @@ export function TicketDetailClient({
       {/* LEFT PANEL — AI Assistant                                          */}
       {/* ================================================================== */}
       <aside className="hidden w-80 flex-shrink-0 overflow-hidden border-r border-gray-200 bg-gray-50/50 dark:border-gray-800 dark:bg-gray-900/50 xl:block">
-        <AiChatPanel
-          ticket={{
-            ticketId: ticket.id,
-            title: ticket.title,
-            description: ticket.description,
-            status: ticket.status,
-            type: ticket.type,
-            urgency: ticket.urgency,
-            category: ticket.category?.name,
-          }}
-        />
+        <div className="flex h-full flex-col">
+          <div className="border-b border-gray-200 p-4 dark:border-gray-700">
+            <div className="flex items-center gap-2">
+              <Bot className="h-5 w-5 text-indigo-600" />
+              <h3 className="font-medium">AI Assistant</h3>
+            </div>
+          </div>
+          <div className="flex-1 space-y-4 p-4">
+            <Card>
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Sparkles className="h-4 w-4 text-indigo-500" />
+                  Classification
+                </div>
+                <div className="mt-2 space-y-1">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Type:</span>
+                    <Badge variant="secondary">{ticket.type}</Badge>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Urgency:</span>
+                    <Badge variant="secondary">{ticket.urgency}</Badge>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Lightbulb className="h-4 w-4 text-amber-500" />
+                  Suggestions
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  AI suggestions will appear here once the knowledge base is populated.
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </aside>
 
       {/* ================================================================== */}
