@@ -145,8 +145,11 @@ CREATE POLICY inbox_messages_delete ON inbox_messages FOR DELETE TO authenticate
 -- ---------------------------------------------------------------
 
 -- tickets.inbox_message_id -> inbox_messages
-ALTER TABLE tickets ADD CONSTRAINT IF NOT EXISTS tickets_inbox_message_fkey
-  FOREIGN KEY (inbox_message_id) REFERENCES inbox_messages(id);
+DO $$ BEGIN
+  ALTER TABLE tickets ADD CONSTRAINT tickets_inbox_message_fkey
+    FOREIGN KEY (inbox_message_id) REFERENCES inbox_messages(id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ═══════════════════════════════════════════════════════════════
 -- ROLLBACK

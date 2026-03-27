@@ -35,7 +35,10 @@
       "Bash(pnpm install:*)",
       "Bash(wc -l /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/api/ai/*/route.ts)",
       "Bash(wc -l /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/tickets/[id]/_components/ai-chat-panel.tsx /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/settings/ai/page.tsx /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/settings/ai/_components/ai-settings-client.tsx)",
-      "Bash(wc -l /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/tickets/[id]/_components/ticket-detail-client.tsx)"
+      "Bash(wc -l /c/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/tickets/[id]/_components/ticket-detail-client.tsx)",
+      "Bash(for m:*)",
+      "Bash(do npx:*)",
+      "Bash(done)"
     ]
   }
 }
