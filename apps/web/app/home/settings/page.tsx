@@ -45,7 +45,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   // Fetch agents for Users & Agents section
   const { data: agents } = await client
     .from('agents')
-    .select('id, name, email, role, status, avatar_url')
+    .select('id, name, email, role, is_active, avatar_url')
     .order('name', { ascending: true });
 
   // Fetch groups for Groups & Teams section
@@ -62,8 +62,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
   // Fetch SLA configs
   const { data: slaConfigs } = await client
-    .from('sla_policies')
-    .select('id, name, first_response_minutes, resolution_minutes, is_active')
+    .from('slas')
+    .select('id, name, description, target_critical, target_high, target_medium, target_low, is_active')
     .order('name', { ascending: true });
 
   // Fetch profiles/roles
