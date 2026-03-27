@@ -103,7 +103,6 @@ const adminMenu = [
   { id: 'general', label: 'General', icon: SettingsIcon },
   { id: 'organizations', label: 'Organizations', icon: Globe, href: '/home/settings/organizations' },
   { id: 'users-permissions', label: 'Users & Permissions', icon: Shield, href: '/home/settings/users-permissions' },
-  { id: 'users', label: 'Users & Agents', icon: Users },
   { id: 'groups', label: 'Groups & Teams', icon: UserCog },
   { id: 'categories', label: 'Categories', icon: Tag },
   { id: 'sla', label: 'SLA / OLA', icon: Clock },
