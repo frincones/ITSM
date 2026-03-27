@@ -45,5 +45,13 @@
     "prettier": "^3.6.2",
     "turbo": "2.5.8",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.64",
+    "@tiptap/extension-placeholder": "^3.20.5",
+    "@tiptap/react": "^3.20.5",
+    "@tiptap/starter-kit": "^3.20.5",
+    "ai": "^6.0.140",
+    "openai": "^6.33.0"
   }
 }

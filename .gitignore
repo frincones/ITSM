@@ -48,3 +48,7 @@ yarn-error.log*
 
 # GLPI reference (read-only, not part of the project)
 GLPI/
+
+# Supabase credentials (NEVER commit)
+.claude/SUPABASE-CREDENTIALS.md
+.env*.local

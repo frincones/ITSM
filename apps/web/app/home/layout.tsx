@@ -1,89 +1,28 @@
-import { use } from 'react';
-
-import { cookies } from 'next/headers';
-
-import {
-  Page,
-  PageLayoutStyle,
-  PageMobileNavigation,
-  PageNavigation,
-} from '@kit/ui/page';
-import { SidebarProvider } from '@kit/ui/shadcn-sidebar';
-
-import { AppLogo } from '~/components/app-logo';
-import { navigationConfig } from '~/config/navigation.config';
 import { withI18n } from '~/lib/i18n/with-i18n';
 import { requireUserInServerComponent } from '~/lib/server/require-user-in-server-component';
 
-// home imports
-import { HomeMenuNavigation } from './_components/home-menu-navigation';
-import { HomeMobileNavigation } from './_components/home-mobile-navigation';
-import { HomeSidebar } from './_components/home-sidebar';
+import { SidebarNav } from './_components/sidebar-nav';
+import { Topbar } from './_components/topbar';
 
-function HomeLayout({ children }: React.PropsWithChildren) {
-  const style = use(getLayoutStyle());
+async function HomeLayout({ children }: React.PropsWithChildren) {
+  // Ensure user is authenticated; redirects to sign-in if not
+  await requireUserInServerComponent();
 
-  if (style === 'sidebar') {
-    return <SidebarLayout>{children}</SidebarLayout>;
-  }
+  return (
+    <div className="flex h-screen bg-background">
+      {/* Sidebar — icon rail (w-16) */}
+      <SidebarNav />
 
-  return <HeaderLayout>{children}</HeaderLayout>;
+      {/* Main Content */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Top Bar */}
+        <Topbar />
+
+        {/* Page Content */}
+        <main className="flex-1 overflow-auto">{children}</main>
+      </div>
+    </div>
+  );
 }
 
 export default withI18n(HomeLayout);
-
-function SidebarLayout({ children }: React.PropsWithChildren) {
-  const sidebarMinimized = navigationConfig.sidebarCollapsed;
-  const [user] = use(Promise.all([requireUserInServerComponent()]));
-
-  return (
-    <SidebarProvider defaultOpen={sidebarMinimized}>
-      <Page style={'sidebar'}>
-        <PageNavigation>
-          <HomeSidebar user={user} />
-        </PageNavigation>
-
-        <PageMobileNavigation className={'flex items-center justify-between'}>
-          <MobileNavigation />
-        </PageMobileNavigation>
-
-        {children}
-      </Page>
-    </SidebarProvider>
-  );
-}
-
-function HeaderLayout({ children }: React.PropsWithChildren) {
-  return (
-    <Page style={'header'}>
-      <PageNavigation>
-        <HomeMenuNavigation />
-      </PageNavigation>
-
-      <PageMobileNavigation className={'flex items-center justify-between'}>
-        <MobileNavigation />
-      </PageMobileNavigation>
-
-      {children}
-    </Page>
-  );
-}
-
-function MobileNavigation() {
-  return (
-    <>
-      <AppLogo />
-
-      <HomeMobileNavigation />
-    </>
-  );
-}
-
-async function getLayoutStyle() {
-  const cookieStore = await cookies();
-
-  return (
-    (cookieStore.get('layout-style')?.value as PageLayoutStyle) ??
-    navigationConfig.style
-  );
-}

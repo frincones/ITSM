@@ -55,6 +55,22 @@
         --sidebar-accent-foreground: var(--color-neutral-950);
         --sidebar-border: var(--border);
         --sidebar-ring: var(--color-blue-500);
+
+        /* Semantic status colors (ITSM) */
+        --status-new: #3b82f6;
+        --status-assigned: #8b5cf6;
+        --status-in-progress: #f59e0b;
+        --status-pending: #6b7280;
+        --status-testing: #6366f1;
+        --status-resolved: #10b981;
+        --status-closed: #22c55e;
+        --status-cancelled: #ef4444;
+
+        /* Semantic priority colors (ITSM) */
+        --priority-critical: #ef4444;
+        --priority-high: #f97316;
+        --priority-medium: #eab308;
+        --priority-low: #22c55e;
     }
 
     .dark {

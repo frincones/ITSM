@@ -1,4 +1,17 @@
-import { Home, User } from 'lucide-react';
+import {
+  LayoutDashboard,
+  Inbox,
+  Ticket,
+  AlertTriangle,
+  GitBranch,
+  FolderKanban,
+  Monitor,
+  BookOpen,
+  ShoppingBag,
+  Workflow,
+  BarChart3,
+  Settings,
+} from 'lucide-react';
 import { z } from 'zod';
 
 import { NavigationConfigSchema } from '@kit/ui/navigation-schema';
@@ -14,8 +27,58 @@ const routes = [
       {
         label: 'common:routes.home',
         path: pathsConfig.app.home,
-        Icon: <Home className={iconClasses} />,
+        Icon: <LayoutDashboard className={iconClasses} />,
         end: true,
+      },
+      {
+        label: 'common:routes.inbox',
+        path: '/home/inbox',
+        Icon: <Inbox className={iconClasses} />,
+      },
+      {
+        label: 'common:routes.tickets',
+        path: '/home/tickets',
+        Icon: <Ticket className={iconClasses} />,
+      },
+      {
+        label: 'common:routes.problems',
+        path: '/home/problems',
+        Icon: <AlertTriangle className={iconClasses} />,
+      },
+      {
+        label: 'common:routes.changes',
+        path: '/home/changes',
+        Icon: <GitBranch className={iconClasses} />,
+      },
+      {
+        label: 'common:routes.projects',
+        path: '/home/projects',
+        Icon: <FolderKanban className={iconClasses} />,
+      },
+      {
+        label: 'common:routes.assets',
+        path: '/home/assets',
+        Icon: <Monitor className={iconClasses} />,
+      },
+      {
+        label: 'common:routes.knowledge',
+        path: '/home/kb',
+        Icon: <BookOpen className={iconClasses} />,
+      },
+      {
+        label: 'common:routes.catalog',
+        path: '/home/service-catalog',
+        Icon: <ShoppingBag className={iconClasses} />,
+      },
+      {
+        label: 'common:routes.automations',
+        path: '/home/automations',
+        Icon: <Workflow className={iconClasses} />,
+      },
+      {
+        label: 'common:routes.reports',
+        path: '/home/reports',
+        Icon: <BarChart3 className={iconClasses} />,
       },
     ],
   },
@@ -25,7 +88,7 @@ const routes = [
       {
         label: 'common:routes.profile',
         path: pathsConfig.app.profileSettings,
-        Icon: <User className={iconClasses} />,
+        Icon: <Settings className={iconClasses} />,
       },
     ],
   },

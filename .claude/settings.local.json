@@ -17,7 +17,11 @@
       "Bash(grep -r \"getMenuContent\" src/*.php)",
       "Bash(grep -l \"class.*Database\\\\|class DB\\\\|class DbConnection\" /tmp/glpi-analysis/src/*.php)",
       "Bash(cp -r /tmp/glpi-analysis/* /c/Users/freddyrs/Desktop/ITSM/ITSM/GLPI/)",
-      "Bash(cp /tmp/glpi-analysis/.* /c/Users/freddyrs/Desktop/ITSM/ITSM/GLPI/)"
+      "Bash(cp /tmp/glpi-analysis/.* /c/Users/freddyrs/Desktop/ITSM/ITSM/GLPI/)",
+      "Bash(git check-ignore:*)",
+      "Bash(pnpm add:*)",
+      "Bash(npx tsc:*)",
+      "Bash(ls -la \"C:/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/tickets/\"* \"C:/Users/freddyrs/Desktop/ITSM/ITSM/apps/web/app/home/tickets/_components/\"*)"
     ]
   }
 }

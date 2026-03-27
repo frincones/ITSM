@@ -1,9 +1,11 @@
-import { AuthLayoutShell } from '@kit/auth/shared';
-
-import { AppLogo } from '~/components/app-logo';
-
+/**
+ * Auth layout is a pass-through.
+ * Individual auth sub-routes apply their own visual shells:
+ * - sign-in: custom split-screen branding panel (Figma template)
+ * - sign-up, password-reset, verify: AuthLayoutShell (centered card)
+ */
 function AuthLayout({ children }: React.PropsWithChildren) {
-  return <AuthLayoutShell Logo={AppLogo}>{children}</AuthLayoutShell>;
+  return <>{children}</>;
 }
 
 export default AuthLayout;

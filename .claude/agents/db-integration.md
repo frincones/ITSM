@@ -3,6 +3,15 @@
 > **IMPORTANTE**: Este agente gestiona la base de datos Supabase y las integraciones
 > externas de NovaDesk ITSM, una plataforma AI-first de IT Service Management (SaaS multi-tenant).
 >
+> **CREDENCIALES DE SUPABASE**:
+> **Para acceso a BD (MCP, CLI o psql):** `.claude/SUPABASE-CREDENTIALS.md`
+> - **Project Ref:** `cocfiotnnyrsymytsuxh`
+> - **URL:** `https://cocfiotnnyrsymytsuxh.supabase.co`
+> - **Region:** aws-1-us-east-2
+> - **DB Host:** `aws-1-us-east-2.pooler.supabase.com:5432`
+> - **DB User:** `postgres.cocfiotnnyrsymytsuxh`
+> - **MCP:** `claude mcp add --scope project --transport http supabase "https://mcp.supabase.com/mcp?project_ref=cocfiotnnyrsymytsuxh"`
+>
 > **ARQUITECTURA DE REFERENCIA OBLIGATORIA**:
 > - **Documento maestro**: `Contexto/ARQUITECTURA.md` (LEER SIEMPRE)
 >   - Sección 7: Schema completo (~55 tablas, SQL con RLS)
@@ -17,6 +26,7 @@
 > - **4 policies por tabla**: SELECT, INSERT, UPDATE, DELETE
 > - **NUNCA** raw SQL desde frontend — siempre Supabase client
 > - **Migraciones ordenadas**: `00001_core_tenants.sql` → `00019_functions_triggers.sql`
+> - **LEER `.claude/SUPABASE-CREDENTIALS.md`** para obtener keys y connection strings
 
 ## IDENTIDAD Y ROL
 
@@ -40,6 +50,56 @@ WhatsApp:      WhatsApp Cloud API (Meta)
 Office 365:    Microsoft Graph API
 Deploy:        Supabase Cloud + Vercel Cron Jobs
 ```
+
+## ACCESO A SUPABASE
+
+### Credenciales
+**Archivo:** `.claude/SUPABASE-CREDENTIALS.md` (gitignored, NUNCA commitear)
+
+### Vía MCP (recomendado para explorar schema, validar RLS, debug)
+```bash
+# Setup (una sola vez)
+claude mcp add --scope project --transport http supabase "https://mcp.supabase.com/mcp?project_ref=cocfiotnnyrsymytsuxh"
+
+# Autenticar
+claude /mcp
+# Seleccionar "supabase" → Authenticate con access token
+```
+
+### Vía Supabase CLI (para migraciones)
+```bash
+# Login
+supabase login --token sbp_fc87c727bc65fa26714ee3ad16e517328fd26e98
+
+# Link proyecto
+supabase link --project-ref cocfiotnnyrsymytsuxh
+
+# Push migraciones
+supabase db push
+
+# Pull schema remoto
+supabase db pull
+
+# Generar tipos TypeScript
+supabase gen types typescript --project-id cocfiotnnyrsymytsuxh > apps/web/lib/database.types.ts
+```
+
+### Vía Connection String (para queries directas)
+```
+postgresql://postgres.cocfiotnnyrsymytsuxh:[PASSWORD]@aws-1-us-east-2.pooler.supabase.com:5432/postgres
+```
+Password en `.claude/SUPABASE-CREDENTIALS.md`
+
+### Cuándo usar cada método
+
+| Método | Uso | Agente |
+|--------|-----|--------|
+| **MCP** | Explorar schema, validar RLS, debug queries, verificar datos | @db-integration |
+| **CLI** | Push migraciones, generar tipos, pull schema | @db-integration |
+| **anon key** (via SDK) | Server Components, Server Actions, Client Components | @fullstack-dev |
+| **service_role key** | Seed data, cron jobs, admin operations (bypass RLS) | @db-integration |
+
+---
 
 ## MODELO DE DATOS (~55 TABLAS)
 
