@@ -50,6 +50,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Detect if user wants to create a ticket
+    const lastUserMsg = portalMessages.filter(m => m.role === 'user').pop()?.content ?? '';
+    const wantsTicket = /crear\s*ticket|no\s*se\s*resolvi|no\s*resol|abrir\s*caso|necesito\s*ticket|crear\s*caso|escalar/i.test(lastUserMsg);
+
     const portalSystemPrompt = `You are the AI support assistant for ${orgName ?? 'the organization'}.
 You help employees resolve IT issues. You speak in Spanish by default.
 
@@ -68,11 +72,99 @@ Rules:
 - Detect urgency from context (low, medium, high, critical)`;
 
     try {
+      const { generateText } = await import('ai');
+      let articles: any[] = [];
+      let ticketCreated: any = null;
+      let responseText = '';
+
+      // ── Ticket Creation Flow ──────────────────────────────────────────
+      if (wantsTicket) {
+        // Step 1: Ask AI to classify the conversation into ticket fields (JSON only)
+        const conversationSummary = portalMessages
+          .map(m => `${m.role === 'user' ? 'Usuario' : 'Asistente'}: ${m.content}`)
+          .join('\n');
+
+        const classifyResult = await generateText({
+          model: openai('gpt-4o-mini'),
+          system: `You are a ticket classifier. Analyze the conversation and return ONLY a JSON object with these fields:
+- title: brief summary of the issue (max 100 chars, in Spanish)
+- description: detailed description including all context from the conversation (in Spanish)
+- type: one of "incident", "request", "warranty", "support", "backlog"
+- urgency: one of "low", "medium", "high", "critical"
+Return ONLY valid JSON, no markdown, no explanation.`,
+          messages: [{ role: 'user', content: conversationSummary }],
+          temperature: 0.2,
+          maxTokens: 512,
+        });
+
+        // Parse the classification
+        let ticketTitle = 'Solicitud de soporte desde portal';
+        let ticketDesc = conversationSummary;
+        let ticketType = 'request';
+        let ticketUrgency = 'medium';
+
+        try {
+          const cleaned = classifyResult.text.replace(/```json\s*|\s*```/g, '').trim();
+          const parsed = JSON.parse(cleaned);
+          ticketTitle = (parsed.title ?? ticketTitle).slice(0, 255);
+          ticketDesc = (parsed.description ?? ticketDesc).slice(0, 10000);
+          ticketType = ['incident', 'request', 'warranty', 'support', 'backlog'].includes(parsed.type) ? parsed.type : 'request';
+          ticketUrgency = ['low', 'medium', 'high', 'critical'].includes(parsed.urgency) ? parsed.urgency : 'medium';
+        } catch { /* use defaults */ }
+
+        // Step 2: Create the ticket in Supabase
+        const { data: agent } = await client
+          .from('agents')
+          .select('id, tenant_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        const tenantId = agent?.tenant_id;
+
+        if (tenantId) {
+          const { data: ticket, error: ticketError } = await client
+            .from('tickets')
+            .insert({
+              title: ticketTitle,
+              description: ticketDesc,
+              type: ticketType,
+              urgency: ticketUrgency,
+              status: 'new',
+              channel: 'portal',
+              tenant_id: tenantId,
+              organization_id: orgId || null,
+              requester_email: user.email ?? null,
+              created_by: user.id,
+            })
+            .select('id, ticket_number, title, type, urgency')
+            .single();
+
+          if (ticket) {
+            ticketCreated = {
+              ticketId: ticket.id,
+              ticketNumber: ticket.ticket_number,
+              title: ticket.title,
+              type: ticket.type,
+              urgency: ticket.urgency,
+            };
+            responseText = `He creado el ticket de soporte **${ticket.ticket_number}** con el título "${ticket.title}". ` +
+              `Nuestro equipo lo revisará y te contactará pronto. ` +
+              `Puedes hacer seguimiento desde la sección "Mis Tickets" en el portal.`;
+          } else {
+            console.error('[AI Chat Portal] Ticket creation failed:', ticketError?.message, ticketError?.details, ticketError?.hint);
+            responseText = `Intenté crear el ticket pero hubo un error: ${ticketError?.message ?? 'desconocido'}. Por favor intenta de nuevo.`;
+          }
+        } else {
+          responseText = 'No se pudo identificar tu organización para crear el ticket. Por favor contacta al soporte directamente.';
+        }
+
+        return Response.json({ text: responseText, articles, ticketCreated });
+      }
+
+      // ── Normal Chat Flow ──────────────────────────────────────────────
       // Pre-search KB for context (before AI call)
-      const lastUserMsg = portalMessages.filter(m => m.role === 'user').pop()?.content ?? '';
       const searchTerms = lastUserMsg.split(' ').filter((w: string) => w.length > 3).slice(0, 4);
       let kbContext = '';
-      let articles: any[] = [];
 
       if (searchTerms.length > 0) {
         try {
@@ -97,8 +189,6 @@ Rules:
       }
 
       const fullSystemPrompt = portalSystemPrompt + kbContext;
-
-      const { generateText } = await import('ai');
 
       const result = await generateText({
         model: openai('gpt-4o-mini'),
