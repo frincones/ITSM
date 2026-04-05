@@ -53,7 +53,16 @@ export async function POST(req: NextRequest) {
     }
 
     const lastUserMsg = portalMessages.filter(m => m.role === 'user').pop()?.content ?? '';
-    const wantsTicket = /crear\s*ticket|no\s*se\s*resolvi|no\s*resol|abrir\s*caso|necesito\s*ticket|crear\s*caso|escalar/i.test(lastUserMsg);
+    const lastAiMsg = portalMessages.filter(m => m.role === 'assistant').pop()?.content ?? '';
+
+    // Check if user explicitly wants a ticket OR the AI triggered creation
+    const userWantsTicket = /crear\s*ticket|no\s*se\s*resolvi|no\s*resol|abrir\s*caso|necesito\s*ticket|crear\s*caso|escalar|crea\s*el\s*ticket|crealo|si\s*crea|por\s*favor\s*crea|adelante|procede/i.test(lastUserMsg);
+    const aiTriggered = /CREAR_TICKET_AHORA/i.test(lastAiMsg);
+    // Also detect: user says short confirmation after AI offered to create ticket
+    const aiOfferedTicket = /crear.*ticket|proceder.*ticket|voy a crear/i.test(lastAiMsg);
+    const userConfirms = /^(si|sí|ok|dale|gracias|por favor|claro|adelante|procede|hazlo|crealo)\b/i.test(lastUserMsg.trim());
+
+    const wantsTicket = userWantsTicket || aiTriggered || (aiOfferedTicket && userConfirms);
 
     // Fetch AI context
     let aiContext = '';
@@ -79,6 +88,9 @@ Rules:
 - If the user says it's not resolved, offer to create a ticket
 - Classify tickets as: incident, request, warranty, support, or backlog
 - Detect urgency from context (low, medium, high, critical)
+- Users CAN attach files (screenshots, documents). When a message contains "[Archivos adjuntos: ...]", acknowledge the files and note them as evidence for the ticket.
+- NEVER say you cannot receive files. Files are uploaded and will be attached to the ticket automatically.
+- When the user confirms they want to create a ticket (e.g., "si", "crealo", "por favor", "adelante", "ok crea el ticket"), include in your response EXACTLY this phrase: "CREAR_TICKET_AHORA" (the system will detect this and create the ticket automatically). Do NOT just talk about creating the ticket — you must include that trigger phrase.
 ${aiContext ? `
 ## Application Context for ${orgName}
 ${aiContext}
@@ -260,6 +272,9 @@ Return ONLY valid JSON.`,
         maxTokens: 1024,
       });
 
+      // Clean trigger phrase from response
+      let aiText = result.text.replace(/CREAR_TICKET_AHORA/gi, '').trim();
+
       // Create conversation if first message
       if (orgId && !persistedConversationId) {
         try {
@@ -325,7 +340,7 @@ Return ONLY valid JSON.`,
               conversation_id: persistedConversationId,
               direction: 'outbound',
               sender_type: 'ai_agent',
-              content_text: result.text,
+              content_text: aiText,
               metadata: articles.length ? { articles } : {},
             });
             await svc.from('inbox_conversations').update({
@@ -336,7 +351,7 @@ Return ONLY valid JSON.`,
       }
 
       return Response.json({
-        text: result.text,
+        text: aiText,
         articles,
         ticketCreated: null,
         conversationId: persistedConversationId,

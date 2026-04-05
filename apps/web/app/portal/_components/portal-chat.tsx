@@ -149,11 +149,8 @@ export function PortalChat({
     textareaRef.current?.focus();
   }, [trackActivity]);
 
-  /* ------ File upload ------ */
-  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  /* ------ Upload a File object ------ */
+  const uploadFile = useCallback(async (file: File) => {
     setUploading(true);
     try {
       const formData = new FormData();
@@ -162,18 +159,42 @@ export function PortalChat({
       if (conversationId) formData.append('conversationId', conversationId);
 
       const res = await fetch('/api/portal/upload', { method: 'POST', body: formData });
-
       if (res.ok) {
         const data = await res.json();
         setPendingFiles(prev => [...prev, data]);
         trackActivity('file_upload', { fileName: file.name, fileType: file.type });
       }
-    } catch { /* upload failed silently */ }
+    } catch { /* silent */ }
     setUploading(false);
-
-    // Reset file input
-    if (fileInputRef.current) fileInputRef.current.value = '';
   }, [orgId, conversationId, trackActivity]);
+
+  /* ------ Paste from clipboard (Ctrl+V for images) ------ */
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          // Create a named file from the blob
+          const named = new File([file], `screenshot-${Date.now()}.png`, { type: file.type });
+          uploadFile(named);
+        }
+        return;
+      }
+    }
+    // If no image, let default paste behavior (text) happen
+  }, [uploadFile]);
+
+  /* ------ File upload via input ------ */
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await uploadFile(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, [uploadFile]);
 
   const removePendingFile = useCallback((idx: number) => {
     setPendingFiles(prev => prev.filter((_, i) => i !== idx));
@@ -205,7 +226,14 @@ export function PortalChat({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [...messages, userMsg].map(m => ({ role: m.role, content: m.content })),
+          messages: [...messages, userMsg].map(m => {
+            let content = m.content;
+            // Append file info so the AI knows about attachments
+            if (m.attachments?.length) {
+              content += '\n\n[Archivos adjuntos: ' + m.attachments.map(a => `${a.fileName} (${a.fileType})`).join(', ') + ']';
+            }
+            return { role: m.role, content };
+          }),
           portalContext: {
             orgId, orgName,
             userEmail: portalUserEmail,
@@ -472,7 +500,8 @@ export function PortalChat({
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Escribe tu pregunta o describe tu problema..."
+              onPaste={handlePaste}
+              placeholder="Escribe tu pregunta o describe tu problema... (Ctrl+V para pegar imagenes)"
               rows={1}
               className="max-h-[160px] min-h-[36px] flex-1 resize-none bg-transparent text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none dark:text-gray-100"
             />
