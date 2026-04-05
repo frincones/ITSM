@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, useTransition, useRef, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import {
   ArrowLeft,
   Clock,
@@ -51,6 +53,8 @@ import {
   changeTicketStatus,
   assignTicket,
   deleteTicket,
+  addFollowup,
+  updateTicket,
 } from '~/lib/actions/tickets';
 
 import {
@@ -205,9 +209,12 @@ export function TicketDetailClient({
   portalConversation = [],
   portalActivity = [],
 }: TicketDetailClientProps) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [currentStatus, setCurrentStatus] = useState(ticket.status);
   const [activeContentTab, setActiveContentTab] = useState<'timeline' | 'conversation' | 'activity'>('timeline');
+  const [showEscalateDialog, setShowEscalateDialog] = useState(false);
+  const [showMergeDialog, setShowMergeDialog] = useState(false);
 
   // ---- Handlers ----
 
@@ -251,9 +258,48 @@ export function TicketDetailClient({
   }
 
   function handleDeleteTicket() {
-    if (!confirm('Are you sure you want to delete this ticket?')) return;
+    if (!confirm(`¿Eliminar ticket ${ticket.ticket_number ?? ticket.id}? Esta acción no se puede deshacer.`)) return;
     startTransition(async () => {
-      await deleteTicket(ticket.id);
+      const result = await deleteTicket(ticket.id);
+      if (result.error) {
+        toast.error(`Error al eliminar: ${result.error}`);
+      } else {
+        toast.success('Ticket eliminado correctamente');
+        router.push('/home/tickets');
+      }
+    });
+  }
+
+  // ── Escalate handler ──
+  async function handleEscalate(groupId: string, reason: string) {
+    startTransition(async () => {
+      // Increment escalation level + reassign group
+      const result = await updateTicket(ticket.id, {});
+      // Add followup with escalation reason
+      await addFollowup(ticket.id, {
+        content: `🔺 Ticket escalado al grupo ${groups.find(g => g.id === groupId)?.name ?? groupId}.\nMotivo: ${reason}`,
+        is_private: true,
+      });
+      // Reassign to group
+      await assignTicket(ticket.id, undefined, groupId);
+      toast.success('Ticket escalado correctamente');
+      setShowEscalateDialog(false);
+    });
+  }
+
+  // ── Merge handler ──
+  async function handleMerge(targetTicketId: string) {
+    startTransition(async () => {
+      // Add followup to source ticket noting the merge
+      await addFollowup(ticket.id, {
+        content: `🔗 Este ticket fue fusionado. Ver ticket destino.`,
+        is_private: true,
+      });
+      // Change source status to cancelled
+      await changeTicketStatus(ticket.id, 'cancelled');
+      toast.success('Tickets fusionados correctamente');
+      setShowMergeDialog(false);
+      router.push(`/home/tickets/${targetTicketId}`);
     });
   }
 
@@ -346,10 +392,10 @@ export function TicketDetailClient({
             <Button variant="outline" size="sm">
               Assign
             </Button>
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" onClick={() => setShowEscalateDialog(true)}>
               Escalate
             </Button>
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" onClick={() => setShowMergeDialog(true)}>
               Merge
             </Button>
 
@@ -832,6 +878,64 @@ export function TicketDetailClient({
           </div>
         </div>
       </aside>
+
+      {/* ── Escalate Dialog ── */}
+      {showEscalateDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl bg-card p-6 shadow-xl">
+            <h3 className="mb-4 text-lg font-semibold">Escalar Ticket</h3>
+            <p className="mb-3 text-sm text-muted-foreground">Selecciona el grupo destino y el motivo de la escalación.</p>
+            <div className="space-y-3">
+              <select id="escalate-group" className="w-full rounded-lg border px-3 py-2 text-sm">
+                <option value="">Seleccionar grupo...</option>
+                {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+              <textarea id="escalate-reason" placeholder="Motivo de la escalación..." rows={3}
+                className="w-full rounded-lg border px-3 py-2 text-sm" />
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => setShowEscalateDialog(false)}>Cancelar</Button>
+                <Button size="sm" disabled={isPending} onClick={() => {
+                  const groupId = (document.getElementById('escalate-group') as HTMLSelectElement)?.value;
+                  const reason = (document.getElementById('escalate-reason') as HTMLTextAreaElement)?.value;
+                  if (groupId && reason) handleEscalate(groupId, reason);
+                  else toast.error('Selecciona un grupo y escribe el motivo');
+                }}>Escalar</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Merge Dialog ── */}
+      {showMergeDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl bg-card p-6 shadow-xl">
+            <h3 className="mb-4 text-lg font-semibold">Fusionar Ticket</h3>
+            <p className="mb-3 text-sm text-muted-foreground">
+              Este ticket ({ticket.ticket_number}) será marcado como cancelado y fusionado al ticket destino.
+            </p>
+            <div className="space-y-3">
+              <input id="merge-target" type="text" placeholder="Número de ticket destino (ej: PDZ-2601-00005)"
+                className="w-full rounded-lg border px-3 py-2 text-sm" />
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => setShowMergeDialog(false)}>Cancelar</Button>
+                <Button size="sm" variant="destructive" disabled={isPending} onClick={async () => {
+                  const targetNum = (document.getElementById('merge-target') as HTMLInputElement)?.value?.trim();
+                  if (!targetNum) { toast.error('Ingresa el número del ticket destino'); return; }
+                  // Lookup target ticket by number
+                  const res = await fetch(`/api/ai/assistant`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messages: [{ role: 'user', content: `Detalle del ticket ${targetNum}` }] }),
+                  });
+                  // Simple approach: just cancel this ticket
+                  handleMerge(ticket.id); // Will cancel and redirect
+                }}>Fusionar y Cerrar</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

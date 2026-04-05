@@ -571,9 +571,13 @@ export async function deleteTicket(ticketId: string): Promise<ActionResult> {
       return { data: null, error: 'Ticket not found' };
     }
 
+    const { data: { user } } = await client.auth.getUser();
     const { error } = await client
       .from('tickets')
-      .update({ deleted_at: new Date().toISOString() })
+      .update({
+        deleted_at: new Date().toISOString(),
+        updated_by: user?.id ?? null,
+      })
       .eq('id', ticketId)
       .eq('tenant_id', agent.tenant_id);
 
