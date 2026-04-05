@@ -54,7 +54,6 @@ import {
   assignTicket,
   deleteTicket,
   addFollowup,
-  updateTicket,
 } from '~/lib/actions/tickets';
 
 import {
