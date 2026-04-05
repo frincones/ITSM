@@ -47,6 +47,8 @@ interface PortalChatProps {
   orgName: string;
   orgColors?: { primary?: string; accent?: string } | null;
   userName?: string | null;
+  userEmail?: string | null;
+  portalToken?: string;
   kbArticles: PortalArticle[];
   ticketCount: number;
 }
@@ -60,6 +62,8 @@ export function PortalChat({
   orgName,
   orgColors,
   userName,
+  userEmail,
+  portalToken,
   kbArticles,
   ticketCount,
 }: PortalChatProps) {
@@ -313,6 +317,7 @@ export function PortalChat({
                               type={msg.ticketCreated.type}
                               urgency={msg.ticketCreated.urgency}
                               orgName={orgName}
+                              portalToken={portalToken}
                             />
                           )}
 

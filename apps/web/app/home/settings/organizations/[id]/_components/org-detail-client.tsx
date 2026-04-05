@@ -335,12 +335,24 @@ export function OrgDetailClient({
   };
 
   /* ---- Portal tab ---- */
-  const portalUrl = `https://${organization.slug}.tdx-itsm.com`;
+  const portalToken = (organization as Record<string, unknown>).portal_token as string ?? '';
+  const portalUrl = portalToken
+    ? `${window.location.origin}/portal/${portalToken}`
+    : `https://${organization.slug}.tdx-itsm.com`;
 
   const handleCopyUrl = () => {
     navigator.clipboard.writeText(portalUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleRegenerateToken = async () => {
+    const newToken = crypto.randomUUID();
+    await supabase
+      .from('organizations')
+      .update({ portal_token: newToken })
+      .eq('id', organization.id);
+    startTransition(() => router.refresh());
   };
 
   const handleTogglePortal = async (enabled: boolean) => {
@@ -953,11 +965,15 @@ export function OrgDetailClient({
               <CardTitle>Portal Configuration</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Portal URL */}
+              {/* Portal Link Token */}
               <div>
-                <Label>Portal URL</Label>
+                <Label>Portal Support Link</Label>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Share this link with the client to embed as a &quot;Help&quot; or &quot;Support&quot; button in their application.
+                  The link automatically loads the portal with this organization&apos;s branding and AI context.
+                </p>
                 <div className="mt-1 flex items-center gap-2">
-                  <div className="flex-1 rounded-md border bg-muted/50 px-3 py-2 text-sm">
+                  <div className="flex-1 rounded-md border bg-muted/50 px-3 py-2 font-mono text-xs break-all">
                     {portalUrl}
                   </div>
                   <Button variant="outline" size="sm" onClick={handleCopyUrl}>
@@ -974,6 +990,34 @@ export function OrgDetailClient({
                     </Button>
                   </a>
                 </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-muted-foreground"
+                    onClick={handleRegenerateToken}
+                    disabled={isPending}
+                  >
+                    Regenerate token
+                  </Button>
+                  <span className="text-[10px] text-muted-foreground">
+                    Regenerating invalidates the old link
+                  </span>
+                </div>
+              </div>
+
+              {/* Embed instructions */}
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900/50 dark:bg-blue-950/30">
+                <p className="mb-2 text-sm font-medium text-blue-800 dark:text-blue-200">
+                  How to embed in your client&apos;s app:
+                </p>
+                <pre className="overflow-x-auto rounded bg-white/60 p-2 text-xs dark:bg-gray-900/60">
+{`<a href="${portalUrl}"
+   target="_blank"
+   rel="noopener">
+  Help & Support
+</a>`}
+                </pre>
               </div>
 
               {/* Portal enabled toggle */}

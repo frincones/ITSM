@@ -18,6 +18,7 @@ interface TicketCreatedCardProps {
   type?: string;
   urgency?: string;
   orgName?: string;
+  portalToken?: string;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -64,6 +65,7 @@ export function TicketCreatedCard({
   type,
   urgency,
   orgName,
+  portalToken,
 }: TicketCreatedCardProps) {
   return (
     <div className="my-2 overflow-hidden rounded-xl border border-green-200 bg-white dark:border-green-800/50 dark:bg-gray-900">
@@ -110,7 +112,7 @@ export function TicketCreatedCard({
           </div>
 
           {/* Action */}
-          <Link href={`/portal/tickets/${ticketId}`}>
+          <Link href={portalToken ? `/portal/${portalToken}/tickets/${ticketId}` : `/portal/tickets/${ticketId}`}>
             <Button
               variant="outline"
               size="sm"

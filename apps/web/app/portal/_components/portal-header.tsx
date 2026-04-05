@@ -16,6 +16,7 @@ interface PortalHeaderProps {
   orgColors?: { primary?: string; accent?: string } | null;
   userName?: string | null;
   userAvatar?: string | null;
+  portalToken?: string;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -28,8 +29,10 @@ export function PortalHeader({
   orgColors,
   userName,
   userAvatar,
+  portalToken,
 }: PortalHeaderProps) {
   const accentColor = orgColors?.primary ?? '#4f46e5';
+  const base = portalToken ? `/portal/${portalToken}` : '/portal';
 
   const initials = orgName
     .split(' ')
@@ -42,7 +45,7 @@ export function PortalHeader({
     <header className="sticky top-0 z-50 h-14 border-b border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
       <div className="mx-auto flex h-full max-w-5xl items-center justify-between px-4">
         {/* Left: Logo + Org name */}
-        <Link href="/portal" className="flex items-center gap-2.5">
+        <Link href={base} className="flex items-center gap-2.5">
           {orgLogo ? (
             <img
               src={orgLogo}
@@ -65,14 +68,14 @@ export function PortalHeader({
         {/* Center: Nav links */}
         <nav className="hidden items-center gap-1 md:flex">
           <Link
-            href="/portal/kb"
+            href={`${base}/kb`}
             className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
           >
             <BookOpen className="h-4 w-4" />
             Base de Conocimiento
           </Link>
           <Link
-            href="/portal/tickets"
+            href={`${base}/tickets`}
             className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
           >
             <TicketIcon className="h-4 w-4" />
