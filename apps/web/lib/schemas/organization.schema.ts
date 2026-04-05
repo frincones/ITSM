@@ -70,6 +70,11 @@ export const createOrganizationSchema = z.object({
   contract_end: z.coerce.date().optional().nullable(),
   brand_colors: brandColorsSchema,
   logo_url: optionalString,
+  ai_context: z
+    .string()
+    .max(100_000, 'AI context must be 100,000 characters or fewer')
+    .optional()
+    .nullable(),
 });
 
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowLeft,
+  Bot,
   Plus,
   Save,
   Copy,
@@ -212,6 +213,12 @@ export function OrgDetailClient({
     organization.brand_colors?.secondary ?? '#7c3aed',
   );
 
+  // -- AI Context tab state --
+  const [aiContext, setAiContext] = useState(
+    (organization as Record<string, unknown>).ai_context as string ?? '',
+  );
+  const [aiContextSaved, setAiContextSaved] = useState(false);
+
   // -- Portal tab state --
   const [portalEnabled, setPortalEnabled] = useState(organization.is_active);
   const [copied, setCopied] = useState(false);
@@ -316,6 +323,17 @@ export function OrgDetailClient({
     startTransition(() => router.refresh());
   };
 
+  /* ---- AI Context tab: save ---- */
+  const handleSaveAiContext = async () => {
+    await supabase
+      .from('organizations')
+      .update({ ai_context: aiContext || null })
+      .eq('id', organization.id);
+    setAiContextSaved(true);
+    setTimeout(() => setAiContextSaved(false), 2000);
+    startTransition(() => router.refresh());
+  };
+
   /* ---- Portal tab ---- */
   const portalUrl = `https://${organization.slug}.tdx-itsm.com`;
 
@@ -387,6 +405,10 @@ export function OrgDetailClient({
           <TabsTrigger value="portal">
             <Globe className="mr-1.5 h-4 w-4" />
             Portal
+          </TabsTrigger>
+          <TabsTrigger value="ai-context">
+            <Bot className="mr-1.5 h-4 w-4" />
+            AI Context
           </TabsTrigger>
         </TabsList>
 
@@ -1000,6 +1022,84 @@ export function OrgDetailClient({
                     </div>
                   </CardContent>
                 </Card>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ============================================================== */}
+        {/*  TAB: AI Context                                                */}
+        {/* ============================================================== */}
+        <TabsContent value="ai-context">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Bot className="h-5 w-5" />
+                AI Support Context
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                This text is injected into the AI assistant's prompt when it responds
+                to tickets and chats from this organization. The more context you
+                provide, the more accurately the AI can classify and resolve issues.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="ai-context-input">Application Context</Label>
+                <Textarea
+                  id="ai-context-input"
+                  value={aiContext}
+                  onChange={(e) => setAiContext(e.target.value)}
+                  rows={20}
+                  className="mt-1 font-mono text-sm"
+                  placeholder={`## Description of the Application
+E.g.: Web-based inventory management system for pharmacies. Stack: React + Node.js + PostgreSQL.
+
+## Main Features
+- Product registration with barcode scanning
+- Stock control with minimum alerts
+- Daily/weekly/monthly sales reports
+- Electronic invoicing integrated with tax authority
+
+## User Flows
+1. Receive goods: Scan → Validate → Register → Update stock
+2. Sale: Search product → Add to cart → Invoice → Update stock
+3. Report: Select period → Filter by category → Export PDF/Excel
+
+## Known Issues
+- PDF export fails with more than 10,000 records (workaround: export as Excel)
+- USB barcode reader requires specific driver on Windows 11
+
+## Classification Rules
+- Error in electronic invoicing → incident (critical)
+- "Can't scan" + USB reader → support (check driver installation)
+- "I want a report for X" where X doesn't exist → backlog
+- Damaged equipment within 1 year of purchase → warranty`}
+                />
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  {aiContext.length.toLocaleString()} / 100,000 characters
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900/50 dark:bg-blue-950/30">
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  <strong>Tip:</strong> Include the app description, main user stories,
+                  common user flows, known issues with workarounds, and specific
+                  classification rules. The AI uses this to distinguish between support
+                  issues (user error), incidents (bugs), warranty claims, and feature
+                  requests.
+                </p>
+              </div>
+
+              <div className="flex justify-end border-t pt-4">
+                <Button onClick={handleSaveAiContext} disabled={isPending}>
+                  {aiContextSaved ? (
+                    <Check className="mr-2 h-4 w-4 text-green-600" />
+                  ) : (
+                    <Save className="mr-2 h-4 w-4" />
+                  )}
+                  {aiContextSaved ? 'Saved!' : 'Save AI Context'}
+                </Button>
               </div>
             </CardContent>
           </Card>

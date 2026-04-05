@@ -54,6 +54,19 @@ export async function POST(req: NextRequest) {
     const lastUserMsg = portalMessages.filter(m => m.role === 'user').pop()?.content ?? '';
     const wantsTicket = /crear\s*ticket|no\s*se\s*resolvi|no\s*resol|abrir\s*caso|necesito\s*ticket|crear\s*caso|escalar/i.test(lastUserMsg);
 
+    // Fetch AI context for this organization (if configured)
+    let aiContext = '';
+    if (orgId) {
+      try {
+        const { data: orgData } = await client
+          .from('organizations')
+          .select('ai_context')
+          .eq('id', orgId)
+          .maybeSingle();
+        aiContext = orgData?.ai_context ?? '';
+      } catch { /* optional — chat works without context */ }
+    }
+
     const portalSystemPrompt = `You are the AI support assistant for ${orgName ?? 'the organization'}.
 You help employees resolve IT issues. You speak in Spanish by default.
 
@@ -69,7 +82,19 @@ Rules:
 - If the user confirms the issue is resolved, congratulate them
 - If the user says it's not resolved after 2-3 attempts, offer to create a ticket
 - Classify tickets as: incident, request, warranty, support, or backlog
-- Detect urgency from context (low, medium, high, critical)`;
+- Detect urgency from context (low, medium, high, critical)
+${aiContext ? `
+## Application Context for ${orgName}
+${aiContext}
+
+## Classification Rules (based on context above)
+- If the user reports something that DOES work according to the context → type: support (user doesn't know how to use it, guide them)
+- If the user reports something that SHOULD work but DOESN'T → type: incident (something is broken)
+- If it's a hardware/software defect under contract → type: warranty
+- If the user asks for something that DOESN'T EXIST in the context → type: backlog (feature request)
+- If the user asks for a standard change (access, installation, configuration) → type: request
+- IMPORTANT: Only answer based on the context above and KB articles. If unsure, say so honestly.` : ''}`;
+
 
     try {
       const { generateText } = await import('ai');
@@ -112,15 +137,28 @@ Return ONLY valid JSON, no markdown, no explanation.`,
           ticketUrgency = ['low', 'medium', 'high', 'critical'].includes(parsed.urgency) ? parsed.urgency : 'medium';
         } catch { /* use defaults */ }
 
-        // Step 2: Create the ticket in Supabase
+        // Step 2: Resolve tenant_id (try agent first, fall back to org)
+        let tenantId: string | undefined;
+
         const { data: agent } = await client
           .from('agents')
           .select('id, tenant_id')
           .eq('user_id', user.id)
           .maybeSingle();
 
-        const tenantId = agent?.tenant_id;
+        tenantId = agent?.tenant_id;
 
+        // If user is not an agent, resolve tenant_id from the organization
+        if (!tenantId && orgId) {
+          const { data: orgRow } = await client
+            .from('organizations')
+            .select('tenant_id')
+            .eq('id', orgId)
+            .maybeSingle();
+          tenantId = orgRow?.tenant_id;
+        }
+
+        // Step 3: Create the ticket in Supabase
         if (tenantId) {
           const { data: ticket, error: ticketError } = await client
             .from('tickets')

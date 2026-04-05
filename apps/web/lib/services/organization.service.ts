@@ -23,6 +23,7 @@ export interface Organization {
   brand_colors: { primary?: string; secondary?: string } | null;
   logo_url: string | null;
   is_active: boolean;
+  ai_context: string | null;
   created_at: string;
   updated_at: string;
 }

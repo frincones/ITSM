@@ -36,9 +36,10 @@ export async function POST(req: NextRequest) {
 
   // ── Parse body ────────────────────────────────────────────────────────────
   const body = await req.json();
-  const { title, description } = body as {
+  const { title, description, organization_id } = body as {
     title: string;
     description?: string;
+    organization_id?: string;
   };
 
   if (!title) {
@@ -67,6 +68,17 @@ export async function POST(req: NextRequest) {
     categoryNames = (categories ?? []).map((c) => c.name);
   }
 
+  // ── Fetch organization AI context (if available) ──────────────────────────
+  let orgContext = '';
+  if (organization_id) {
+    const { data: org } = await client
+      .from('organizations')
+      .select('ai_context')
+      .eq('id', organization_id)
+      .maybeSingle();
+    orgContext = org?.ai_context ?? '';
+  }
+
   // ── AI Classification ────────────────────────────────────────────────────
   try {
     const { object } = await generateObject({
@@ -79,10 +91,18 @@ export async function POST(req: NextRequest) {
         (categoryNames.length > 0
           ? `Available categories: ${categoryNames.join(', ')}\n\n`
           : '') +
+        (orgContext
+          ? `Application context for this client:\n${orgContext}\n\n` +
+            `Use this context to classify accurately:\n` +
+            `- If the issue IS a feature that works but user is confused → support\n` +
+            `- If the issue IS a feature that should work but is broken → incident\n` +
+            `- If it references hardware/software under contract → warranty\n` +
+            `- If the user asks for something that doesn't exist → backlog\n\n`
+          : '') +
         `Determine the ticket type (incident/request/warranty/support/backlog), ` +
         `urgency level (critical/high/medium/low), and best matching category. ` +
         `Provide a confidence score and brief reasoning.`,
-      temperature: 0.2,
+      temperature: 0,
     });
 
     return NextResponse.json({ classification: object });
