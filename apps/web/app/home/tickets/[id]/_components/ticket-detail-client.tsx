@@ -63,6 +63,7 @@ import {
 import { ReplyComposer } from './reply-composer';
 import { PortalConversationTab } from './portal-conversation-tab';
 import { PortalActivityTab } from './portal-activity-tab';
+import { AiCopilotPanel } from './ai-copilot-panel';
 import { Bot, Sparkles, Lightbulb, MessageCircle, Activity } from 'lucide-react';
 
 /* -------------------------------------------------------------------------- */
@@ -266,48 +267,15 @@ export function TicketDetailClient({
   return (
     <div className="flex h-full">
       {/* ================================================================== */}
-      {/* LEFT PANEL — AI Assistant                                          */}
+      {/* LEFT PANEL — AI Copilot                                            */}
       {/* ================================================================== */}
       <aside className="hidden w-80 flex-shrink-0 overflow-hidden border-r border-gray-200 bg-gray-50/50 dark:border-gray-800 dark:bg-gray-900/50 xl:block">
-        <div className="flex h-full flex-col">
-          <div className="border-b border-gray-200 p-4 dark:border-gray-700">
-            <div className="flex items-center gap-2">
-              <Bot className="h-5 w-5 text-indigo-600" />
-              <h3 className="font-medium">AI Assistant</h3>
-            </div>
-          </div>
-          <div className="flex-1 space-y-4 p-4">
-            <Card>
-              <CardContent className="p-3">
-                <div className="flex items-center gap-2 text-sm font-medium">
-                  <Sparkles className="h-4 w-4 text-indigo-500" />
-                  Classification
-                </div>
-                <div className="mt-2 space-y-1">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Type:</span>
-                    <Badge variant="secondary">{ticket.type}</Badge>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Urgency:</span>
-                    <Badge variant="secondary">{ticket.urgency}</Badge>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-3">
-                <div className="flex items-center gap-2 text-sm font-medium">
-                  <Lightbulb className="h-4 w-4 text-amber-500" />
-                  Suggestions
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  AI suggestions will appear here once the knowledge base is populated.
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+        <AiCopilotPanel
+          ticketId={ticket.id}
+          ticketTitle={ticket.title}
+          ticketStatus={ticket.status}
+          ticketType={ticket.type}
+        />
       </aside>
 
       {/* ================================================================== */}
