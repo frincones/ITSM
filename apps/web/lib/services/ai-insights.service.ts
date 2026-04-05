@@ -168,18 +168,27 @@ ${(recentTickets.data ?? []).slice(0, 20).map((t: any) => `- [${t.type}/${t.urge
 
     const result = await generateText({
       model: openai('gpt-4o-mini'),
-      system: `You are an ITSM analytics AI. Analyze ticket data and generate insights.
-Return ONLY a JSON array of 2-4 insights. Each insight must have:
+      system: `You are an ITSM analytics AI for NovaDesk. Analyze ticket data deeply and generate actionable insights.
+Return ONLY a JSON array of 4-6 insights. Each insight must have:
 {
-  "insight_type": "pattern" | "recommendation" | "alert" | "trend",
+  "insight_type": "pattern" | "recommendation" | "alert" | "trend" | "anomaly" | "prediction",
   "title": "Short title in Spanish (max 60 chars)",
-  "description": "Detailed description in Spanish (max 200 chars). Be specific: mention organization names, categories, counts.",
+  "description": "Detailed description in Spanish (max 250 chars). Be SPECIFIC: mention organization names, categories, exact counts, percentages.",
   "confidence": 0.0 to 1.0,
   "severity": "info" | "warning" | "critical",
   "org_name": "organization name if applicable or null"
 }
-Focus on: patterns in ticket types, organizations with most issues, categories trending up, SLA risks.
-Be SPECIFIC with real data — never generic. Use the actual org names and numbers.`,
+
+Generate insights covering ALL of these areas:
+1. PATTERN: Identify recurring issues by category or module (e.g., "Clientes module has 54% of all tickets")
+2. TREND: Compare volume trends, identify spikes or drops
+3. ALERT: Flag organizations or categories with unusually high ticket counts
+4. RECOMMENDATION: Suggest KB articles to create, processes to improve, or automations to set up
+5. ANOMALY: Detect unusual patterns (e.g., sudden increase in a specific type)
+6. PREDICTION: Based on current trends, predict what might happen next week
+
+Be SPECIFIC with real data — never generic. Always mention organization names, exact numbers, and percentages.
+Each insight MUST reference specific data points from the analysis.`,
       prompt: dataContext,
       temperature: 0.3,
       maxTokens: 1024,

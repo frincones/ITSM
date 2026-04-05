@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+
 import {
   AlertCircle,
   Clock,
@@ -8,6 +10,7 @@ import {
   Zap,
   Bot,
   Sparkles,
+  Building2,
 } from 'lucide-react';
 import {
   BarChart,
@@ -387,47 +390,48 @@ export function DashboardClient({ data }: DashboardClientProps) {
           <CardContent>
             <div className="space-y-3">
               {data.priorityTickets.map((ticket) => (
-                <div
+                <Link
                   key={ticket.id}
-                  className="flex cursor-pointer items-start gap-4 rounded-lg border border-gray-200 p-4 transition-all hover:border-gray-300 hover:shadow-sm dark:border-gray-700 dark:hover:border-gray-600"
+                  href={`/home/tickets/${ticket.ticketId}`}
+                  className="block"
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-1 flex items-center gap-2">
-                      <span className="text-xs font-medium text-gray-500">
-                        {ticket.id}
-                      </span>
-                      <Badge
-                        className={`border text-xs ${getPriorityColor(ticket.priority)}`}
-                      >
-                        {ticket.priority.charAt(0).toUpperCase() +
-                          ticket.priority.slice(1)}
-                      </Badge>
-                      <Badge
-                        className={`border text-xs ${getStatusColor(ticket.status)}`}
-                      >
-                        {ticket.status}
-                      </Badge>
-                    </div>
-                    <h4 className="mb-2 text-sm font-medium text-gray-900 dark:text-gray-100">
-                      {ticket.title}
-                    </h4>
-                    <div className="flex items-center gap-3 text-xs text-gray-500">
-                      <div className="flex items-center gap-1">
-                        <Avatar className="h-5 w-5">
-                          <AvatarFallback className="text-xs">
-                            {ticket.requester
-                              .split(' ')
-                              .map((n) => n[0])
-                              .join('')}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span>{ticket.requester}</span>
+                  <div className="flex cursor-pointer items-start gap-4 rounded-lg border border-gray-200 p-4 transition-all hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:hover:border-indigo-600">
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1 flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
+                          {ticket.id}
+                        </span>
+                        <Badge className={`border text-xs ${getPriorityColor(ticket.priority)}`}>
+                          {ticket.priority.charAt(0).toUpperCase() + ticket.priority.slice(1)}
+                        </Badge>
+                        <Badge className={`border text-xs ${getStatusColor(ticket.status)}`}>
+                          {ticket.status}
+                        </Badge>
+                        {ticket.orgName && (
+                          <Badge variant="outline" className="gap-1 border-purple-200 bg-purple-50 text-[10px] text-purple-700 dark:border-purple-800 dark:bg-purple-950 dark:text-purple-300">
+                            <Building2 className="h-3 w-3" />
+                            {ticket.orgName}
+                          </Badge>
+                        )}
                       </div>
-                      <span>&bull;</span>
-                      <span>{ticket.time}</span>
+                      <h4 className="mb-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {ticket.title}
+                      </h4>
+                      <div className="flex items-center gap-3 text-xs text-gray-500">
+                        <div className="flex items-center gap-1">
+                          <Avatar className="h-5 w-5">
+                            <AvatarFallback className="text-xs">
+                              {ticket.requester.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span>{ticket.requester}</span>
+                        </div>
+                        <span>&bull;</span>
+                        <span>{ticket.time}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           </CardContent>

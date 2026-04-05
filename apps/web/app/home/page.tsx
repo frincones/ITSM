@@ -32,11 +32,13 @@ export interface WeeklyDataPoint {
 
 export interface PriorityTicket {
   id: string;
+  ticketId: string;
   title: string;
   priority: 'critical' | 'high' | 'medium' | 'low';
   requester: string;
   time: string;
   status: string;
+  orgName: string | null;
 }
 
 export interface RecentActivityItem {
@@ -232,22 +234,22 @@ async function fetchDashboardData(orgId?: string | null): Promise<DashboardData>
       .gte('resolved_at', lastWeekStart.toISOString())
       .not('resolved_at', 'is', null)),
 
-    // Priority tickets: top critical/high open tickets
+    // Priority tickets: top critical/high open tickets + org name
     applyOrgFilter(client
       .from('tickets')
-      .select('id, ticket_number, title, urgency, status, created_at, requester_email')
+      .select('id, ticket_number, title, urgency, status, created_at, requester_email, organization_id, organization:organizations!tickets_organization_id_fkey(name)')
       .in('urgency', ['critical', 'high'])
       .in('status', ['new', 'assigned', 'in_progress', 'pending'])
       .order('priority', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(5)),
 
-    // Recent activity from audit_logs (NOT filtered by org — no org column)
+    // Recent activity: latest ticket updates (followups + status changes)
     client
-      .from('audit_logs')
-      .select('user_id, action, resource_type, resource_id, created_at')
-      .eq('resource_type', 'ticket')
-      .order('created_at', { ascending: false })
+      .from('tickets')
+      .select('id, ticket_number, title, status, updated_at, requester_email, assigned_agent_id')
+      .is('deleted_at', null)
+      .order('updated_at', { ascending: false })
       .limit(6),
 
     // SLA Health
@@ -343,22 +345,24 @@ async function fetchDashboardData(orgId?: string | null): Promise<DashboardData>
 
     return {
       id: t.ticket_number ?? `TKT-${t.id.slice(0, 4)}`,
+      ticketId: t.id,
       title: t.title,
       priority: (t.urgency ?? 'medium') as PriorityTicket['priority'],
       requester: t.requester_email ?? 'Unknown',
       time: getRelativeTime(t.created_at),
       status: statusMap[t.status] ?? t.status,
+      orgName: (t.organization as any)?.name ?? null,
     };
   });
 
   // ---------- Recent activity ----------
   const recentActivity: RecentActivityItem[] = (
     recentActivityResult.data ?? []
-  ).map((a) => ({
-    user: a.user_id ?? 'System',
-    action: a.action ?? 'updated',
-    ticket: `TKT-${a.resource_id?.slice(0, 4) ?? '0000'}`,
-    time: getRelativeTime(a.created_at),
+  ).map((t: any) => ({
+    user: t.requester_email ?? 'System',
+    action: `ticket ${t.status}`,
+    ticket: t.ticket_number ?? `TKT-${t.id?.slice(0, 4)}`,
+    time: getRelativeTime(t.updated_at ?? t.created_at),
   }));
 
   // ---------- SLA health percentages ----------
