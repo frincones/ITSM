@@ -75,8 +75,6 @@ export function PortalChat({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [portalUserEmail, setPortalUserEmail] = useState(userEmail ?? '');
-  const [portalUserName, setPortalUserName] = useState(userName ?? '');
   const [showEmailGate, setShowEmailGate] = useState(false);
   const [pendingTicketAction, setPendingTicketAction] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -85,6 +83,42 @@ export function PortalChat({
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Identity: localStorage > props > empty ──
+  const [portalUserEmail, setPortalUserEmail] = useState(() => {
+    if (userEmail) return userEmail;
+    if (typeof window !== 'undefined') return localStorage.getItem('portal_user_email') ?? '';
+    return '';
+  });
+  const [portalUserName, setPortalUserName] = useState(() => {
+    if (userName) return userName;
+    if (typeof window !== 'undefined') return localStorage.getItem('portal_user_name') ?? '';
+    return '';
+  });
+
+  // Show soft identification prompt if user is not identified and has no messages yet
+  const [showIdentifyPrompt, setShowIdentifyPrompt] = useState(!userEmail && !userName);
+
+  // Sync localStorage when identity changes
+  useEffect(() => {
+    if (portalUserEmail) {
+      localStorage.setItem('portal_user_email', portalUserEmail);
+      setShowIdentifyPrompt(false);
+    }
+    if (portalUserName) localStorage.setItem('portal_user_name', portalUserName);
+  }, [portalUserEmail, portalUserName]);
+
+  // On mount: re-check localStorage (SSR guard)
+  useEffect(() => {
+    if (!portalUserEmail) {
+      const stored = localStorage.getItem('portal_user_email');
+      if (stored) { setPortalUserEmail(stored); setShowIdentifyPrompt(false); }
+    }
+    if (!portalUserName) {
+      const stored = localStorage.getItem('portal_user_name');
+      if (stored) setPortalUserName(stored);
+    }
+  }, []);
 
   const accentColor = orgColors?.primary ?? '#4f46e5';
   const hasMessages = messages.length > 0;
@@ -345,11 +379,58 @@ export function PortalChat({
                 <h1 className="mb-2 text-center text-xl font-semibold text-gray-900 dark:text-gray-100">
                   Hola{portalUserName ? `, ${portalUserName}` : userName ? `, ${userName}` : ''}!
                 </h1>
-                <p className="mb-8 max-w-md text-center text-sm text-gray-500 dark:text-gray-400">
+                <p className="mb-6 max-w-md text-center text-sm text-gray-500 dark:text-gray-400">
                   Soy el asistente de soporte de{' '}
                   <span className="font-medium text-gray-700 dark:text-gray-300">{orgName}</span>.
                   En que puedo ayudarte?
                 </p>
+
+                {/* Soft identification prompt */}
+                {showIdentifyPrompt && !portalUserEmail && (
+                  <div className="mb-6 w-full max-w-sm rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 dark:border-indigo-900/50 dark:bg-indigo-950/20">
+                    <p className="mb-3 text-center text-xs font-medium text-indigo-700 dark:text-indigo-300">
+                      Para brindarte mejor soporte, identifícate:
+                    </p>
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        placeholder="Tu nombre"
+                        id="portal-identify-name"
+                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:border-indigo-300 focus:outline-none dark:border-gray-700 dark:bg-gray-800"
+                      />
+                      <input
+                        type="email"
+                        placeholder="tu@email.com"
+                        id="portal-identify-email"
+                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:border-indigo-300 focus:outline-none dark:border-gray-700 dark:bg-gray-800"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            const nameEl = document.getElementById('portal-identify-name') as HTMLInputElement;
+                            const emailEl = document.getElementById('portal-identify-email') as HTMLInputElement;
+                            const n = nameEl?.value?.trim();
+                            const e = emailEl?.value?.trim();
+                            if (n && e && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) {
+                              handleEmailIdentified(e, n);
+                              setShowIdentifyPrompt(false);
+                            }
+                          }}
+                          className="flex-1 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-medium text-white hover:bg-indigo-700"
+                        >
+                          Continuar
+                        </button>
+                        <button
+                          onClick={() => setShowIdentifyPrompt(false)}
+                          className="rounded-lg px-3 py-2 text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                        >
+                          Omitir
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="mb-8 w-full max-w-sm">
                   <QuickCategories onSetInput={handleSetInput} />
                 </div>

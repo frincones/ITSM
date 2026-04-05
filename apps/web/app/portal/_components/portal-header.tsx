@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
 import { BookOpen, TicketIcon, User } from 'lucide-react';
@@ -33,6 +34,16 @@ export function PortalHeader({
 }: PortalHeaderProps) {
   const accentColor = orgColors?.primary ?? '#4f46e5';
   const base = portalToken ? `/portal/${portalToken}` : '/portal';
+
+  // Read stored identity from localStorage (for anonymous portal users)
+  const [displayName, setDisplayName] = useState(userName ?? null);
+
+  useEffect(() => {
+    if (!displayName) {
+      const stored = localStorage.getItem('portal_user_name');
+      if (stored) setDisplayName(stored);
+    }
+  }, [displayName]);
 
   const initials = orgName
     .split(' ')
@@ -88,8 +99,8 @@ export function PortalHeader({
           <Avatar className="h-8 w-8">
             {userAvatar && <AvatarImage src={userAvatar} alt={userName ?? ''} />}
             <AvatarFallback className="bg-gray-100 text-xs font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-300">
-              {userName
-                ? userName
+              {displayName
+                ? displayName
                     .split(' ')
                     .map((w) => w[0])
                     .join('')
@@ -98,9 +109,9 @@ export function PortalHeader({
                 : <User className="h-4 w-4" />}
             </AvatarFallback>
           </Avatar>
-          {userName && (
+          {displayName && (
             <span className="hidden text-sm font-medium text-gray-700 dark:text-gray-300 md:block">
-              {userName}
+              {displayName}
             </span>
           )}
         </div>

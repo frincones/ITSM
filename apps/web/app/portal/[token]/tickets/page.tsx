@@ -74,22 +74,31 @@ export default async function PortalTicketsPage({
       </div>
 
       {!email ? (
-        <Card>
-          <CardContent className="p-6 text-center">
-            <AlertCircle className="mx-auto mb-3 h-8 w-8 text-gray-400" />
-            <p className="mb-2 text-sm text-gray-600">Para ver tus tickets, necesitamos tu email.</p>
-            <form className="mx-auto flex max-w-sm gap-2" method="get">
-              <input
-                name="email"
-                type="email"
-                placeholder="tu@email.com"
-                required
-                className="flex-1 rounded-lg border px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-              />
-              <Button type="submit" size="sm">Ver tickets</Button>
-            </form>
-          </CardContent>
-        </Card>
+        <>
+          {/* Client-side auto-redirect if email stored in localStorage */}
+          <script dangerouslySetInnerHTML={{ __html: `
+            (function() {
+              var e = localStorage.getItem('portal_user_email');
+              if (e) window.location.href = window.location.pathname + '?email=' + encodeURIComponent(e);
+            })();
+          `}} />
+          <Card>
+            <CardContent className="p-6 text-center">
+              <AlertCircle className="mx-auto mb-3 h-8 w-8 text-gray-400" />
+              <p className="mb-2 text-sm text-gray-600">Para ver tus tickets, necesitamos tu email.</p>
+              <form className="mx-auto flex max-w-sm gap-2" method="get">
+                <input
+                  name="email"
+                  type="email"
+                  placeholder="tu@email.com"
+                  required
+                  className="flex-1 rounded-lg border px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                />
+                <Button type="submit" size="sm">Ver tickets</Button>
+              </form>
+            </CardContent>
+          </Card>
+        </>
       ) : tickets.length === 0 ? (
         <Card>
           <CardContent className="p-6 text-center">

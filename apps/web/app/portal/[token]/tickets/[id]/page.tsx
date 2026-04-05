@@ -35,6 +35,12 @@ export default async function PortalTicketDetailPage({
     .eq('tenant_id', org.tenant_id)
     .single();
 
+  // Verify access: email must match requester_email (if provided)
+  const accessEmail = query.email ?? '';
+  if (ticket && accessEmail && ticket.requester_email && ticket.requester_email !== accessEmail) {
+    notFound(); // Don't show tickets belonging to other users
+  }
+
   if (!ticket) notFound();
 
   // Fetch followups

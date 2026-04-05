@@ -126,8 +126,8 @@ export default async function PortalPage({
       const { count } = await client
         .from('tickets')
         .select('id', { count: 'exact', head: true })
-        .eq('requester_id', user.id)
-        .in('status', ['open', 'in_progress', 'pending']);
+        .eq('requester_email', user.email)
+        .in('status', ['new', 'assigned', 'in_progress', 'pending', 'testing']);
 
       ticketCount = count ?? 0;
     }

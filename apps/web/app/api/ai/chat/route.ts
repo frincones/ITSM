@@ -186,6 +186,21 @@ Return ONLY valid JSON.`,
             .single();
 
           if (ticket) {
+            // Auto-create organization_user if email provided and org known
+            if (portalUserEmail && orgId && tenantId) {
+              try {
+                const { data: existing } = await svc.from('organization_users')
+                  .select('id').eq('email', portalUserEmail).eq('organization_id', orgId).maybeSingle();
+                if (!existing) {
+                  await svc.from('organization_users').insert({
+                    tenant_id: tenantId, organization_id: orgId,
+                    name: portalUserName || portalUserEmail.split('@')[0] || 'Portal User',
+                    email: portalUserEmail, role: 'user', is_active: true,
+                  });
+                }
+              } catch { /* non-critical */ }
+            }
+
             ticketCreated = {
               ticketId: ticket.id,
               ticketNumber: ticket.ticket_number,
