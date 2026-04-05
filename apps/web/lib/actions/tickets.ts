@@ -48,7 +48,7 @@ async function requireAgent(client: ReturnType<typeof getSupabaseServerClient>) 
 
   const { data: agent } = await client
     .from('agents')
-    .select('id, tenant_id, role')
+    .select('id, tenant_id, role, name, email')
     .eq('user_id', user.id)
     .single();
 
