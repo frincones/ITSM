@@ -128,18 +128,23 @@ export async function notifyInApp(
 //  Email via Resend (HTML)
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function notifyEmail(to: string, subject: string, html: string) {
+export async function notifyEmail(to: string, subject: string, html: string, replyTo?: string) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) { console.warn('[Notify] RESEND_API_KEY not set'); return; }
 
   try {
+    const payload: Record<string, unknown> = {
+      from: 'NovaDesk ITSM <notifications@itsm.tdxcore.com>',
+      to: [to], subject, html,
+    };
+    // Add reply_to so email replies route back to Resend inbound → our webhook
+    // Default: all emails reply to support@itsm.tdxcore.com (Resend inbound)
+    payload.reply_to = [replyTo ?? 'support@itsm.tdxcore.com'];
+
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: 'NovaDesk ITSM <notifications@itsm.tdxcore.com>',
-        to: [to], subject, html,
-      }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) console.error('[Notify] Email failed:', res.status, await res.text());
   } catch (err) { console.error('[Notify] Email error:', err); }
