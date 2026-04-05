@@ -187,7 +187,7 @@ Return ONLY valid JSON.`,
 
             // Link conversation to ticket
             if (persistedConversationId) {
-              await svc.from('inbox_conversations').update({ ticket_id: ticket.id }).eq('id', persistedConversationId).catch(() => {});
+              try { await svc.from('inbox_conversations').update({ ticket_id: ticket.id }).eq('id', persistedConversationId); } catch { /* optional */ }
             }
 
             // Save attachments to ticket
@@ -200,7 +200,7 @@ Return ONLY valid JSON.`,
                 file_type: a.fileType,
                 uploaded_by: user?.id || null,
               }));
-              await svc.from('ticket_attachments').insert(attachRows).catch(() => {});
+              try { await svc.from('ticket_attachments').insert(attachRows); } catch { /* optional */ }
             }
           } else {
             console.error('[AI Chat Portal] Ticket creation failed:', ticketError?.message);
@@ -212,14 +212,16 @@ Return ONLY valid JSON.`,
 
         // Persist AI response
         if (persistedConversationId && tenantId) {
-          await svc.from('inbox_messages').insert({
-            tenant_id: tenantId,
-            conversation_id: persistedConversationId,
-            direction: 'outbound',
-            sender_type: 'ai_agent',
-            content_text: responseText,
-            metadata: ticketCreated ? { ticketCreated } : {},
-          }).catch(() => {});
+          try {
+            await svc.from('inbox_messages').insert({
+              tenant_id: tenantId,
+              conversation_id: persistedConversationId,
+              direction: 'outbound',
+              sender_type: 'ai_agent',
+              content_text: responseText,
+              metadata: ticketCreated ? { ticketCreated } : {},
+            });
+          } catch { /* optional */ }
         }
 
         return Response.json({ text: responseText, articles, ticketCreated, conversationId: persistedConversationId });
@@ -263,8 +265,30 @@ Return ONLY valid JSON.`,
         try {
           const { data: orgRow } = await svc.from('organizations').select('tenant_id').eq('id', orgId).single();
           if (orgRow) {
+            // Find or create a portal AI channel for this tenant
+            let channelId: string | null = null;
+            const { data: ch } = await svc.from('inbox_channels')
+              .select('id')
+              .eq('tenant_id', orgRow.tenant_id)
+              .eq('name', 'Portal AI Chat')
+              .maybeSingle();
+            channelId = ch?.id ?? null;
+
+            if (!channelId) {
+              const { data: newCh } = await svc.from('inbox_channels').insert({
+                tenant_id: orgRow.tenant_id,
+                channel_type: 'web_widget',
+                name: 'Portal AI Chat',
+                is_active: true,
+                ai_processing: true,
+              }).select('id').single();
+              channelId = newCh?.id ?? null;
+            }
+
             const { data: conv } = await svc.from('inbox_conversations').insert({
               tenant_id: orgRow.tenant_id,
+              channel_id: channelId,
+              organization_id: orgId,
               status: 'open',
               subject: lastUserMsg.slice(0, 100),
               last_message_at: new Date().toISOString(),

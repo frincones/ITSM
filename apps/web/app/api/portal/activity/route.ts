@@ -35,8 +35,19 @@ export async function POST(req: NextRequest) {
     const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null;
     const userAgent = req.headers.get('user-agent') ?? null;
 
-    const rows = events.map((e) => ({
-      tenant_id: e.tenant_id,
+    // Resolve tenant_id from organization_id if not provided
+    const orgIds = [...new Set(events.map(e => e.organization_id).filter(Boolean))];
+    const tenantMap = new Map<string, string>();
+
+    for (const oid of orgIds) {
+      const { data: org } = await supabase.from('organizations').select('tenant_id').eq('id', oid).maybeSingle();
+      if (org?.tenant_id) tenantMap.set(oid, org.tenant_id);
+    }
+
+    const rows = events
+      .filter(e => tenantMap.has(e.organization_id)) // skip events with unknown orgs
+      .map((e) => ({
+      tenant_id: tenantMap.get(e.organization_id)!,
       organization_id: e.organization_id,
       session_id: e.session_id,
       user_email: e.user_email || null,

@@ -35,11 +35,12 @@ export default async function PortalKBArticlePage({
 
   if (!article) notFound();
 
-  // Increment view count
-  await svc.from('kb_articles')
-    .update({ view_count: (article.view_count ?? 0) + 1 })
-    .eq('id', article.id)
-    .catch(() => {});
+  // Increment view count (fire-and-forget)
+  try {
+    await svc.from('kb_articles')
+      .update({ view_count: (article.view_count ?? 0) + 1 })
+      .eq('id', article.id);
+  } catch { /* non-critical */ }
 
   // Fetch related articles (same category)
   const { data: related } = await svc
