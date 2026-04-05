@@ -96,6 +96,36 @@ export default async function TicketDetailPage({
     requester = data;
   }
 
+  // ---------- Portal conversation (chat history) ----------
+  let portalConversation: any[] = [];
+  const { data: conversations } = await client
+    .from('inbox_conversations')
+    .select('id')
+    .eq('ticket_id', id)
+    .limit(1);
+
+  if (conversations?.[0]?.id) {
+    const { data: msgs } = await client
+      .from('inbox_messages')
+      .select('id, direction, sender_type, content_text, attachments, metadata, created_at')
+      .eq('conversation_id', conversations[0].id)
+      .order('created_at', { ascending: true });
+    portalConversation = msgs ?? [];
+  }
+
+  // ---------- Portal activity log ----------
+  let portalActivity: any[] = [];
+  if (ticket.requester_email) {
+    const { data: activity } = await client
+      .from('portal_activity_log')
+      .select('id, event_type, event_data, page_url, created_at, session_id')
+      .eq('organization_id', ticket.organization_id)
+      .eq('user_email', ticket.requester_email)
+      .order('created_at', { ascending: true })
+      .limit(100);
+    portalActivity = activity ?? [];
+  }
+
   console.log('[TicketDetail] Resolved relations:', {
     assignedAgent: assignedAgent?.name ?? null,
     assignedGroup: assignedGroup?.name ?? null,
@@ -159,6 +189,8 @@ export default async function TicketDetailPage({
       groups={groupsResult.data ?? []}
       categories={categoriesResult.data ?? []}
       organizations={organizationsResult.data ?? []}
+      portalConversation={portalConversation}
+      portalActivity={portalActivity}
     />
   );
 }

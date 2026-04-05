@@ -61,7 +61,9 @@ import {
   type TimelineAttachment,
 } from './ticket-timeline';
 import { ReplyComposer } from './reply-composer';
-import { Bot, Sparkles, Lightbulb } from 'lucide-react';
+import { PortalConversationTab } from './portal-conversation-tab';
+import { PortalActivityTab } from './portal-activity-tab';
+import { Bot, Sparkles, Lightbulb, MessageCircle, Activity } from 'lucide-react';
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                      */
@@ -138,6 +140,8 @@ interface TicketDetailClientProps {
   groups: Group[];
   categories: Category[];
   organizations?: Organization[];
+  portalConversation?: any[];
+  portalActivity?: any[];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -197,9 +201,12 @@ export function TicketDetailClient({
   groups,
   categories,
   organizations = [],
+  portalConversation = [],
+  portalActivity = [],
 }: TicketDetailClientProps) {
   const [isPending, startTransition] = useTransition();
   const [currentStatus, setCurrentStatus] = useState(ticket.status);
+  const [activeContentTab, setActiveContentTab] = useState<'timeline' | 'conversation' | 'activity'>('timeline');
 
   // ---- Handlers ----
 
@@ -397,22 +404,70 @@ export function TicketDetailClient({
           </div>
         </div>
 
-        {/* Timeline */}
+        {/* Content tabs: Timeline / Portal Chat / Activity */}
+        <div className="flex items-center gap-1 border-b px-6 pt-2">
+          <button
+            onClick={() => setActiveContentTab('timeline')}
+            className={`flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
+              activeContentTab === 'timeline'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Clock className="h-3.5 w-3.5" />
+            Historial
+          </button>
+          {portalConversation.length > 0 && (
+            <button
+              onClick={() => setActiveContentTab('conversation')}
+              className={`flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
+                activeContentTab === 'conversation'
+                  ? 'border-indigo-600 text-indigo-600'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <MessageCircle className="h-3.5 w-3.5" />
+              Chat Portal ({portalConversation.length})
+            </button>
+          )}
+          {portalActivity.length > 0 && (
+            <button
+              onClick={() => setActiveContentTab('activity')}
+              className={`flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
+                activeContentTab === 'activity'
+                  ? 'border-indigo-600 text-indigo-600'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Activity className="h-3.5 w-3.5" />
+              Actividad Portal ({portalActivity.length})
+            </button>
+          )}
+        </div>
+
         <ScrollArea className="flex-1 p-6">
           <div className="mx-auto max-w-4xl">
-            <TicketTimeline
-              ticketCreatedAt={ticket.created_at}
-              ticketCreatedBy={requester?.name ?? ticket.requester_email ?? undefined}
-              followups={followups}
-              tasks={tasks}
-              solutions={solutions}
-              attachments={attachments}
-              agentMap={Object.fromEntries(
-                agents
-                  .filter((a: any) => a.user_id)
-                  .map((a: any) => [a.user_id, { name: a.name, avatar_url: a.avatar_url }])
-              )}
-            />
+            {activeContentTab === 'timeline' && (
+              <TicketTimeline
+                ticketCreatedAt={ticket.created_at}
+                ticketCreatedBy={requester?.name ?? ticket.requester_email ?? undefined}
+                followups={followups}
+                tasks={tasks}
+                solutions={solutions}
+                attachments={attachments}
+                agentMap={Object.fromEntries(
+                  agents
+                    .filter((a: any) => a.user_id)
+                    .map((a: any) => [a.user_id, { name: a.name, avatar_url: a.avatar_url }])
+                )}
+              />
+            )}
+            {activeContentTab === 'conversation' && (
+              <PortalConversationTab messages={portalConversation} />
+            )}
+            {activeContentTab === 'activity' && (
+              <PortalActivityTab events={portalActivity} />
+            )}
           </div>
         </ScrollArea>
 

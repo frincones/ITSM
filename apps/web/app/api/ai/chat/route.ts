@@ -1,37 +1,46 @@
 import { NextRequest } from 'next/server';
 
 import { openai } from '@ai-sdk/openai';
+import { createClient } from '@supabase/supabase-js';
 
 import { getSupabaseServerClient } from '@kit/supabase/server-client';
 
 /* -------------------------------------------------------------------------- */
-/*  POST /api/ai/chat — Streaming AI Chat                                     */
+/*  Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
+
+function getServiceClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } },
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  POST /api/ai/chat — AI Chat (Portal + Internal)                            */
 /* -------------------------------------------------------------------------- */
 
 export async function POST(req: NextRequest) {
-  // ── Auth ──────────────────────────────────────────────────────────────────
+  // ── Auth (optional for portal) ───────────────────────────────────────────
   const client = getSupabaseServerClient();
-  const {
-    data: { user },
-    error: authError,
-  } = await client.auth.getUser();
-
-  if (authError || !user) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
+  const { data: { user } } = await client.auth.getUser();
 
   // ── Parse body ────────────────────────────────────────────────────────────
   const body = await req.json();
 
-  // ── Portal Mode (with tools) ─────────────────────────────────────────────
+  // ── Portal Mode ──────────────────────────────────────────────────────────
   if (body.portalContext) {
-    const { orgId, orgName, userName } = body.portalContext as {
+    const {
+      orgId, orgName, userName: portalUserName, userEmail: portalUserEmail,
+      conversationId, attachments,
+    } = body.portalContext as {
       orgId?: string;
       orgName?: string;
       userName?: string;
+      userEmail?: string;
+      conversationId?: string;
+      attachments?: Array<{ path: string; fileName: string; fileType: string }>;
     };
 
     const portalMessages = body.messages as Array<{
@@ -39,90 +48,87 @@ export async function POST(req: NextRequest) {
       content: string;
     }>;
 
-    if (
-      !portalMessages ||
-      !Array.isArray(portalMessages) ||
-      portalMessages.length === 0
-    ) {
-      return Response.json(
-        { error: 'messages array is required' },
-        { status: 400 },
-      );
+    if (!portalMessages?.length) {
+      return Response.json({ error: 'messages required' }, { status: 400 });
     }
 
-    // Detect if user wants to create a ticket
     const lastUserMsg = portalMessages.filter(m => m.role === 'user').pop()?.content ?? '';
     const wantsTicket = /crear\s*ticket|no\s*se\s*resolvi|no\s*resol|abrir\s*caso|necesito\s*ticket|crear\s*caso|escalar/i.test(lastUserMsg);
 
-    // Fetch AI context for this organization (if configured)
+    // Fetch AI context
     let aiContext = '';
+    const svc = getServiceClient();
+
     if (orgId) {
       try {
-        const { data: orgData } = await client
+        const { data: orgData } = await svc
           .from('organizations')
           .select('ai_context')
           .eq('id', orgId)
           .maybeSingle();
         aiContext = orgData?.ai_context ?? '';
-      } catch { /* optional — chat works without context */ }
+      } catch { /* optional */ }
     }
 
     const portalSystemPrompt = `You are the AI support assistant for ${orgName ?? 'the organization'}.
 You help employees resolve IT issues. You speak in Spanish by default.
 
-Your capabilities:
-1. Search the knowledge base for relevant articles
-2. Create support tickets when you cannot resolve the issue
-
 Rules:
 - Always try to help first before creating a ticket
-- When searching KB, cite the article title and provide the link
-- When creating a ticket, include all conversation context
 - Be friendly, professional, and concise
-- If the user confirms the issue is resolved, congratulate them
-- If the user says it's not resolved after 2-3 attempts, offer to create a ticket
+- If the user says it's not resolved, offer to create a ticket
 - Classify tickets as: incident, request, warranty, support, or backlog
 - Detect urgency from context (low, medium, high, critical)
 ${aiContext ? `
 ## Application Context for ${orgName}
 ${aiContext}
 
-## Classification Rules (based on context above)
-- If the user reports something that DOES work according to the context → type: support (user doesn't know how to use it, guide them)
-- If the user reports something that SHOULD work but DOESN'T → type: incident (something is broken)
-- If it's a hardware/software defect under contract → type: warranty
-- If the user asks for something that DOESN'T EXIST in the context → type: backlog (feature request)
-- If the user asks for a standard change (access, installation, configuration) → type: request
-- IMPORTANT: Only answer based on the context above and KB articles. If unsure, say so honestly.` : ''}`;
-
+## Classification Rules
+- Feature works but user is confused → support
+- Feature should work but doesn't → incident
+- Hardware/software defect under contract → warranty
+- Feature doesn't exist → backlog
+- Standard change (access, install, config) → request
+- Only answer based on the context above. If unsure, say so.` : ''}`;
 
     try {
       const { generateText } = await import('ai');
       let articles: any[] = [];
       let ticketCreated: any = null;
       let responseText = '';
+      let persistedConversationId = conversationId;
 
-      // ── Ticket Creation Flow ──────────────────────────────────────────
+      // ── Persist user message ─────────────────────────────────────────
+      if (orgId && persistedConversationId) {
+        try {
+          await svc.from('inbox_messages').insert({
+            tenant_id: (await svc.from('organizations').select('tenant_id').eq('id', orgId).single()).data?.tenant_id,
+            conversation_id: persistedConversationId,
+            direction: 'inbound',
+            sender_type: 'contact',
+            content_text: lastUserMsg,
+            metadata: attachments?.length ? { attachments } : {},
+          });
+        } catch { /* persistence is optional */ }
+      }
+
+      // ── Ticket Creation Flow ─────────────────────────────────────────
       if (wantsTicket) {
-        // Step 1: Ask AI to classify the conversation into ticket fields (JSON only)
         const conversationSummary = portalMessages
           .map(m => `${m.role === 'user' ? 'Usuario' : 'Asistente'}: ${m.content}`)
           .join('\n');
 
+        // Classify
         const classifyResult = await generateText({
           model: openai('gpt-4o-mini'),
-          system: `You are a ticket classifier. Analyze the conversation and return ONLY a JSON object with these fields:
-- title: brief summary of the issue (max 100 chars, in Spanish)
-- description: detailed description including all context from the conversation (in Spanish)
-- type: one of "incident", "request", "warranty", "support", "backlog"
-- urgency: one of "low", "medium", "high", "critical"
-Return ONLY valid JSON, no markdown, no explanation.`,
+          system: `You are a ticket classifier. Analyze the conversation and return ONLY a JSON object:
+{ "title": "brief summary (Spanish, max 100 chars)", "description": "detailed description (Spanish)", "type": "incident|request|warranty|support|backlog", "urgency": "low|medium|high|critical" }
+Return ONLY valid JSON.`,
           messages: [{ role: 'user', content: conversationSummary }],
           temperature: 0.2,
           maxTokens: 512,
         });
 
-        // Parse the classification
         let ticketTitle = 'Solicitud de soporte desde portal';
         let ticketDesc = conversationSummary;
         let ticketType = 'request';
@@ -135,32 +141,22 @@ Return ONLY valid JSON, no markdown, no explanation.`,
           ticketDesc = (parsed.description ?? ticketDesc).slice(0, 10000);
           ticketType = ['incident', 'request', 'warranty', 'support', 'backlog'].includes(parsed.type) ? parsed.type : 'request';
           ticketUrgency = ['low', 'medium', 'high', 'critical'].includes(parsed.urgency) ? parsed.urgency : 'medium';
-        } catch { /* use defaults */ }
+        } catch { /* defaults */ }
 
-        // Step 2: Resolve tenant_id (try agent first, fall back to org)
+        // Resolve tenant_id
         let tenantId: string | undefined;
-
-        const { data: agent } = await client
-          .from('agents')
-          .select('id, tenant_id')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        tenantId = agent?.tenant_id;
-
-        // If user is not an agent, resolve tenant_id from the organization
+        if (user) {
+          const { data: agent } = await client.from('agents').select('tenant_id').eq('user_id', user.id).maybeSingle();
+          tenantId = agent?.tenant_id;
+        }
         if (!tenantId && orgId) {
-          const { data: orgRow } = await client
-            .from('organizations')
-            .select('tenant_id')
-            .eq('id', orgId)
-            .maybeSingle();
+          const { data: orgRow } = await svc.from('organizations').select('tenant_id').eq('id', orgId).maybeSingle();
           tenantId = orgRow?.tenant_id;
         }
 
-        // Step 3: Create the ticket in Supabase
         if (tenantId) {
-          const { data: ticket, error: ticketError } = await client
+          // Create ticket
+          const { data: ticket, error: ticketError } = await svc
             .from('tickets')
             .insert({
               title: ticketTitle,
@@ -171,8 +167,8 @@ Return ONLY valid JSON, no markdown, no explanation.`,
               channel: 'portal',
               tenant_id: tenantId,
               organization_id: orgId || null,
-              requester_email: user.email ?? null,
-              created_by: user.id,
+              requester_email: portalUserEmail || user?.email || null,
+              created_by: user?.id || null,
             })
             .select('id, ticket_number, title, type, urgency')
             .single();
@@ -188,94 +184,165 @@ Return ONLY valid JSON, no markdown, no explanation.`,
             responseText = `He creado el ticket de soporte **${ticket.ticket_number}** con el título "${ticket.title}". ` +
               `Nuestro equipo lo revisará y te contactará pronto. ` +
               `Puedes hacer seguimiento desde la sección "Mis Tickets" en el portal.`;
+
+            // Link conversation to ticket
+            if (persistedConversationId) {
+              await svc.from('inbox_conversations').update({ ticket_id: ticket.id }).eq('id', persistedConversationId).catch(() => {});
+            }
+
+            // Save attachments to ticket
+            if (attachments?.length) {
+              const attachRows = attachments.map(a => ({
+                tenant_id: tenantId!,
+                ticket_id: ticket.id,
+                file_name: a.fileName,
+                file_url: a.path,
+                file_type: a.fileType,
+                uploaded_by: user?.id || null,
+              }));
+              await svc.from('ticket_attachments').insert(attachRows).catch(() => {});
+            }
           } else {
-            console.error('[AI Chat Portal] Ticket creation failed:', ticketError?.message, ticketError?.details, ticketError?.hint);
+            console.error('[AI Chat Portal] Ticket creation failed:', ticketError?.message);
             responseText = `Intenté crear el ticket pero hubo un error: ${ticketError?.message ?? 'desconocido'}. Por favor intenta de nuevo.`;
           }
         } else {
-          responseText = 'No se pudo identificar tu organización para crear el ticket. Por favor contacta al soporte directamente.';
+          responseText = 'No se pudo identificar tu organización para crear el ticket.';
         }
 
-        return Response.json({ text: responseText, articles, ticketCreated });
+        // Persist AI response
+        if (persistedConversationId && tenantId) {
+          await svc.from('inbox_messages').insert({
+            tenant_id: tenantId,
+            conversation_id: persistedConversationId,
+            direction: 'outbound',
+            sender_type: 'ai_agent',
+            content_text: responseText,
+            metadata: ticketCreated ? { ticketCreated } : {},
+          }).catch(() => {});
+        }
+
+        return Response.json({ text: responseText, articles, ticketCreated, conversationId: persistedConversationId });
       }
 
-      // ── Normal Chat Flow ──────────────────────────────────────────────
-      // Pre-search KB for context (before AI call)
+      // ── Normal Chat Flow ─────────────────────────────────────────────
+      // KB search
       const searchTerms = lastUserMsg.split(' ').filter((w: string) => w.length > 3).slice(0, 4);
       let kbContext = '';
 
       if (searchTerms.length > 0) {
         try {
-          const { data: kbResults } = await client
+          const { data: kbResults } = await svc
             .from('kb_articles')
             .select('id, title, slug, content_markdown')
             .eq('status', 'published')
             .or(searchTerms.map((t: string) => `title.ilike.%${t}%`).join(','))
             .limit(3);
 
-          if (kbResults && kbResults.length > 0) {
+          if (kbResults?.length) {
             articles = kbResults.map((a: any) => ({
-              id: a.id,
-              title: a.title,
-              slug: a.slug,
+              id: a.id, title: a.title, slug: a.slug,
               preview: (a.content_markdown ?? '').slice(0, 200),
             }));
-            kbContext = '\n\nArtículos relevantes encontrados en la base de conocimiento:\n' +
+            kbContext = '\n\nArtículos relevantes de la KB:\n' +
               kbResults.map((a: any, i: number) => `${i + 1}. "${a.title}": ${(a.content_markdown ?? '').slice(0, 300)}`).join('\n');
           }
-        } catch { /* KB search optional */ }
+        } catch { /* optional */ }
       }
-
-      const fullSystemPrompt = portalSystemPrompt + kbContext;
 
       const result = await generateText({
         model: openai('gpt-4o-mini'),
-        system: fullSystemPrompt,
+        system: portalSystemPrompt + kbContext,
         messages: portalMessages,
         temperature: 0.4,
         maxTokens: 1024,
       });
 
+      // Create conversation if first message
+      if (orgId && !persistedConversationId) {
+        try {
+          const { data: orgRow } = await svc.from('organizations').select('tenant_id').eq('id', orgId).single();
+          if (orgRow) {
+            const { data: conv } = await svc.from('inbox_conversations').insert({
+              tenant_id: orgRow.tenant_id,
+              status: 'open',
+              subject: lastUserMsg.slice(0, 100),
+              last_message_at: new Date().toISOString(),
+              metadata: {
+                portal_org_id: orgId,
+                portal_user_email: portalUserEmail,
+                portal_user_name: portalUserName,
+              },
+            }).select('id').single();
+
+            persistedConversationId = conv?.id;
+
+            // Save the user message
+            if (persistedConversationId) {
+              await svc.from('inbox_messages').insert({
+                tenant_id: orgRow.tenant_id,
+                conversation_id: persistedConversationId,
+                direction: 'inbound',
+                sender_type: 'contact',
+                content_text: lastUserMsg,
+              });
+            }
+          }
+        } catch { /* optional */ }
+      }
+
+      // Persist AI response
+      if (persistedConversationId) {
+        try {
+          const { data: orgRow } = await svc.from('organizations').select('tenant_id').eq('id', orgId!).single();
+          if (orgRow) {
+            await svc.from('inbox_messages').insert({
+              tenant_id: orgRow.tenant_id,
+              conversation_id: persistedConversationId,
+              direction: 'outbound',
+              sender_type: 'ai_agent',
+              content_text: result.text,
+              metadata: articles.length ? { articles } : {},
+            });
+            await svc.from('inbox_conversations').update({
+              last_message_at: new Date().toISOString(),
+            }).eq('id', persistedConversationId);
+          }
+        } catch { /* optional */ }
+      }
+
       return Response.json({
         text: result.text,
         articles,
         ticketCreated: null,
+        conversationId: persistedConversationId,
       });
     } catch (err) {
       console.error('[AI Chat Portal] Error:', err);
-
       return Response.json(
-        {
-          error: 'AI portal chat failed',
-          details: err instanceof Error ? err.message : 'Unknown',
-        },
+        { error: 'AI portal chat failed', details: err instanceof Error ? err.message : 'Unknown' },
         { status: 500 },
       );
     }
   }
 
   // ── Internal Mode (UNCHANGED) ─────────────────────────────────────────────
+  if (!user) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const { messages, ticketContext } = body as {
     messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
     ticketContext?: {
-      ticketId?: string;
-      title?: string;
-      description?: string;
-      status?: string;
-      type?: string;
-      urgency?: string;
-      category?: string;
+      ticketId?: string; title?: string; description?: string;
+      status?: string; type?: string; urgency?: string; category?: string;
     };
   };
 
-  if (!messages || !Array.isArray(messages) || messages.length === 0) {
-    return new Response(
-      JSON.stringify({ error: 'messages array is required' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } },
-    );
+  if (!messages?.length) {
+    return Response.json({ error: 'messages required' }, { status: 400 });
   }
 
-  // ── Build system prompt ───────────────────────────────────────────────────
   let systemPrompt =
     'You are NovaDesk AI, an intelligent ITSM assistant. ' +
     'You help IT service desk agents resolve tickets, suggest solutions, ' +
@@ -283,18 +350,9 @@ Return ONLY valid JSON, no markdown, no explanation.`,
     'Keep responses concise, actionable, and professional.';
 
   if (ticketContext) {
-    systemPrompt +=
-      '\n\nCurrent ticket context:\n' +
-      `- Ticket ID: ${ticketContext.ticketId ?? 'N/A'}\n` +
-      `- Title: ${ticketContext.title ?? 'N/A'}\n` +
-      `- Description: ${ticketContext.description ?? 'N/A'}\n` +
-      `- Status: ${ticketContext.status ?? 'N/A'}\n` +
-      `- Type: ${ticketContext.type ?? 'N/A'}\n` +
-      `- Urgency: ${ticketContext.urgency ?? 'N/A'}\n` +
-      `- Category: ${ticketContext.category ?? 'N/A'}`;
+    systemPrompt += `\n\nCurrent ticket:\n- Title: ${ticketContext.title ?? 'N/A'}\n- Description: ${ticketContext.description ?? 'N/A'}\n- Status: ${ticketContext.status ?? 'N/A'}\n- Type: ${ticketContext.type ?? 'N/A'}\n- Urgency: ${ticketContext.urgency ?? 'N/A'}`;
   }
 
-  // ── Generate response (non-streaming for reliability) ─────────────────────
   try {
     const { generateText } = await import('ai');
     const result = await generateText({
@@ -311,9 +369,9 @@ Return ONLY valid JSON, no markdown, no explanation.`,
     });
   } catch (err) {
     console.error('[AI Chat] Error:', err);
-    return new Response(
-      JSON.stringify({ error: 'AI chat failed', details: err instanceof Error ? err.message : 'Unknown' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } },
+    return Response.json(
+      { error: 'AI chat failed', details: err instanceof Error ? err.message : 'Unknown' },
+      { status: 500 },
     );
   }
 }
