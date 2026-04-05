@@ -1,287 +1,199 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
+
 import {
-  Calendar,
-  Download,
-  TrendingUp,
-  Clock,
-  CheckCircle2,
-  Users,
+  BarChart3, TrendingUp, TrendingDown, Clock, CheckCircle,
+  AlertTriangle, Users, FolderOpen, Building2, Download,
+  Filter, Activity,
 } from 'lucide-react';
 import {
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  PieChart,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
+  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+  ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Legend,
 } from 'recharts';
 
+import { Badge } from '@kit/ui/badge';
 import { Button } from '@kit/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@kit/ui/card';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@kit/ui/select';
+
+import type { ReportDashboard } from '~/lib/services/metrics.service';
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                      */
 /* -------------------------------------------------------------------------- */
 
 interface ReportsClientProps {
-  totalTickets: number;
-  ticketsByPriority: Array<{ priority: string | null }>;
-  ticketsByCategory: Array<{ category: { name: string } | null }>;
-  agents: Array<{ id: string; name: string; avatar_url: string | null }>;
+  dashboard: ReportDashboard | null;
+  organizations: Array<{ id: string; name: string }>;
+  selectedOrg: string | null;
+  dateFrom: string;
+  dateTo: string;
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Mock data (used alongside server data for charts)                          */
+/*  Colors                                                                     */
 /* -------------------------------------------------------------------------- */
 
-const monthlyData = [
-  { month: 'Jan', created: 245, resolved: 230, slaCompliance: 92 },
-  { month: 'Feb', created: 268, resolved: 255, slaCompliance: 89 },
-  { month: 'Mar', created: 290, resolved: 285, slaCompliance: 94 },
-  { month: 'Apr', created: 312, resolved: 298, slaCompliance: 91 },
-  { month: 'May', created: 298, resolved: 305, slaCompliance: 93 },
-  { month: 'Jun', created: 276, resolved: 280, slaCompliance: 95 },
-];
-
-const PRIORITY_COLORS: Record<string, string> = {
-  critical: '#ef4444',
-  high: '#f97316',
-  medium: '#eab308',
-  low: '#22c55e',
+const STATUS_COLORS: Record<string, string> = {
+  new: '#3b82f6', assigned: '#06b6d4', in_progress: '#f59e0b',
+  pending: '#f97316', testing: '#8b5cf6', resolved: '#22c55e',
+  closed: '#6b7280', cancelled: '#ef4444',
 };
 
-const agentPerformance = [
-  { agent: 'John Doe', resolved: 87, avgTime: '3.2h', satisfaction: 4.8 },
-  { agent: 'Lisa Wang', resolved: 92, avgTime: '2.8h', satisfaction: 4.9 },
-  { agent: 'Tom Harris', resolved: 76, avgTime: '3.5h', satisfaction: 4.6 },
-  { agent: 'Sarah Miller', resolved: 81, avgTime: '3.1h', satisfaction: 4.7 },
-];
+const TYPE_COLORS: Record<string, string> = {
+  support: '#3b82f6', incident: '#ef4444', backlog: '#8b5cf6',
+  request: '#06b6d4', warranty: '#f59e0b',
+};
+
+const URGENCY_COLORS: Record<string, string> = {
+  critical: '#ef4444', high: '#f97316', medium: '#f59e0b', low: '#22c55e',
+};
+
+const CHART_COLORS = ['#6366f1', '#8b5cf6', '#06b6d4', '#22c55e', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6', '#f97316', '#6b7280'];
 
 /* -------------------------------------------------------------------------- */
 /*  Component                                                                  */
 /* -------------------------------------------------------------------------- */
 
 export function ReportsClient({
-  totalTickets,
-  ticketsByPriority,
-  ticketsByCategory,
-  agents,
+  dashboard,
+  organizations,
+  selectedOrg,
+  dateFrom,
+  dateTo,
 }: ReportsClientProps) {
-  const [dateRange, setDateRange] = useState('6months');
+  const router = useRouter();
 
-  // Compute priority distribution from server data
-  const priorityData = useMemo(() => {
-    const counts: Record<string, number> = {};
-    ticketsByPriority.forEach((t) => {
-      const p = t.priority ?? 'unknown';
-      counts[p] = (counts[p] ?? 0) + 1;
-    });
-    return Object.entries(counts).map(([name, value]) => ({
-      name: name.charAt(0).toUpperCase() + name.slice(1),
-      value,
-      color: PRIORITY_COLORS[name] ?? '#94a3b8',
-    }));
-  }, [ticketsByPriority]);
+  const d = dashboard ?? {
+    totalTickets: 0, openTickets: 0, closedTickets: 0,
+    avgResolutionMinutes: null,
+    slaCompliance: { rate: 0, met: 0, breached: 0, total: 0 },
+    byStatus: [], byType: [], byCategory: [], byUrgency: [],
+    byAgent: [], byOrganization: [], dailyTrend: [], gestionSoporte: [],
+  };
 
-  // Compute category distribution from server data
-  const categoryData = useMemo(() => {
-    const counts: Record<string, number> = {};
-    ticketsByCategory.forEach((t) => {
-      const cat = t.category?.name ?? 'Uncategorized';
-      counts[cat] = (counts[cat] ?? 0) + 1;
-    });
-    return Object.entries(counts)
-      .map(([category, tickets]) => ({ category, tickets }))
-      .sort((a, b) => b.tickets - a.tickets)
-      .slice(0, 8);
-  }, [ticketsByCategory]);
+  const handleOrgChange = (val: string) => {
+    const p = new URLSearchParams();
+    if (val !== 'all') p.set('org', val);
+    p.set('from', dateFrom);
+    p.set('to', dateTo);
+    router.push(`/home/reports?${p.toString()}`);
+  };
 
-  // Use real agent data if available, otherwise mock
-  const performanceData = agents.length > 0
-    ? agents.slice(0, 6).map((a, i) => ({
-        agent: a.name,
-        resolved: agentPerformance[i % agentPerformance.length]!.resolved,
-        avgTime: agentPerformance[i % agentPerformance.length]!.avgTime,
-        satisfaction: agentPerformance[i % agentPerformance.length]!.satisfaction,
-      }))
-    : agentPerformance;
+  const handleDateChange = (range: string) => {
+    const now = new Date();
+    let from = dateFrom;
+    if (range === '7d') from = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10);
+    else if (range === '30d') from = new Date(now.getTime() - 30 * 86400000).toISOString().slice(0, 10);
+    else if (range === '90d') from = new Date(now.getTime() - 90 * 86400000).toISOString().slice(0, 10);
+    else if (range === '1y') from = new Date(now.getTime() - 365 * 86400000).toISOString().slice(0, 10);
+
+    const p = new URLSearchParams();
+    if (selectedOrg) p.set('org', selectedOrg);
+    p.set('from', from);
+    p.set('to', dateTo);
+    router.push(`/home/reports?${p.toString()}`);
+  };
+
+  const resHours = d.avgResolutionMinutes ? (d.avgResolutionMinutes / 60).toFixed(1) : '--';
 
   return (
-    <div className="p-6">
+    <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between mb-2">
-          <div>
-            <h1 className="text-2xl font-semibold text-gray-900">
-              Reports & Analytics
-            </h1>
-            <p className="text-sm text-gray-500 mt-1">
-              Track performance and operational metrics
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Select value={dateRange} onValueChange={setDateRange}>
-              <SelectTrigger className="w-[180px]">
-                <Calendar className="mr-2 h-4 w-4" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="7days">Last 7 Days</SelectItem>
-                <SelectItem value="30days">Last 30 Days</SelectItem>
-                <SelectItem value="3months">Last 3 Months</SelectItem>
-                <SelectItem value="6months">Last 6 Months</SelectItem>
-                <SelectItem value="1year">Last Year</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button variant="outline" size="sm" className="gap-2">
-              <Download className="w-4 h-4" />
-              Export
-            </Button>
-          </div>
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Reports & Analytics</h1>
+          <p className="text-sm text-muted-foreground">
+            {dateFrom} — {dateTo} | {d.totalTickets} tickets
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={selectedOrg ?? 'all'} onValueChange={handleOrgChange}>
+            <SelectTrigger className="w-[200px]">
+              <Filter className="mr-2 h-4 w-4" />
+              <SelectValue placeholder="Organización" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas las organizaciones</SelectItem>
+              {organizations.map((o) => (
+                <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select defaultValue="1y" onValueChange={handleDateChange}>
+            <SelectTrigger className="w-[130px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7d">7 días</SelectItem>
+              <SelectItem value="30d">30 días</SelectItem>
+              <SelectItem value="90d">90 días</SelectItem>
+              <SelectItem value="1y">1 año</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Button variant="outline" size="sm">
+            <Download className="mr-2 h-4 w-4" /> Exportar
+          </Button>
         </div>
       </div>
 
-      {/* KPI Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Total Tickets</p>
-                <p className="text-3xl font-semibold mt-1">
-                  {totalTickets.toLocaleString()}
-                </p>
-                <p className="text-xs text-green-600 mt-2">
-                  +12% from last period
-                </p>
-              </div>
-              <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center">
-                <TrendingUp className="w-6 h-6 text-blue-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Avg Resolution Time</p>
-                <p className="text-3xl font-semibold mt-1">3.1h</p>
-                <p className="text-xs text-green-600 mt-2">-8% improvement</p>
-              </div>
-              <div className="w-12 h-12 bg-purple-50 rounded-lg flex items-center justify-center">
-                <Clock className="w-6 h-6 text-purple-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">SLA Compliance</p>
-                <p className="text-3xl font-semibold mt-1">93%</p>
-                <p className="text-xs text-green-600 mt-2">+2% from target</p>
-              </div>
-              <div className="w-12 h-12 bg-green-50 rounded-lg flex items-center justify-center">
-                <CheckCircle2 className="w-6 h-6 text-green-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Satisfaction Score</p>
-                <p className="text-3xl font-semibold mt-1">4.7</p>
-                <p className="text-xs text-green-600 mt-2">+0.2 improvement</p>
-              </div>
-              <div className="w-12 h-12 bg-orange-50 rounded-lg flex items-center justify-center">
-                <Users className="w-6 h-6 text-orange-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {/* ── KPI Cards ────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <KpiCard title="Total Tickets" value={d.totalTickets} icon={BarChart3} color="text-indigo-600" />
+        <KpiCard title="Abiertos" value={d.openTickets} icon={FolderOpen} color="text-orange-500" />
+        <KpiCard title="Cerrados" value={d.closedTickets} icon={CheckCircle} color="text-green-600" />
+        <KpiCard title="Tiempo Resolución" value={`${resHours}h`} icon={Clock} color="text-blue-500" />
+        <KpiCard title="SLA Compliance" value={`${d.slaCompliance.rate}%`} icon={d.slaCompliance.rate >= 80 ? TrendingUp : AlertTriangle} color={d.slaCompliance.rate >= 80 ? 'text-green-600' : 'text-red-500'} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        {/* Ticket Trends */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Ticket Volume Trend</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={monthlyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="month" stroke="#888" />
-                <YAxis stroke="#888" />
-                <Tooltip />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="created"
-                  stroke="#6366f1"
-                  strokeWidth={2}
-                  name="Created"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="resolved"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  name="Resolved"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+      {/* ── Gestión Soporte (Type x Status Matrix) ───────────────────────── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="h-5 w-5" />
+            Reporte Gestión Soporte
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="px-3 py-2 text-left font-medium">Indicador</th>
+                  <th className="px-3 py-2 text-right font-medium">Cantidad</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.gestionSoporte.map((g, i) => (
+                  <tr key={i} className="border-b hover:bg-muted/30">
+                    <td className="px-3 py-2">{g.label}</td>
+                    <td className="px-3 py-2 text-right font-semibold">{g.count}</td>
+                  </tr>
+                ))}
+                {d.gestionSoporte.length === 0 && (
+                  <tr><td colSpan={2} className="px-3 py-4 text-center text-muted-foreground">Sin datos</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
 
-        {/* Priority Distribution */}
+      {/* ── Charts Row 1: Status + Type + Urgency ────────────────────────── */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card>
-          <CardHeader>
-            <CardTitle>Priority Distribution</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-sm">Por Estado</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={250}>
               <PieChart>
-                <Pie
-                  data={priorityData}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) =>
-                    `${name} ${(percent * 100).toFixed(0)}%`
-                  }
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {priorityData.map((entry, index) => (
-                    <Cell
-                      key={`priority-cell-${index}`}
-                      fill={entry.color}
-                    />
+                <Pie data={d.byStatus} dataKey="count" nameKey="status" cx="50%" cy="50%" outerRadius={80} label={({ status, count }: any) => `${status} (${count})`}>
+                  {d.byStatus.map((s, i) => (
+                    <Cell key={i} fill={STATUS_COLORS[s.status] ?? CHART_COLORS[i % CHART_COLORS.length]} />
                   ))}
                 </Pie>
                 <Tooltip />
@@ -289,65 +201,168 @@ export function ReportsClient({
             </ResponsiveContainer>
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader><CardTitle className="text-sm">Por Tipo</CardTitle></CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={250}>
+              <PieChart>
+                <Pie data={d.byType} dataKey="count" nameKey="type" cx="50%" cy="50%" outerRadius={80} label={({ type, count }: any) => `${type} (${count})`}>
+                  {d.byType.map((t, i) => (
+                    <Cell key={i} fill={TYPE_COLORS[t.type] ?? CHART_COLORS[i % CHART_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle className="text-sm">Por Urgencia</CardTitle></CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={d.byUrgency}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="urgency" />
+                <YAxis />
+                <Tooltip />
+                <Bar dataKey="count">
+                  {d.byUrgency.map((u, i) => (
+                    <Cell key={i} fill={URGENCY_COLORS[u.urgency] ?? '#6b7280'} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Category Breakdown */}
+      {/* ── Charts Row 2: Category + Organization ────────────────────────── */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader>
-            <CardTitle>Tickets by Category</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-sm">Por Categoría / Módulo</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={categoryData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="category" stroke="#888" />
-                <YAxis stroke="#888" />
+              <BarChart data={d.byCategory.slice(0, 12)} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis type="number" />
+                <YAxis dataKey="category_name" type="category" width={120} tick={{ fontSize: 11 }} />
                 <Tooltip />
-                <Bar
-                  dataKey="tickets"
-                  fill="#6366f1"
-                  radius={[4, 4, 0, 0]}
-                />
+                <Bar dataKey="count" fill="#6366f1" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        {/* Agent Performance */}
         <Card>
-          <CardHeader>
-            <CardTitle>Agent Performance (This Month)</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-sm flex items-center gap-2"><Building2 className="h-4 w-4" /> Por Organización</CardTitle></CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {performanceData.map((agent) => (
-                <div
-                  key={agent.agent}
-                  className="flex items-center justify-between p-4 bg-gray-50 rounded-lg"
-                >
-                  <div className="flex-1">
-                    <p className="font-medium text-gray-900">{agent.agent}</p>
-                    <div className="flex items-center gap-4 mt-1 text-sm text-gray-600">
-                      <span>{agent.resolved} resolved</span>
-                      <span>&middot;</span>
-                      <span>{agent.avgTime} avg time</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <span className="text-2xl font-semibold text-yellow-500">
-                      &#9733;
-                    </span>
-                    <span className="font-medium text-gray-900">
-                      {agent.satisfaction}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={d.byOrganization} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis type="number" />
+                <YAxis dataKey="org_name" type="category" width={120} tick={{ fontSize: 11 }} />
+                <Tooltip />
+                <Bar dataKey="count" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Trend Chart ──────────────────────────────────────────────────── */}
+      <Card>
+        <CardHeader><CardTitle className="text-sm">Tendencia Diaria (Creados vs Cerrados)</CardTitle></CardHeader>
+        <CardContent>
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={d.dailyTrend}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Line type="monotone" dataKey="created" stroke="#6366f1" name="Creados" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="closed" stroke="#22c55e" name="Cerrados" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+
+      {/* ── Agent Performance ────────────────────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Users className="h-4 w-4" /> Rendimiento por Agente
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="px-3 py-2 text-left font-medium">Agente</th>
+                  <th className="px-3 py-2 text-right font-medium">Asignados</th>
+                  <th className="px-3 py-2 text-right font-medium">Resueltos</th>
+                  <th className="px-3 py-2 text-right font-medium">% Resolución</th>
+                  <th className="px-3 py-2 text-right font-medium">Tiempo Prom.</th>
+                  <th className="px-3 py-2 text-right font-medium">SLA Met</th>
+                  <th className="px-3 py-2 text-right font-medium">SLA Breached</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.byAgent.map((a) => (
+                  <tr key={a.agent_id} className="border-b hover:bg-muted/30">
+                    <td className="px-3 py-2 font-medium">{a.agent_name}</td>
+                    <td className="px-3 py-2 text-right">{a.tickets_assigned}</td>
+                    <td className="px-3 py-2 text-right">{a.tickets_resolved}</td>
+                    <td className="px-3 py-2 text-right">
+                      <Badge variant={a.tickets_assigned > 0 && a.tickets_resolved / a.tickets_assigned >= 0.8 ? 'default' : 'secondary'}>
+                        {a.tickets_assigned > 0 ? Math.round((a.tickets_resolved / a.tickets_assigned) * 100) : 0}%
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {a.avg_resolution_minutes ? `${(a.avg_resolution_minutes / 60).toFixed(1)}h` : '--'}
+                    </td>
+                    <td className="px-3 py-2 text-right text-green-600">{a.sla_met_count}</td>
+                    <td className="px-3 py-2 text-right text-red-500">{a.sla_breached_count}</td>
+                  </tr>
+                ))}
+                {d.byAgent.length === 0 && (
+                  <tr><td colSpan={7} className="px-3 py-4 text-center text-muted-foreground">Sin datos de agentes</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  KPI Card                                                                   */
+/* -------------------------------------------------------------------------- */
+
+function KpiCard({
+  title, value, icon: Icon, color,
+}: {
+  title: string;
+  value: string | number;
+  icon: React.ComponentType<{ className?: string }>;
+  color: string;
+}) {
+  return (
+    <Card>
+      <CardContent className="flex items-center gap-4 p-4">
+        <div className={`flex h-10 w-10 items-center justify-center rounded-lg bg-muted ${color}`}>
+          <Icon className="h-5 w-5" />
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">{title}</p>
+          <p className="text-xl font-bold">{value}</p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

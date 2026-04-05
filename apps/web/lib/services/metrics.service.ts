@@ -658,3 +658,219 @@ function buildMetricLabel(type: string, status: string): string {
 
   return `${statusLabel} ${typeLabel}`;
 }
+
+// ---------------------------------------------------------------------------
+// 6. getReportDashboard — All-in-one report data for the reports page
+// ---------------------------------------------------------------------------
+
+export interface ReportDashboard {
+  // KPIs
+  totalTickets: number;
+  openTickets: number;
+  closedTickets: number;
+  avgResolutionMinutes: number | null;
+  slaCompliance: { rate: number; met: number; breached: number; total: number };
+
+  // Breakdowns
+  byStatus: Array<{ status: string; count: number }>;
+  byType: Array<{ type: string; count: number }>;
+  byCategory: Array<{ category_id: string | null; category_name: string; count: number }>;
+  byUrgency: Array<{ urgency: string; count: number }>;
+  byAgent: AgentPerformance[];
+  byOrganization: Array<{ org_id: string; org_name: string; count: number }>;
+
+  // Trends (daily)
+  dailyTrend: Array<{ date: string; created: number; closed: number }>;
+
+  // Gestion Soporte matrix (type x status)
+  gestionSoporte: GranularMetric[];
+}
+
+export async function getReportDashboard(
+  client: SupabaseClient,
+  tenantId: string,
+  dateRange: { from: string; to: string },
+  organizationId?: string | null,
+): Promise<ServiceResult<ReportDashboard>> {
+  try {
+    // Base filter for tickets
+    let ticketQuery = client
+      .from('tickets')
+      .select('id, status, type, urgency, category_id, assigned_agent_id, organization_id, channel, created_at, resolved_at, closed_at, sla_breached, first_response_at')
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null)
+      .gte('created_at', `${dateRange.from}T00:00:00.000Z`)
+      .lte('created_at', `${dateRange.to}T23:59:59.999Z`);
+
+    if (organizationId) {
+      ticketQuery = ticketQuery.eq('organization_id', organizationId);
+    }
+
+    const [ticketResult, categoriesResult, orgsResult, agentsResult] = await Promise.all([
+      ticketQuery,
+      client.from('categories').select('id, name').eq('tenant_id', tenantId),
+      client.from('organizations').select('id, name').eq('tenant_id', tenantId).eq('is_active', true),
+      client.from('agents').select('id, name').eq('tenant_id', tenantId),
+    ]);
+
+    const tickets = ticketResult.data ?? [];
+    const categories = categoriesResult.data ?? [];
+    const orgs = orgsResult.data ?? [];
+    const agents = agentsResult.data ?? [];
+
+    const catMap = new Map(categories.map((c: any) => [c.id, c.name]));
+    const orgMap = new Map(orgs.map((o: any) => [o.id, o.name]));
+    const agentMap = new Map(agents.map((a: any) => [a.id, a.name]));
+
+    // KPIs
+    const totalTickets = tickets.length;
+    const openTickets = tickets.filter((t: any) => !['closed', 'resolved', 'cancelled'].includes(t.status)).length;
+    const closedTickets = tickets.filter((t: any) => ['closed', 'resolved'].includes(t.status)).length;
+
+    let totalResMinutes = 0;
+    let resCount = 0;
+    for (const t of tickets) {
+      if ((t as any).resolved_at && (t as any).created_at) {
+        totalResMinutes += (new Date((t as any).resolved_at).getTime() - new Date((t as any).created_at).getTime()) / 60000;
+        resCount++;
+      }
+    }
+
+    let slaMet = 0;
+    let slaBreached = 0;
+    for (const t of tickets) {
+      if ((t as any).sla_breached === true) slaBreached++;
+      else if ((t as any).sla_breached === false) slaMet++;
+    }
+    const slaTotal = slaMet + slaBreached;
+
+    // By status
+    const statusCounts = new Map<string, number>();
+    for (const t of tickets) {
+      const s = (t as any).status ?? 'unknown';
+      statusCounts.set(s, (statusCounts.get(s) ?? 0) + 1);
+    }
+
+    // By type
+    const typeCounts = new Map<string, number>();
+    for (const t of tickets) {
+      const tp = (t as any).type ?? 'unknown';
+      typeCounts.set(tp, (typeCounts.get(tp) ?? 0) + 1);
+    }
+
+    // By category
+    const catCounts = new Map<string, number>();
+    for (const t of tickets) {
+      const cid = (t as any).category_id ?? 'uncategorized';
+      catCounts.set(cid, (catCounts.get(cid) ?? 0) + 1);
+    }
+
+    // By urgency
+    const urgCounts = new Map<string, number>();
+    for (const t of tickets) {
+      const u = (t as any).urgency ?? 'medium';
+      urgCounts.set(u, (urgCounts.get(u) ?? 0) + 1);
+    }
+
+    // By organization
+    const orgCounts = new Map<string, number>();
+    for (const t of tickets) {
+      const oid = (t as any).organization_id;
+      if (oid) orgCounts.set(oid, (orgCounts.get(oid) ?? 0) + 1);
+    }
+
+    // By agent
+    const agentCounts = new Map<string, { assigned: number; resolved: number; totalRes: number; resCount: number; slaMet: number; slaBreached: number }>();
+    for (const t of tickets) {
+      const aid = (t as any).assigned_agent_id;
+      if (!aid) continue;
+      let s = agentCounts.get(aid);
+      if (!s) s = { assigned: 0, resolved: 0, totalRes: 0, resCount: 0, slaMet: 0, slaBreached: 0 };
+      s.assigned++;
+      if (['closed', 'resolved'].includes((t as any).status)) {
+        s.resolved++;
+        if ((t as any).resolved_at) {
+          s.totalRes += (new Date((t as any).resolved_at).getTime() - new Date((t as any).created_at).getTime()) / 60000;
+          s.resCount++;
+        }
+      }
+      if ((t as any).sla_breached === true) s.slaBreached++;
+      else if ((t as any).sla_breached === false) s.slaMet++;
+      agentCounts.set(aid, s);
+    }
+
+    // Daily trend
+    const dailyMap = new Map<string, { created: number; closed: number }>();
+    for (const t of tickets) {
+      const day = (t as any).created_at?.slice(0, 10) ?? '';
+      if (!day) continue;
+      let d = dailyMap.get(day);
+      if (!d) d = { created: 0, closed: 0 };
+      d.created++;
+      if ((t as any).closed_at) {
+        const closedDay = (t as any).closed_at.slice(0, 10);
+        let cd = dailyMap.get(closedDay);
+        if (!cd) cd = { created: 0, closed: 0 };
+        cd.closed++;
+        dailyMap.set(closedDay, cd);
+      }
+      dailyMap.set(day, d);
+    }
+
+    // Gestion Soporte (type x status matrix)
+    const gestionMap = new Map<string, { count: number; frTotal: number; frCount: number; resTotal: number; resCount: number; slaMet: number; slaBreached: number }>();
+    for (const t of tickets) {
+      const label = buildMetricLabel((t as any).type ?? 'support', (t as any).status ?? 'new');
+      let g = gestionMap.get(label);
+      if (!g) g = { count: 0, frTotal: 0, frCount: 0, resTotal: 0, resCount: 0, slaMet: 0, slaBreached: 0 };
+      g.count++;
+      gestionMap.set(label, g);
+    }
+
+    return {
+      data: {
+        totalTickets,
+        openTickets,
+        closedTickets,
+        avgResolutionMinutes: resCount > 0 ? Math.round(totalResMinutes / resCount) : null,
+        slaCompliance: {
+          rate: slaTotal > 0 ? Math.round((slaMet / slaTotal) * 100) : 100,
+          met: slaMet, breached: slaBreached, total: slaTotal,
+        },
+        byStatus: Array.from(statusCounts.entries()).map(([status, count]) => ({ status, count })).sort((a, b) => b.count - a.count),
+        byType: Array.from(typeCounts.entries()).map(([type, count]) => ({ type, count })).sort((a, b) => b.count - a.count),
+        byCategory: Array.from(catCounts.entries()).map(([cid, count]) => ({
+          category_id: cid === 'uncategorized' ? null : cid,
+          category_name: catMap.get(cid) ?? 'Sin categoría',
+          count,
+        })).sort((a, b) => b.count - a.count),
+        byUrgency: Array.from(urgCounts.entries()).map(([urgency, count]) => ({ urgency, count })).sort((a, b) => b.count - a.count),
+        byAgent: Array.from(agentCounts.entries()).map(([aid, s]) => ({
+          agent_id: aid,
+          agent_name: agentMap.get(aid) ?? 'Sin asignar',
+          tickets_assigned: s.assigned,
+          tickets_resolved: s.resolved,
+          avg_first_response_minutes: null,
+          avg_resolution_minutes: s.resCount > 0 ? Math.round(s.totalRes / s.resCount) : null,
+          sla_met_count: s.slaMet,
+          sla_breached_count: s.slaBreached,
+          satisfaction_avg: null,
+        })).sort((a, b) => b.tickets_assigned - a.tickets_assigned),
+        byOrganization: Array.from(orgCounts.entries()).map(([oid, count]) => ({
+          org_id: oid, org_name: orgMap.get(oid) ?? 'Sin org', count,
+        })).sort((a, b) => b.count - a.count),
+        dailyTrend: Array.from(dailyMap.entries()).map(([date, d]) => ({ date, ...d })).sort((a, b) => a.date.localeCompare(b.date)),
+        gestionSoporte: Array.from(gestionMap.entries()).map(([label, g]) => ({
+          label, count: g.count,
+          avg_first_response_minutes: null,
+          avg_resolution_minutes: null,
+          sla_met_count: g.slaMet,
+          sla_breached_count: g.slaBreached,
+        })).sort((a, b) => b.count - a.count),
+      },
+      error: null,
+    };
+  } catch (err) {
+    return { data: null, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+}
