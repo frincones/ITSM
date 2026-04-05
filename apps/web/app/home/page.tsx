@@ -1,6 +1,11 @@
 import { getSupabaseServerClient } from '@kit/supabase/server-client';
 
 import { requireUserInServerComponent } from '~/lib/server/require-user-in-server-component';
+import {
+  calculateAIPerformance,
+  getLatestInsights,
+  generateAIInsights,
+} from '~/lib/services/ai-insights.service';
 
 import { DashboardClient } from './_components/dashboard-client';
 
@@ -376,29 +381,60 @@ async function fetchDashboardData(orgId?: string | null): Promise<DashboardData>
         }
       : { onTrack: 85, atRisk: 12, breached: 3, complianceThisMonth: 94 };
 
-  // ---------- AI performance (from ai_metrics or fallback) ----------
-  const aiPerformance: AiPerformanceData = {
-    autoClassificationRate: 94,
-    aiResolvedNoHuman: 23,
-    aiAssistedResolution: 68,
+  // ---------- AI performance (REAL from ticket data) ----------
+  let aiPerformance: AiPerformanceData = {
+    autoClassificationRate: 0,
+    aiResolvedNoHuman: 0,
+    aiAssistedResolution: 0,
   };
 
-  // ---------- AI insights (recent from ai_insights table or fallback) ----------
-  const aiInsights: AiInsightData[] = [
-    {
-      type: 'analysis',
-      title: 'Pattern Detected',
-      content:
-        '15 similar database connection issues reported in the last 2 hours. Possible infrastructure problem.',
-      confidence: 87,
-    },
-    {
-      type: 'suggestion',
-      title: 'Recommendation',
-      content:
-        'Consider creating a Problem ticket to investigate recurring database timeout issues.',
-    },
-  ];
+  try {
+    const agentForAI = await client
+      .from('agents')
+      .select('tenant_id')
+      .eq('user_id', userResult.data?.user?.id ?? '')
+      .maybeSingle();
+
+    if (agentForAI.data?.tenant_id) {
+      const perf = await calculateAIPerformance(client, agentForAI.data.tenant_id);
+      aiPerformance = {
+        autoClassificationRate: perf.autoClassificationRate,
+        aiResolvedNoHuman: perf.aiResolvedNoHuman,
+        aiAssistedResolution: perf.aiAssistedResolution,
+      };
+    }
+  } catch { /* fallback to 0s */ }
+
+  // ---------- AI insights (REAL from LLM analysis) ----------
+  let aiInsights: AiInsightData[] = [];
+
+  try {
+    const agentForInsights = await client
+      .from('agents')
+      .select('tenant_id')
+      .eq('user_id', userResult.data?.user?.id ?? '')
+      .maybeSingle();
+
+    if (agentForInsights.data?.tenant_id) {
+      // Try to get cached insights first
+      let insights = await getLatestInsights(client, agentForInsights.data.tenant_id);
+
+      // If no insights or expired, generate fresh ones
+      if (insights.length === 0) {
+        insights = await generateAIInsights(client, agentForInsights.data.tenant_id);
+      }
+
+      aiInsights = insights.map((i) => ({
+        type: i.insight_type === 'pattern' ? 'analysis' as const
+            : i.insight_type === 'recommendation' ? 'suggestion' as const
+            : i.insight_type === 'alert' ? 'analysis' as const
+            : 'analysis' as const,
+        title: i.title,
+        content: i.description,
+        confidence: i.confidence ? Math.round(i.confidence * 100) : undefined,
+      }));
+    }
+  } catch { /* fallback to empty */ }
 
   // ---------- User name ----------
   const userName =
