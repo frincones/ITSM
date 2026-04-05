@@ -53,8 +53,7 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
       { count: 'exact' },
     )
     .is('deleted_at', null)
-    .order('created_at', { ascending: false })
-    .order('ticket_number', { ascending: false });
+    .order('created_at', { ascending: false });
 
   // Filter by organization (from OrgSelector ?org= param or user context)
   // If no org param → show all (backwards compatible for TDX admin)
