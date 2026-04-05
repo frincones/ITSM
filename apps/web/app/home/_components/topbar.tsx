@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { Search, Bell, Plus, ChevronDown, User, LogOut, Sparkles } from 'lucide-react';
@@ -24,7 +23,7 @@ import { ModeToggle } from '@kit/ui/mode-toggle';
 
 import pathsConfig from '~/config/paths.config';
 
-import { AIAssistantSidebar } from './ai-assistant-sidebar';
+// AI sidebar is rendered in layout.tsx, not here
 
 function getInitials(email: string | undefined): string {
   if (!email) return 'U';
@@ -41,11 +40,15 @@ function getInitials(email: string | undefined): string {
   return name.substring(0, 2).toUpperCase();
 }
 
-export function Topbar() {
+interface TopbarProps {
+  aiOpen?: boolean;
+  onToggleAi?: () => void;
+}
+
+export function Topbar({ aiOpen, onToggleAi }: TopbarProps) {
   const router = useRouter();
   const signOut = useSignOut();
   const user = useUser();
-  const [aiOpen, setAiOpen] = useState(false);
   const userData = user.data;
 
   const displayName =
@@ -100,13 +103,13 @@ export function Topbar() {
         </Button>
 
         <Button
-          variant="ghost"
+          variant={aiOpen ? 'default' : 'ghost'}
           size="icon"
-          className="relative"
-          onClick={() => setAiOpen(true)}
+          className={`relative ${aiOpen ? 'bg-indigo-600 text-white hover:bg-indigo-700' : ''}`}
+          onClick={onToggleAi}
           title="AI Assistant"
         >
-          <Sparkles className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+          <Sparkles className={`h-5 w-5 ${aiOpen ? 'text-white' : 'text-indigo-600 dark:text-indigo-400'}`} />
         </Button>
 
         <ModeToggle />
@@ -145,7 +148,6 @@ export function Topbar() {
         </DropdownMenu>
       </div>
 
-      <AIAssistantSidebar open={aiOpen} onClose={() => setAiOpen(false)} />
     </header>
   );
 }

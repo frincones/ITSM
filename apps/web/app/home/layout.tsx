@@ -3,7 +3,7 @@ import { requireUserInServerComponent } from '~/lib/server/require-user-in-serve
 import { getSupabaseServerClient } from '@kit/supabase/server-client';
 
 import { SidebarNav } from './_components/sidebar-nav';
-import { Topbar } from './_components/topbar';
+import { HomeLayoutClient } from './_components/home-layout-client';
 
 async function HomeLayout({ children }: React.PropsWithChildren) {
   // Ensure user is authenticated; redirects to sign-in if not
@@ -33,14 +33,8 @@ async function HomeLayout({ children }: React.PropsWithChildren) {
       {/* Sidebar — icon rail (w-16) */}
       <SidebarNav allowedModules={allowedModules} />
 
-      {/* Main Content */}
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Top Bar */}
-        <Topbar />
-
-        {/* Page Content */}
-        <main className="flex-1 overflow-auto">{children}</main>
-      </div>
+      {/* Main Content + Topbar + AI Sidebar */}
+      <HomeLayoutClient>{children}</HomeLayoutClient>
     </div>
   );
 }
