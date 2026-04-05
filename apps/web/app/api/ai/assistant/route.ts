@@ -379,6 +379,363 @@ You have full access to all ITSM operations via tools.`,
           };
         },
       }),
+
+      // ── TICKET EXTENDED ─────────────────────────────────────────
+      updateTicket: tool({
+        description: 'Update ticket fields (title, description, type, urgency, tags)',
+        parameters: z.object({
+          ticket_number: z.string(),
+          title: z.string().optional(),
+          description: z.string().optional(),
+          type: z.string().optional(),
+          urgency: z.string().optional(),
+          tags: z.array(z.string()).optional(),
+        }),
+        execute: async ({ ticket_number, ...fields }) => {
+          const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+          if (fields.title) update.title = fields.title;
+          if (fields.description) update.description = fields.description;
+          if (fields.type) update.type = fields.type;
+          if (fields.urgency) update.urgency = fields.urgency;
+          if (fields.tags) update.tags = fields.tags;
+
+          const { error } = await svc.from('tickets')
+            .update(update).eq('ticket_number', ticket_number).eq('tenant_id', tenantId);
+          return error ? { error: error.message } : { success: true };
+        },
+      }),
+
+      addTask: tool({
+        description: 'Create a task within a ticket',
+        parameters: z.object({
+          ticket_number: z.string(),
+          title: z.string(),
+          description: z.string().optional(),
+          assigned_agent_name: z.string().optional(),
+        }),
+        execute: async ({ ticket_number, title, description, assigned_agent_name }) => {
+          const { data: ticket } = await svc.from('tickets')
+            .select('id').eq('ticket_number', ticket_number).eq('tenant_id', tenantId).single();
+          if (!ticket) return { error: 'Ticket not found' };
+
+          let assignedId = null;
+          if (assigned_agent_name) {
+            const { data: a } = await svc.from('agents')
+              .select('id').eq('tenant_id', tenantId).ilike('name', `%${assigned_agent_name}%`).limit(1).single();
+            assignedId = a?.id ?? null;
+          }
+
+          const { error } = await svc.from('ticket_tasks').insert({
+            tenant_id: tenantId, ticket_id: ticket.id, title,
+            description: description ?? '', assigned_agent_id: assignedId, status: 'pending',
+          });
+          return error ? { error: error.message } : { success: true };
+        },
+      }),
+
+      deleteTicket: tool({
+        description: 'Soft-delete a ticket',
+        parameters: z.object({ ticket_number: z.string() }),
+        execute: async ({ ticket_number }) => {
+          const { error } = await svc.from('tickets')
+            .update({ deleted_at: new Date().toISOString() })
+            .eq('ticket_number', ticket_number).eq('tenant_id', tenantId);
+          return error ? { error: error.message } : { success: true };
+        },
+      }),
+
+      // ── PROBLEMS ────────────────────────────────────────────────
+      createProblem: tool({
+        description: 'Create a new problem record',
+        parameters: z.object({
+          title: z.string(),
+          description: z.string(),
+          urgency: z.string().optional().default('medium'),
+        }),
+        execute: async ({ title, description, urgency }) => {
+          const num = `PRB-${Date.now().toString(36).toUpperCase()}`;
+          const { data, error } = await svc.from('problems').insert({
+            tenant_id: tenantId, problem_number: num, title, description,
+            status: 'new', urgency, created_by: user.id,
+          }).select('id, problem_number, title').single();
+          return error ? { error: error.message } : { success: true, problem: data };
+        },
+      }),
+
+      changeProblemStatus: tool({
+        description: 'Change problem status',
+        parameters: z.object({
+          problem_number: z.string(),
+          new_status: z.string().describe('new, accepted, analysis, root_cause_identified, solution_planned, resolved, closed'),
+        }),
+        execute: async ({ problem_number, new_status }) => {
+          const { error } = await svc.from('problems')
+            .update({ status: new_status, updated_at: new Date().toISOString() })
+            .eq('problem_number', problem_number).eq('tenant_id', tenantId);
+          return error ? { error: error.message } : { success: true };
+        },
+      }),
+
+      linkTicketToProblem: tool({
+        description: 'Link a ticket to a problem',
+        parameters: z.object({
+          ticket_number: z.string(),
+          problem_number: z.string(),
+        }),
+        execute: async ({ ticket_number, problem_number }) => {
+          const { data: ticket } = await svc.from('tickets').select('id').eq('ticket_number', ticket_number).eq('tenant_id', tenantId).single();
+          const { data: problem } = await svc.from('problems').select('id').eq('problem_number', problem_number).eq('tenant_id', tenantId).single();
+          if (!ticket || !problem) return { error: 'Ticket or problem not found' };
+
+          const { error } = await svc.from('problem_ticket_links').insert({
+            tenant_id: tenantId, problem_id: problem.id, ticket_id: ticket.id,
+          });
+          return error ? { error: error.message } : { success: true };
+        },
+      }),
+
+      // ── CHANGES ─────────────────────────────────────────────────
+      createChange: tool({
+        description: 'Create a change request',
+        parameters: z.object({
+          title: z.string(),
+          description: z.string(),
+          change_type: z.string().optional().default('normal'),
+          scheduled_start: z.string().optional(),
+        }),
+        execute: async ({ title, description, change_type, scheduled_start }) => {
+          const num = `CHG-${Date.now().toString(36).toUpperCase()}`;
+          const { data, error } = await svc.from('changes').insert({
+            tenant_id: tenantId, change_number: num, title, description,
+            change_type, status: 'new', created_by: user.id,
+            scheduled_start: scheduled_start ?? null,
+          }).select('id, change_number, title').single();
+          return error ? { error: error.message } : { success: true, change: data };
+        },
+      }),
+
+      changeChangeStatus: tool({
+        description: 'Change status of a change request',
+        parameters: z.object({
+          change_number: z.string(),
+          new_status: z.string().describe('new, evaluation, approval_pending, approved, rejected, scheduled, in_progress, testing, implemented, rolled_back, closed'),
+        }),
+        execute: async ({ change_number, new_status }) => {
+          const { error } = await svc.from('changes')
+            .update({ status: new_status, updated_at: new Date().toISOString() })
+            .eq('change_number', change_number).eq('tenant_id', tenantId);
+          return error ? { error: error.message } : { success: true };
+        },
+      }),
+
+      // ── INBOX ───────────────────────────────────────────────────
+      listConversations: tool({
+        description: 'List recent inbox conversations',
+        parameters: z.object({ status: z.string().optional().default('open'), limit: z.number().optional().default(10) }),
+        execute: async ({ status, limit }) => {
+          const { data } = await svc.from('inbox_conversations')
+            .select('id, subject, status, last_message_at, metadata')
+            .eq('tenant_id', tenantId).eq('status', status ?? 'open')
+            .order('last_message_at', { ascending: false }).limit(limit ?? 10);
+          return { conversations: data ?? [] };
+        },
+      }),
+
+      resolveConversation: tool({
+        description: 'Resolve an inbox conversation',
+        parameters: z.object({ conversation_id: z.string() }),
+        execute: async ({ conversation_id }) => {
+          const { error } = await svc.from('inbox_conversations')
+            .update({ status: 'resolved', updated_at: new Date().toISOString() })
+            .eq('id', conversation_id).eq('tenant_id', tenantId);
+          return error ? { error: error.message } : { success: true };
+        },
+      }),
+
+      // ── KB EXTENDED ─────────────────────────────────────────────
+      updateArticle: tool({
+        description: 'Update a KB article content',
+        parameters: z.object({ slug: z.string(), title: z.string().optional(), content: z.string().optional() }),
+        execute: async ({ slug, title, content }) => {
+          const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+          if (title) update.title = title;
+          if (content) update.content_markdown = content;
+
+          const { error } = await svc.from('kb_articles')
+            .update(update).eq('slug', slug).eq('tenant_id', tenantId);
+          return error ? { error: error.message } : { success: true };
+        },
+      }),
+
+      publishArticle: tool({
+        description: 'Publish a KB article',
+        parameters: z.object({ slug: z.string() }),
+        execute: async ({ slug }) => {
+          const { error } = await svc.from('kb_articles')
+            .update({ status: 'published', published_at: new Date().toISOString() })
+            .eq('slug', slug).eq('tenant_id', tenantId);
+          return error ? { error: error.message } : { success: true };
+        },
+      }),
+
+      archiveArticle: tool({
+        description: 'Archive a KB article',
+        parameters: z.object({ slug: z.string() }),
+        execute: async ({ slug }) => {
+          const { error } = await svc.from('kb_articles')
+            .update({ status: 'archived' }).eq('slug', slug).eq('tenant_id', tenantId);
+          return error ? { error: error.message } : { success: true };
+        },
+      }),
+
+      // ── ADMIN ───────────────────────────────────────────────────
+      createCategory: tool({
+        description: 'Create a new ticket category',
+        parameters: z.object({ name: z.string() }),
+        execute: async ({ name }) => {
+          const { data, error } = await svc.from('categories').insert({
+            tenant_id: tenantId, name,
+          }).select('id, name').single();
+          return error ? { error: error.message } : { success: true, category: data };
+        },
+      }),
+
+      listOrganizations: tool({
+        description: 'List all organizations with ticket counts',
+        parameters: z.object({}),
+        execute: async () => {
+          const { data: orgs } = await svc.from('organizations')
+            .select('id, name, slug, is_active, portal_token')
+            .eq('tenant_id', tenantId).order('name');
+          return { organizations: orgs ?? [] };
+        },
+      }),
+
+      // ── REPORTS ─────────────────────────────────────────────────
+      getAgentPerformance: tool({
+        description: 'Get performance metrics for a specific agent or all agents',
+        parameters: z.object({ agent_name: z.string().optional() }),
+        execute: async ({ agent_name }) => {
+          let q = svc.from('tickets')
+            .select('assigned_agent_id, status, type, created_at, resolved_at')
+            .eq('tenant_id', tenantId).is('deleted_at', null)
+            .not('assigned_agent_id', 'is', null);
+
+          if (agent_name) {
+            const { data: a } = await svc.from('agents')
+              .select('id').eq('tenant_id', tenantId).ilike('name', `%${agent_name}%`).limit(1).single();
+            if (a) q = q.eq('assigned_agent_id', a.id);
+          }
+
+          const { data } = await q;
+          const tickets = data ?? [];
+          const agentStats: Record<string, { assigned: number; resolved: number }> = {};
+          tickets.forEach((t: any) => {
+            const aid = t.assigned_agent_id;
+            if (!agentStats[aid]) agentStats[aid] = { assigned: 0, resolved: 0 };
+            agentStats[aid]!.assigned++;
+            if (['resolved', 'closed'].includes(t.status)) agentStats[aid]!.resolved++;
+          });
+
+          const { data: agents } = await svc.from('agents').select('id, name').eq('tenant_id', tenantId);
+          const nameMap = new Map((agents ?? []).map((a: any) => [a.id, a.name]));
+
+          return Object.entries(agentStats).map(([id, s]) => ({
+            agent: nameMap.get(id) ?? 'Unknown', ...s,
+            resolution_rate: s.assigned > 0 ? `${Math.round((s.resolved / s.assigned) * 100)}%` : '0%',
+          }));
+        },
+      }),
+
+      getSLACompliance: tool({
+        description: 'Get SLA compliance rate',
+        parameters: z.object({ days: z.number().optional().default(30) }),
+        execute: async ({ days }) => {
+          const since = new Date(Date.now() - (days ?? 30) * 86400000).toISOString();
+          const [met, breached] = await Promise.all([
+            svc.from('tickets').select('id', { count: 'exact', head: true })
+              .eq('tenant_id', tenantId).gte('created_at', since).eq('sla_breached', false),
+            svc.from('tickets').select('id', { count: 'exact', head: true })
+              .eq('tenant_id', tenantId).gte('created_at', since).eq('sla_breached', true),
+          ]);
+          const total = (met.count ?? 0) + (breached.count ?? 0);
+          return {
+            compliance: total > 0 ? `${Math.round(((met.count ?? 0) / total) * 100)}%` : 'N/A',
+            met: met.count ?? 0, breached: breached.count ?? 0, total,
+          };
+        },
+      }),
+
+      // ── AI ANALYTICS ────────────────────────────────────────────
+      classifyTicket: tool({
+        description: 'AI-classify a ticket (type, urgency, category suggestion)',
+        parameters: z.object({ ticket_number: z.string() }),
+        execute: async ({ ticket_number }) => {
+          const { data: ticket } = await svc.from('tickets')
+            .select('id, title, description').eq('ticket_number', ticket_number).eq('tenant_id', tenantId).single();
+          if (!ticket) return { error: 'Ticket not found' };
+
+          const { generateText } = await import('ai');
+          const result = await generateText({
+            model: openai('gpt-4o-mini'),
+            system: 'Classify this ITSM ticket. Return JSON: { "type": "incident|request|warranty|support|backlog", "urgency": "low|medium|high|critical", "category": "suggested category" }',
+            prompt: `Title: ${ticket.title}\nDescription: ${ticket.description ?? ''}`,
+            temperature: 0,
+          });
+
+          try {
+            const classification = JSON.parse(result.text.replace(/```json\s*|\s*```/g, '').trim());
+            await svc.from('tickets').update({
+              ai_classification: classification, ai_classified_at: new Date().toISOString(),
+            }).eq('id', ticket.id);
+            return { success: true, classification };
+          } catch { return { raw: result.text }; }
+        },
+      }),
+
+      summarizeTicket: tool({
+        description: 'AI-summarize a ticket with its full history',
+        parameters: z.object({ ticket_number: z.string() }),
+        execute: async ({ ticket_number }) => {
+          const { data: ticket } = await svc.from('tickets')
+            .select('*').eq('ticket_number', ticket_number).eq('tenant_id', tenantId).single();
+          if (!ticket) return { error: 'Ticket not found' };
+
+          const { data: followups } = await svc.from('ticket_followups')
+            .select('content, author_type, created_at').eq('ticket_id', ticket.id).order('created_at');
+
+          const { generateText } = await import('ai');
+          const result = await generateText({
+            model: openai('gpt-4o-mini'),
+            system: 'Summarize this ITSM ticket concisely in Spanish. Include: issue, actions taken, current status, next steps.',
+            prompt: `Ticket: ${ticket.title}\nDescription: ${ticket.description}\nStatus: ${ticket.status}\nType: ${ticket.type}\n\nFollowups:\n${(followups ?? []).map((f: any) => `[${f.author_type}] ${f.content}`).join('\n')}`,
+            temperature: 0.2,
+          });
+
+          return { summary: result.text };
+        },
+      }),
+
+      analyzePatterns: tool({
+        description: 'Analyze patterns in recent tickets using AI',
+        parameters: z.object({ days: z.number().optional().default(7) }),
+        execute: async ({ days }) => {
+          const since = new Date(Date.now() - (days ?? 7) * 86400000).toISOString();
+          const { data } = await svc.from('tickets')
+            .select('title, type, urgency, status, category_id')
+            .eq('tenant_id', tenantId).is('deleted_at', null).gte('created_at', since);
+
+          const { generateText } = await import('ai');
+          const result = await generateText({
+            model: openai('gpt-4o-mini'),
+            system: 'Analyze these ITSM tickets and identify patterns, anomalies, and recommendations. Be specific with numbers. Respond in Spanish.',
+            prompt: `${(data ?? []).length} tickets in last ${days} days:\n${(data ?? []).map((t: any) => `- [${t.type}/${t.urgency}/${t.status}] ${t.title}`).join('\n')}`,
+            temperature: 0.3,
+          });
+
+          return { analysis: result.text, ticket_count: (data ?? []).length };
+        },
+      }),
     },
     maxSteps: 5,
     temperature: 0.3,

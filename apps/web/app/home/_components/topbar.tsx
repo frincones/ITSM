@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { Search, Bell, Plus, ChevronDown, User, LogOut, Sparkles } from 'lucide-react';
@@ -23,7 +23,10 @@ import { Avatar, AvatarFallback, AvatarImage } from '@kit/ui/avatar';
 import { ModeToggle } from '@kit/ui/mode-toggle';
 
 import pathsConfig from '~/config/paths.config';
-import { AIAssistantSidebar } from './ai-assistant-sidebar';
+
+const AIAssistantSidebar = lazy(() =>
+  import('./ai-assistant-sidebar').then((m) => ({ default: m.AIAssistantSidebar }))
+);
 
 function getInitials(email: string | undefined): string {
   if (!email) return 'U';
@@ -144,7 +147,11 @@ export function Topbar() {
         </DropdownMenu>
       </div>
 
-      <AIAssistantSidebar open={aiOpen} onClose={() => setAiOpen(false)} />
+      {aiOpen && (
+        <Suspense fallback={null}>
+          <AIAssistantSidebar open={aiOpen} onClose={() => setAiOpen(false)} />
+        </Suspense>
+      )}
     </header>
   );
 }
