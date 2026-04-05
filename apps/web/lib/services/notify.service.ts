@@ -64,7 +64,7 @@ export async function notifyEmail(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'NovaDesk ITSM <onboarding@resend.dev>',
+        from: 'NovaDesk ITSM <notifications@itsm.tdxcore.com>',
         to: [to],
         subject,
         text: body,
