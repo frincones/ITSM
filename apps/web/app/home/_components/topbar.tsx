@@ -1,8 +1,9 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { Search, Bell, Plus, ChevronDown, User, LogOut } from 'lucide-react';
+import { Search, Bell, Plus, ChevronDown, User, LogOut, Sparkles } from 'lucide-react';
 
 import { useSignOut } from '@kit/supabase/hooks/use-sign-out';
 import { useUser } from '@kit/supabase/hooks/use-user';
@@ -22,6 +23,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@kit/ui/avatar';
 import { ModeToggle } from '@kit/ui/mode-toggle';
 
 import pathsConfig from '~/config/paths.config';
+import { AIAssistantSidebar } from './ai-assistant-sidebar';
 
 function getInitials(email: string | undefined): string {
   if (!email) return 'U';
@@ -42,6 +44,7 @@ export function Topbar() {
   const router = useRouter();
   const signOut = useSignOut();
   const user = useUser();
+  const [aiOpen, setAiOpen] = useState(false);
   const userData = user.data;
 
   const displayName =
@@ -95,6 +98,16 @@ export function Topbar() {
           </Badge>
         </Button>
 
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative"
+          onClick={() => setAiOpen(true)}
+          title="AI Assistant"
+        >
+          <Sparkles className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+        </Button>
+
         <ModeToggle />
 
         <DropdownMenu>
@@ -130,6 +143,8 @@ export function Topbar() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <AIAssistantSidebar open={aiOpen} onClose={() => setAiOpen(false)} />
     </header>
   );
 }
