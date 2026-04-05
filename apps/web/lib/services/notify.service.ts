@@ -283,22 +283,46 @@ export async function notifyTicketStatusChanged(evt: TicketEvent) {
 
 export async function notifyTicketCommented(evt: TicketEvent) {
   const link = `/home/tickets/${evt.ticketId}`;
+  const portalUrl = `https://itsm-web.vercel.app${link}`;
 
+  // 1. Email to requester (Public Reply only — internal notes don't reach here)
   if (evt.requesterEmail && evt.comment) {
     await notifyEmail(evt.requesterEmail,
-      `💬 Nuevo comentario: ${evt.ticketNumber}`,
+      `💬 RE: ${evt.ticketNumber} — ${evt.title}`,
       emailTemplate({
-        preheader: `Nuevo comentario en tu ticket ${evt.ticketNumber}`,
-        heading: 'Nuevo Comentario en Tu Ticket',
+        preheader: `${evt.agentName ?? 'Soporte'} respondió a tu ticket ${evt.ticketNumber}`,
+        heading: 'Nueva Respuesta en Tu Ticket',
         bodyRows: [
           { label: 'Ticket', value: `<strong>${evt.ticketNumber}</strong>` },
           { label: 'Título', value: evt.title },
-          { label: 'Comentario', value: `<div style="padding:10px;background:#f0f4ff;border-radius:6px;border-left:3px solid #4f46e5;font-style:italic;">${evt.comment}</div>` },
+          { label: 'Respondido por', value: `<strong>${evt.agentName ?? 'Equipo de Soporte'}</strong>` },
+          { label: 'Respuesta', value: `<div style="padding:12px;background:#f0f4ff;border-radius:6px;border-left:3px solid #4f46e5;font-style:italic;line-height:1.5;">${evt.comment}</div>` },
         ],
-        footerNote: 'Si necesitas responder, puedes hacerlo directamente desde el portal de soporte.',
+        ctaText: 'Ver Ticket en Portal',
+        ctaUrl: portalUrl,
+        footerNote: 'Si necesitas responder, puedes hacerlo directamente desde el portal de soporte haciendo click en el botón de arriba.',
       }));
   }
 
+  // 2. Confirmation email to agent (copy of their own reply)
+  if (evt.agentEmail && evt.comment) {
+    await notifyEmail(evt.agentEmail,
+      `✅ Respuesta registrada: ${evt.ticketNumber}`,
+      emailTemplate({
+        preheader: `Tu respuesta en ${evt.ticketNumber} fue enviada al requester`,
+        heading: 'Respuesta Registrada',
+        bodyRows: [
+          { label: 'Ticket', value: `<strong>${evt.ticketNumber}</strong>` },
+          { label: 'Título', value: evt.title },
+          { label: 'Enviado a', value: evt.requesterEmail ?? 'Requester' },
+          { label: 'Tu respuesta', value: `<div style="padding:12px;background:#f0fdf4;border-radius:6px;border-left:3px solid #10b981;line-height:1.5;">${evt.comment}</div>` },
+        ],
+        ctaText: 'Ver Ticket',
+        ctaUrl: portalUrl,
+      }));
+  }
+
+  // 3. In-app notification to agent
   if (evt.agentUserId) {
     await notifyInApp(evt.tenantId, evt.agentUserId,
       `Comentario en ${evt.ticketNumber}`,
