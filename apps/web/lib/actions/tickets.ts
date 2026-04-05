@@ -19,6 +19,14 @@ import {
   type AddSolutionInput,
 } from '~/lib/schemas/ticket.schema';
 
+import {
+  notifyTicketCreated,
+  notifyTicketAssigned,
+  notifyTicketStatusChanged,
+  notifyTicketCommented,
+  notifyTicketResolved,
+} from '~/lib/services/notify.service';
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -93,6 +101,20 @@ export async function createTicket(
     if (error) {
       return { data: null, error: error.message };
     }
+
+    // Fire-and-forget notification
+    notifyTicketCreated({
+      tenantId: agent.tenant_id,
+      ticketNumber: ticket.ticket_number,
+      ticketId: ticket.id,
+      title: ticket.title,
+      type: ticket.type,
+      urgency: ticket.urgency,
+      status: ticket.status,
+      requesterEmail: ticket.requester_email ?? undefined,
+      agentUserId: user.id,
+      agentEmail: agent.email,
+    }).catch(() => {});
 
     revalidatePath('/home/tickets');
     return { data: ticket, error: null };
@@ -212,6 +234,18 @@ export async function assignTicket(
       return { data: null, error: error.message };
     }
 
+    // Notify assigned agent
+    if (agentId) {
+      const { data: tgtAgent } = await client.from('agents').select('user_id, email, name').eq('id', agentId).single();
+      if (tgtAgent) {
+        notifyTicketAssigned({
+          tenantId: agent.tenant_id, ticketNumber: ticket.ticket_number, ticketId: ticket.id,
+          title: ticket.title, type: ticket.type, urgency: ticket.urgency, status: ticket.status,
+          agentUserId: tgtAgent.user_id, agentEmail: tgtAgent.email, agentName: tgtAgent.name,
+        }).catch(() => {});
+      }
+    }
+
     revalidatePath('/home/tickets');
     revalidatePath(`/home/tickets/${ticketId}`);
     return { data: ticket, error: null };
@@ -292,6 +326,15 @@ export async function changeTicketStatus(
       return { data: null, error: error.message };
     }
 
+    // Notify status change
+    const notifyFn = newStatus === 'resolved' ? notifyTicketResolved : notifyTicketStatusChanged;
+    notifyFn({
+      tenantId: agent.tenant_id, ticketNumber: ticket.ticket_number, ticketId: ticket.id,
+      title: ticket.title, type: ticket.type, urgency: ticket.urgency, status: newStatus,
+      requesterEmail: ticket.requester_email ?? undefined,
+      agentUserId: user.id, agentEmail: agent.email,
+    }).catch(() => {});
+
     revalidatePath('/home/tickets');
     revalidatePath(`/home/tickets/${ticketId}`);
     return { data: ticket, error: null };
@@ -348,6 +391,20 @@ export async function addFollowup(
 
     if (error) {
       return { data: null, error: error.message };
+    }
+
+    // Notify on public replies (not internal notes)
+    if (!validated.is_private) {
+      const { data: tkt } = await client.from('tickets').select('ticket_number, title, type, urgency, requester_email').eq('id', ticketId).single();
+      if (tkt) {
+        notifyTicketCommented({
+          tenantId: agent.tenant_id, ticketNumber: tkt.ticket_number, ticketId,
+          title: tkt.title, type: tkt.type, urgency: tkt.urgency, status: '',
+          comment: validated.content, agentName: agent.name,
+          requesterEmail: tkt.requester_email ?? undefined,
+          agentUserId: user.id, agentEmail: agent.email,
+        }).catch(() => {});
+      }
     }
 
     revalidatePath(`/home/tickets/${ticketId}`);
