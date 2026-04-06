@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition, useRef, useCallback } from 'react';
+import { useState, useTransition, useRef, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -68,6 +68,7 @@ import { PortalConversationTab } from './portal-conversation-tab';
 import { PortalActivityTab } from './portal-activity-tab';
 import { AiCopilotPanel } from './ai-copilot-panel';
 import { Bot, Sparkles, Lightbulb, MessageCircle, Activity } from 'lucide-react';
+import { getSupabaseBrowserClient } from '@kit/supabase/browser-client';
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                      */
@@ -214,6 +215,71 @@ export function TicketDetailClient({
   const [activeContentTab, setActiveContentTab] = useState<'timeline' | 'conversation' | 'activity'>('timeline');
   const [showEscalateDialog, setShowEscalateDialog] = useState(false);
   const [showMergeDialog, setShowMergeDialog] = useState(false);
+
+  // ── Live followups state (initialized from server, updated via Realtime) ──
+  const [liveFollowups, setLiveFollowups] = useState<TimelineFollowup[]>(followups);
+
+  // Sync with server props when they change (e.g. after revalidation)
+  useEffect(() => {
+    setLiveFollowups(followups);
+  }, [followups]);
+
+  // ── Supabase Realtime subscription for ticket_followups ──
+  useEffect(() => {
+    const supabase = getSupabaseBrowserClient();
+    const channel = supabase
+      .channel(`ticket-followups-${ticket.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'ticket_followups',
+          filter: `ticket_id=eq.${ticket.id}`,
+        },
+        (payload) => {
+          const newFollowup = payload.new as TimelineFollowup;
+          setLiveFollowups((prev) => {
+            // Prevent duplicates
+            if (prev.some((f) => f.id === newFollowup.id)) return prev;
+            return [...prev, newFollowup];
+          });
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'ticket_followups',
+          filter: `ticket_id=eq.${ticket.id}`,
+        },
+        (payload) => {
+          const updated = payload.new as TimelineFollowup;
+          setLiveFollowups((prev) =>
+            prev.map((f) => (f.id === updated.id ? updated : f)),
+          );
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'ticket_followups',
+          filter: `ticket_id=eq.${ticket.id}`,
+        },
+        (payload) => {
+          const deleted = payload.old as { id: string };
+          setLiveFollowups((prev) => prev.filter((f) => f.id !== deleted.id));
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [ticket.id]);
 
   // ---- Handlers ----
 
@@ -464,7 +530,7 @@ export function TicketDetailClient({
               <TicketTimeline
                 ticketCreatedAt={ticket.created_at}
                 ticketCreatedBy={requester?.name ?? ticket.requester_email ?? undefined}
-                followups={followups}
+                followups={liveFollowups}
                 tasks={tasks}
                 solutions={solutions}
                 attachments={attachments}

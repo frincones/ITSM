@@ -3,13 +3,6 @@ import { createClient } from '@supabase/supabase-js';
 
 /* -------------------------------------------------------------------------- */
 /*  POST /api/webhooks/resend — Handle inbound email replies from Resend       */
-/*                                                                             */
-/*  Flow:                                                                      */
-/*  1. Resend sends webhook when email arrives at *@itsm.tdxcore.com           */
-/*  2. We extract ticket number from subject (RE: TKT-xxxx or PDZ-xxxx)        */
-/*  3. Fetch full email body from Resend API                                   */
-/*  4. Insert as followup (public reply from requester) in the ticket          */
-/*  5. Send in-app notification to assigned agent                              */
 /* -------------------------------------------------------------------------- */
 
 function getSvc() {
@@ -20,11 +13,13 @@ function getSvc() {
   );
 }
 
+/** Simple in-memory lock to prevent concurrent processing of same email_id */
+const processing = new Set<string>();
+
 export async function POST(req: NextRequest) {
   try {
     const event = await req.json();
 
-    // Only handle email.received events
     if (event.type !== 'email.received') {
       return NextResponse.json({ ok: true, skipped: true });
     }
@@ -37,11 +32,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, skipped: 'no email_id or subject' });
     }
 
+    // ── In-memory lock to prevent race condition duplicates ───────────
+    if (processing.has(email_id)) {
+      console.log('[Resend Inbound] Already processing email_id:', email_id);
+      return NextResponse.json({ ok: true, skipped: 'already processing' });
+    }
+    processing.add(email_id);
+    // Auto-cleanup after 60s
+    setTimeout(() => processing.delete(email_id), 60_000);
+
     // ── Extract ticket number from subject ────────────────────────────
-    // Matches: RE: TKT-2604-00289, Re: PDZ-2601-00005, Fwd: TKT-xxx, etc.
     const ticketMatch = subject.match(/(TKT-\d{4}-\d{5}|PDZ-\d{4}-\d{5})/i);
 
     if (!ticketMatch) {
+      processing.delete(email_id);
       console.log('[Resend Inbound] No ticket number found in subject:', subject);
       return NextResponse.json({ ok: true, skipped: 'no ticket number in subject' });
     }
@@ -52,22 +56,19 @@ export async function POST(req: NextRequest) {
     // ── Fetch full email body from Resend API ─────────────────────────
     const resendKey = process.env.RESEND_API_KEY;
     if (!resendKey) {
+      processing.delete(email_id);
       return NextResponse.json({ error: 'RESEND_API_KEY not configured' }, { status: 500 });
     }
 
     let emailBody = '';
     try {
-      // Use the Received Emails API (not the Sent Emails API)
       const emailRes = await fetch(`https://api.resend.com/emails/receiving/${email_id}`, {
         headers: { 'Authorization': `Bearer ${resendKey}` },
       });
 
       if (emailRes.ok) {
         const emailData = await emailRes.json();
-        // Resend returns text and/or html body
         emailBody = emailData.text ?? emailData.html ?? '';
-
-        // Clean up common reply artifacts
         emailBody = cleanEmailReply(emailBody);
       } else {
         const errText = await emailRes.text().catch(() => '');
@@ -94,85 +95,108 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (!ticket) {
+      processing.delete(email_id);
       console.log('[Resend Inbound] Ticket not found:', ticketNumber);
       return NextResponse.json({ ok: true, skipped: 'ticket not found' });
     }
 
-    // ── Extract sender email ──────────────────────────────────────────
-    // "from" can be "Name <email@domain.com>" or just "email@domain.com"
     const senderEmail = extractEmail(from ?? '');
 
-    // ── Idempotency: check if this email_id was already processed ─────
-    const idempotencyTag = `resend:${email_id}`;
-    const { data: existing } = await svc
-      .from('ticket_followups')
-      .select('id')
-      .eq('ticket_id', ticket.id)
-      .like('content', `%${idempotencyTag}%`)
-      .limit(1)
-      .maybeSingle();
+    // ── DB-level deduplication via source_ref (if column exists) ──────
+    const sourceRef = `resend:${email_id}`;
+    let hasSourceRef = true;
 
-    if (existing) {
-      console.log('[Resend Inbound] Already processed email_id:', email_id);
-      return NextResponse.json({ ok: true, skipped: 'already processed' });
-    }
-
-    // ── Insert as followup ────────────────────────────────────────────
-    // Include hidden idempotency marker to prevent duplicate processing
-    const followupContent = `📧 Respuesta por email de ${senderEmail}:\n\n${emailBody}\n\n<!-- ${idempotencyTag} -->`;
-
-    const { error: followupError } = await svc
-      .from('ticket_followups')
-      .insert({
-        tenant_id: ticket.tenant_id,
-        ticket_id: ticket.id,
-        content: followupContent,
-        is_private: false,
-        author_id: null,
-        author_type: 'contact',
-      });
-
-    if (followupError) {
-      console.error('[Resend Inbound] Followup insert error:', followupError.message);
-
-      // author_id might be NOT NULL — try with a system user
-      const { data: adminAgent } = await svc
-        .from('agents')
-        .select('user_id')
-        .eq('tenant_id', ticket.tenant_id)
-        .eq('role', 'admin')
+    // Try source_ref based dedup first
+    try {
+      const { data: existing } = await svc
+        .from('ticket_followups')
+        .select('id')
+        .eq('ticket_id', ticket.id)
+        .eq('source_ref', sourceRef)
         .limit(1)
         .maybeSingle();
 
-      if (adminAgent?.user_id) {
-        await svc.from('ticket_followups').insert({
-          tenant_id: ticket.tenant_id,
-          ticket_id: ticket.id,
-          content: followupContent,
-          is_private: false,
-          author_id: adminAgent.user_id,
-          author_type: 'contact',
-        });
+      if (existing) {
+        processing.delete(email_id);
+        console.log('[Resend Inbound] Already processed (source_ref):', email_id);
+        return NextResponse.json({ ok: true, skipped: 'already processed' });
+      }
+    } catch {
+      // source_ref column doesn't exist yet — fall back to content search
+      hasSourceRef = false;
+      const { data: existing } = await svc
+        .from('ticket_followups')
+        .select('id')
+        .eq('ticket_id', ticket.id)
+        .like('content', `%${sourceRef}%`)
+        .limit(1)
+        .maybeSingle();
+
+      if (existing) {
+        processing.delete(email_id);
+        console.log('[Resend Inbound] Already processed (content):', email_id);
+        return NextResponse.json({ ok: true, skipped: 'already processed' });
       }
     }
 
+    // ── Get admin agent for author_id (required NOT NULL) ─────────────
+    const { data: adminAgent } = await svc
+      .from('agents')
+      .select('user_id')
+      .eq('tenant_id', ticket.tenant_id)
+      .eq('role', 'admin')
+      .limit(1)
+      .maybeSingle();
+
+    if (!adminAgent?.user_id) {
+      processing.delete(email_id);
+      return NextResponse.json({ error: 'No admin agent found' }, { status: 500 });
+    }
+
+    // ── Insert as followup ────────────────────────────────────────────
+    const insertData: Record<string, unknown> = {
+      tenant_id: ticket.tenant_id,
+      ticket_id: ticket.id,
+      content: emailBody,
+      is_private: false,
+      author_id: adminAgent.user_id,
+      author_type: 'contact',
+    };
+
+    // Use source_ref for DB-level uniqueness if column exists
+    if (hasSourceRef) {
+      insertData.source_ref = sourceRef;
+    }
+
+    const { error: followupError } = await svc
+      .from('ticket_followups')
+      .insert(insertData);
+
+    if (followupError) {
+      processing.delete(email_id);
+      // If it's a unique constraint violation, it's a duplicate — that's fine
+      if (followupError.message.includes('unique') || followupError.message.includes('duplicate')) {
+        console.log('[Resend Inbound] Duplicate prevented by DB constraint:', email_id);
+        return NextResponse.json({ ok: true, skipped: 'duplicate prevented' });
+      }
+      console.error('[Resend Inbound] Followup insert error:', followupError.message);
+      return NextResponse.json({ error: followupError.message }, { status: 500 });
+    }
+
     // ── Update ticket status if it was resolved/closed ────────────────
-    const reopenStatuses = ['resolved', 'closed'];
     const { data: currentTicket } = await svc
       .from('tickets')
       .select('status')
       .eq('id', ticket.id)
       .single();
 
-    if (currentTicket && reopenStatuses.includes(currentTicket.status)) {
+    if (currentTicket && ['resolved', 'closed'].includes(currentTicket.status)) {
       await svc.from('tickets').update({
         status: 'in_progress',
         updated_at: new Date().toISOString(),
       }).eq('id', ticket.id);
-
       console.log('[Resend Inbound] Ticket reopened:', ticketNumber);
     } else {
-      // Just update the timestamp
       await svc.from('tickets').update({
         updated_at: new Date().toISOString(),
       }).eq('id', ticket.id);
@@ -197,6 +221,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    processing.delete(email_id);
     console.log('[Resend Inbound] Successfully processed reply for', ticketNumber);
 
     return NextResponse.json({
@@ -228,11 +253,11 @@ function extractEmail(from: string): string {
 function cleanEmailReply(body: string): string {
   let cleaned = body;
 
-  // Remove "On Date, Name wrote:" block (Gmail format — may have line break before "wrote:")
-  cleaned = cleaned.replace(/\r?\n*On .+wrote:\r?\n?[\s\S]*/i, '');
+  // Remove "On Date, Name wrote:" block (Gmail — may wrap across lines)
+  cleaned = cleaned.replace(/\r?\n*On [\s\S]*?wrote:\r?\n?[\s\S]*/i, '');
 
   // Remove "El día Date, Name escribió:" (Spanish Gmail)
-  cleaned = cleaned.replace(/\r?\n*El .+escribi[oó]:\r?\n?[\s\S]*/i, '');
+  cleaned = cleaned.replace(/\r?\n*El [\s\S]*?escribi[oó]:\r?\n?[\s\S]*/i, '');
 
   // Remove "---Original Message---" / "---Mensaje Original---" block
   cleaned = cleaned.replace(/\r?\n*-{2,}.*(?:Original|Mensaje).*-{2,}[\s\S]*/i, '');
@@ -251,14 +276,13 @@ function cleanEmailReply(body: string): string {
       nonQuotedLines.push(line);
     }
   }
-
   cleaned = nonQuotedLines.join('\n').trim();
 
   // Remove NovaDesk footer
   cleaned = cleaned.replace(/— NovaDesk ITSM[\s\S]*/i, '').trim();
   cleaned = cleaned.replace(/NovaDesk ITSM — AI-First[\s\S]*/i, '').trim();
 
-  // Remove trailing whitespace lines
+  // Remove trailing whitespace
   cleaned = cleaned.replace(/\s+$/, '').trim();
 
   return cleaned || body.trim();

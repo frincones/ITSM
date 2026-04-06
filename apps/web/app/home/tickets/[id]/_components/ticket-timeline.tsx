@@ -124,6 +124,8 @@ function buildTimeline(props: TicketTimelineProps): TimelineEntry[] {
       .map((a) => a.filename);
 
     const authorInfo = f.author ?? (f as any).author_id ? props.agentMap?.[(f as any).author_id] : undefined;
+    // Strip HTML comments (used for idempotency markers like <!-- resend:... -->)
+    const cleanContent = f.content.replace(/<!--[\s\S]*?-->/g, '').trim();
     entries.push({
       id: `followup-${f.id}`,
       type: 'followup',
@@ -131,7 +133,7 @@ function buildTimeline(props: TicketTimelineProps): TimelineEntry[] {
       user: f.author?.name ?? authorInfo?.name ?? 'Agent',
       avatarUrl: f.author?.avatar_url ?? authorInfo?.avatar_url,
       isPrivate: f.is_private,
-      content: f.content,
+      content: cleanContent,
       attachments: relatedAttachments.length > 0 ? relatedAttachments : undefined,
     });
   }
