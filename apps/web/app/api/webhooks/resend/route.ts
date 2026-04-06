@@ -102,15 +102,33 @@ export async function POST(req: NextRequest) {
     // "from" can be "Name <email@domain.com>" or just "email@domain.com"
     const senderEmail = extractEmail(from ?? '');
 
+    // ── Idempotency: check if this email_id was already processed ─────
+    const idempotencyTag = `resend:${email_id}`;
+    const { data: existing } = await svc
+      .from('ticket_followups')
+      .select('id')
+      .eq('ticket_id', ticket.id)
+      .like('content', `%${idempotencyTag}%`)
+      .limit(1)
+      .maybeSingle();
+
+    if (existing) {
+      console.log('[Resend Inbound] Already processed email_id:', email_id);
+      return NextResponse.json({ ok: true, skipped: 'already processed' });
+    }
+
     // ── Insert as followup ────────────────────────────────────────────
+    // Include hidden idempotency marker to prevent duplicate processing
+    const followupContent = `📧 Respuesta por email de ${senderEmail}:\n\n${emailBody}\n\n<!-- ${idempotencyTag} -->`;
+
     const { error: followupError } = await svc
       .from('ticket_followups')
       .insert({
         tenant_id: ticket.tenant_id,
         ticket_id: ticket.id,
-        content: emailBody,
-        is_private: false, // Public — visible to everyone
-        author_id: null, // External user (not an agent)
+        content: followupContent,
+        is_private: false,
+        author_id: null,
         author_type: 'contact',
       });
 
@@ -118,7 +136,6 @@ export async function POST(req: NextRequest) {
       console.error('[Resend Inbound] Followup insert error:', followupError.message);
 
       // author_id might be NOT NULL — try with a system user
-      // Fallback: use the first admin agent as author
       const { data: adminAgent } = await svc
         .from('agents')
         .select('user_id')
@@ -131,7 +148,7 @@ export async function POST(req: NextRequest) {
         await svc.from('ticket_followups').insert({
           tenant_id: ticket.tenant_id,
           ticket_id: ticket.id,
-          content: `📧 Respuesta por email de ${senderEmail}:\n\n${emailBody}`,
+          content: followupContent,
           is_private: false,
           author_id: adminAgent.user_id,
           author_type: 'contact',
@@ -209,17 +226,22 @@ function extractEmail(from: string): string {
 }
 
 function cleanEmailReply(body: string): string {
-  // Remove common reply prefixes/signatures
   let cleaned = body;
 
-  // Remove "On Date, Name wrote:" block and everything after
-  cleaned = cleaned.replace(/\n*On .+ wrote:\n?[\s\S]*/i, '');
+  // Remove "On Date, Name wrote:" block (Gmail format — may have line break before "wrote:")
+  cleaned = cleaned.replace(/\r?\n*On .+wrote:\r?\n?[\s\S]*/i, '');
 
-  // Remove "---Original Message---" block
-  cleaned = cleaned.replace(/\n*-{2,}.*Original.*-{2,}[\s\S]*/i, '');
+  // Remove "El día Date, Name escribió:" (Spanish Gmail)
+  cleaned = cleaned.replace(/\r?\n*El .+escribi[oó]:\r?\n?[\s\S]*/i, '');
+
+  // Remove "---Original Message---" / "---Mensaje Original---" block
+  cleaned = cleaned.replace(/\r?\n*-{2,}.*(?:Original|Mensaje).*-{2,}[\s\S]*/i, '');
+
+  // Remove "De: ... Enviado: ... Para: ..." Outlook block
+  cleaned = cleaned.replace(/\r?\n*(?:De|From)\s*:.*\r?\n(?:Enviado|Sent)\s*:.*[\s\S]*/i, '');
 
   // Remove "> " quoted lines at the end
-  const lines = cleaned.split('\n');
+  const lines = cleaned.split(/\r?\n/);
   const nonQuotedLines: string[] = [];
   let foundQuote = false;
   for (const line of lines) {
@@ -235,6 +257,9 @@ function cleanEmailReply(body: string): string {
   // Remove NovaDesk footer
   cleaned = cleaned.replace(/— NovaDesk ITSM[\s\S]*/i, '').trim();
   cleaned = cleaned.replace(/NovaDesk ITSM — AI-First[\s\S]*/i, '').trim();
+
+  // Remove trailing whitespace lines
+  cleaned = cleaned.replace(/\s+$/, '').trim();
 
   return cleaned || body.trim();
 }
