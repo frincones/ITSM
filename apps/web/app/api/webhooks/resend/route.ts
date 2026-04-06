@@ -57,7 +57,8 @@ export async function POST(req: NextRequest) {
 
     let emailBody = '';
     try {
-      const emailRes = await fetch(`https://api.resend.com/emails/${email_id}`, {
+      // Use the Received Emails API (not the Sent Emails API)
+      const emailRes = await fetch(`https://api.resend.com/emails/receiving/${email_id}`, {
         headers: { 'Authorization': `Bearer ${resendKey}` },
       });
 
@@ -69,7 +70,8 @@ export async function POST(req: NextRequest) {
         // Clean up common reply artifacts
         emailBody = cleanEmailReply(emailBody);
       } else {
-        console.error('[Resend Inbound] Failed to fetch email body:', emailRes.status);
+        const errText = await emailRes.text().catch(() => '');
+        console.error('[Resend Inbound] Failed to fetch email body:', emailRes.status, errText);
         emailBody = `[Email recibido de ${from} — no se pudo obtener el contenido]`;
       }
     } catch (err) {
