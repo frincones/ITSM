@@ -112,6 +112,14 @@ function getPatterns() {
         // check if we need to verify MFA (user is authenticated but needs to verify MFA)
         const isVerifyMfa = req.nextUrl.pathname === pathsConfig.auth.verifyMfa;
 
+        // Allow authenticated users with a temporary password to reach /auth/set-password
+        const isSetPassword = req.nextUrl.pathname === '/auth/set-password';
+        const claims = data.claims as { user_metadata?: Record<string, unknown> };
+        const hasTempPassword = claims?.user_metadata?.password_temporary === true;
+        if (isSetPassword && hasTempPassword) {
+          return;
+        }
+
         // If user is logged in and does not need to verify MFA,
         // redirect to home page.
         if (!isVerifyMfa) {
@@ -135,6 +143,15 @@ function getPatterns() {
           const redirectPath = `${signIn}?next=${next}`;
 
           return NextResponse.redirect(new URL(redirectPath, origin).href);
+        }
+
+        // If user has a temporary password, force them to set a permanent one
+        const claims = data.claims as { user_metadata?: Record<string, unknown> };
+        const hasTempPassword = claims?.user_metadata?.password_temporary === true;
+        if (hasTempPassword) {
+          return NextResponse.redirect(
+            new URL('/auth/set-password', origin).href,
+          );
         }
 
         const supabase = createMiddlewareClient(req, res);
