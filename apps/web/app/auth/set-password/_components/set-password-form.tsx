@@ -19,19 +19,33 @@ export function SetPasswordForm() {
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     const supabase = getSupabaseBrowserClient();
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) {
-        window.location.replace('/auth/sign-in');
-        return;
-      }
-      if (user.user_metadata?.password_temporary !== true) {
-        window.location.replace('/home');
-        return;
-      }
-      setUserEmail(user.email ?? '');
-      setInitialLoading(false);
-    });
+
+    // Render the form regardless; the middleware already guarantees the
+    // user is on this page because they carry the password_temporary flag.
+    // We only read the email here to display it.
+    supabase.auth
+      .getUser()
+      .then(({ data: { user } }) => {
+        if (cancelled) return;
+        setUserEmail(user?.email ?? '');
+        setInitialLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setInitialLoading(false);
+      });
+
+    // Safety net: if getUser stalls, still show the form after 2s
+    const timer = setTimeout(() => {
+      if (!cancelled) setInitialLoading(false);
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
