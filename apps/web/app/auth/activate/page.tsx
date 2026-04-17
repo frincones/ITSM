@@ -1,6 +1,3 @@
-import { AuthLayoutShell } from '@kit/auth/shared';
-
-import { AppLogo } from '~/components/app-logo';
 import { withI18n } from '~/lib/i18n/with-i18n';
 
 import { ActivateClient } from './_components/activate-client';
@@ -9,8 +6,6 @@ export const generateMetadata = async () => ({
   title: 'Activar cuenta',
 });
 
-const Logo = () => <AppLogo href={''} />;
-
 interface ActivatePageProps {
   searchParams: Promise<{ email?: string }>;
 }
@@ -18,11 +13,7 @@ interface ActivatePageProps {
 async function ActivatePage({ searchParams }: ActivatePageProps) {
   const { email } = await searchParams;
 
-  return (
-    <AuthLayoutShell Logo={Logo}>
-      <ActivateClient email={email ?? ''} />
-    </AuthLayoutShell>
-  );
+  return <ActivateClient email={email ?? ''} />;
 }
 
 export default withI18n(ActivatePage);
