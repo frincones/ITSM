@@ -112,6 +112,11 @@ function getPatterns() {
         // check if we need to verify MFA (user is authenticated but needs to verify MFA)
         const isVerifyMfa = req.nextUrl.pathname === pathsConfig.auth.verifyMfa;
 
+        // Always allow /auth/activate — it signs the user out before redirecting
+        if (req.nextUrl.pathname === '/auth/activate') {
+          return;
+        }
+
         // Allow authenticated users with a temporary password to reach /auth/set-password
         const isSetPassword = req.nextUrl.pathname === '/auth/set-password';
         const claims = data.claims as { user_metadata?: Record<string, unknown> };

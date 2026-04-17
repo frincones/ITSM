@@ -70,7 +70,7 @@ export async function sendInviteEmail(params: SendInviteParams): Promise<{ ok: b
 
 function buildInviteEmailHtml(params: SendInviteParams): string {
   const { name, email, tempPassword, organizationName, invitedByName } = params;
-  const signInUrl = `${SITE_URL}/auth/sign-in?email=${encodeURIComponent(email)}`;
+  const signInUrl = `${SITE_URL}/auth/activate?email=${encodeURIComponent(email)}`;
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head><body style="margin:0;padding:0;background-color:#f0f2f5;font-family:Segoe UI,Roboto,Helvetica Neue,Arial,sans-serif;-webkit-font-smoothing:antialiased">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f0f2f5">
