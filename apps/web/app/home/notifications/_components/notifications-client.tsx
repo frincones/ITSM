@@ -29,7 +29,7 @@ interface Notification {
   type: string | null;
   title: string;
   body: string | null;
-  read: boolean;
+  read: boolean; // maps to is_read in DB
   created_at: string;
   data: Record<string, unknown> | null;
 }
@@ -141,7 +141,7 @@ export function NotificationsClient({
           event: 'INSERT',
           schema: 'public',
           table: 'notifications',
-          filter: `agent_id=eq.${agentId}`,
+          filter: `user_id=eq.${agentId}`,
         },
         (payload) => {
           const newNotif = payload.new as Notification;
@@ -154,7 +154,7 @@ export function NotificationsClient({
           event: 'UPDATE',
           schema: 'public',
           table: 'notifications',
-          filter: `agent_id=eq.${agentId}`,
+          filter: `user_id=eq.${agentId}`,
         },
         (payload) => {
           const updated = payload.new as Notification;
@@ -173,7 +173,7 @@ export function NotificationsClient({
   const markAsRead = useCallback(
     async (id: string) => {
       const supabase = getSupabaseBrowserClient();
-      await supabase.from('notifications').update({ read: true }).eq('id', id);
+      await supabase.from('notifications').update({ is_read: true }).eq('id', id);
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
       );
@@ -186,7 +186,7 @@ export function NotificationsClient({
       const supabase = getSupabaseBrowserClient();
       await supabase
         .from('notifications')
-        .update({ read: false })
+        .update({ is_read: false })
         .eq('id', id);
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, read: false } : n)),
@@ -201,7 +201,7 @@ export function NotificationsClient({
     if (unreadIds.length === 0) return;
     await supabase
       .from('notifications')
-      .update({ read: true })
+      .update({ is_read: true })
       .in('id', unreadIds);
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   }, [notifications]);

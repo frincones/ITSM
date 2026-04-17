@@ -45,9 +45,11 @@ function getInitials(email: string | undefined): string {
 interface TopbarProps {
   aiOpen?: boolean;
   onToggleAi?: () => void;
+  userRole?: 'admin' | 'agent' | 'client';
 }
 
-export function Topbar({ aiOpen, onToggleAi }: TopbarProps) {
+export function Topbar({ aiOpen, onToggleAi, userRole = 'agent' }: TopbarProps) {
+  const isClient = userRole === 'client';
   const router = useRouter();
   const signOut = useSignOut();
   const user = useUser();
@@ -112,7 +114,8 @@ export function Topbar({ aiOpen, onToggleAi }: TopbarProps) {
 
       {/* Org Selector + Actions */}
       <div className="flex items-center gap-3">
-        <OrgSelector />
+        {!isClient && <OrgSelector />}
+        {!isClient && (
         <Button
           variant="default"
           size="sm"
@@ -122,6 +125,7 @@ export function Topbar({ aiOpen, onToggleAi }: TopbarProps) {
           <Plus className="h-4 w-4" />
           New Ticket
         </Button>
+        )}
 
         <Button
           variant="ghost"
@@ -137,6 +141,7 @@ export function Topbar({ aiOpen, onToggleAi }: TopbarProps) {
           )}
         </Button>
 
+        {!isClient && (
         <Button
           variant={aiOpen ? 'default' : 'ghost'}
           size="icon"
@@ -146,6 +151,7 @@ export function Topbar({ aiOpen, onToggleAi }: TopbarProps) {
         >
           <Sparkles className={`h-5 w-5 ${aiOpen ? 'text-white' : 'text-indigo-600 dark:text-indigo-400'}`} />
         </Button>
+        )}
 
         <ModeToggle />
 

@@ -9,8 +9,9 @@ async function HomeLayout({ children }: React.PropsWithChildren) {
   // Ensure user is authenticated; redirects to sign-in if not
   await requireUserInServerComponent();
 
-  // Resolve allowed modules for the current user (backwards compatible)
+  // Resolve allowed modules and user role for the current user
   let allowedModules: string[] | null = null;
+  let userRole: 'admin' | 'agent' | 'client' = 'agent';
   try {
     const client = getSupabaseServerClient();
     const {
@@ -22,9 +23,22 @@ async function HomeLayout({ children }: React.PropsWithChildren) {
         '~/lib/services/user-permissions.service'
       );
       allowedModules = await getUserAllowedModules(client, user.id);
+
+      // Resolve role from agents table
+      const { data: agentRecord } = await client
+        .from('agents')
+        .select('role')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (agentRecord?.role === 'admin' || agentRecord?.role === 'supervisor') {
+        userRole = 'admin';
+      } else if (agentRecord?.role === 'agent') {
+        userRole = 'agent';
+      } else {
+        userRole = 'client';
+      }
     }
   } catch {
-    // If anything fails, null = all modules allowed (backwards compatible)
     allowedModules = null;
   }
 
@@ -34,7 +48,7 @@ async function HomeLayout({ children }: React.PropsWithChildren) {
       <SidebarNav allowedModules={allowedModules} />
 
       {/* Main Content + Topbar + AI Sidebar */}
-      <HomeLayoutClient>{children}</HomeLayoutClient>
+      <HomeLayoutClient userRole={userRole}>{children}</HomeLayoutClient>
     </div>
   );
 }

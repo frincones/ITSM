@@ -7,15 +7,21 @@ import { AIAssistantSidebar } from './ai-assistant-sidebar';
 
 interface HomeLayoutClientProps {
   children: React.ReactNode;
+  userRole?: 'admin' | 'agent' | 'client';
 }
 
-export function HomeLayoutClient({ children }: HomeLayoutClientProps) {
+export function HomeLayoutClient({ children, userRole = 'agent' }: HomeLayoutClientProps) {
   const [aiOpen, setAiOpen] = useState(false);
+  const isClient = userRole === 'client';
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Top Bar */}
-      <Topbar aiOpen={aiOpen} onToggleAi={() => setAiOpen((prev) => !prev)} />
+      <Topbar
+        aiOpen={aiOpen}
+        onToggleAi={() => setAiOpen((prev) => !prev)}
+        userRole={userRole}
+      />
 
       {/* Content + AI Sidebar */}
       <div className="flex flex-1 overflow-hidden">
@@ -24,8 +30,8 @@ export function HomeLayoutClient({ children }: HomeLayoutClientProps) {
           {children}
         </main>
 
-        {/* AI Sidebar — inline, pushes content */}
-        {aiOpen && (
+        {/* AI Sidebar — inline, pushes content (hidden for clients) */}
+        {!isClient && aiOpen && (
           <aside className="flex w-[380px] flex-shrink-0 flex-col border-l border-border bg-card">
             <AIAssistantSidebar open={aiOpen} onClose={() => setAiOpen(false)} />
           </aside>

@@ -59,6 +59,33 @@ async function requireAgent(client: ReturnType<typeof getSupabaseServerClient>) 
   return { agent, user, error: null } as const;
 }
 
+/**
+ * Like requireAgent but also works for client users (readonly agents).
+ * Returns isClient=true if user is a readonly/client role.
+ */
+async function requireAuthUser(client: ReturnType<typeof getSupabaseServerClient>) {
+  const {
+    data: { user },
+  } = await client.auth.getUser();
+
+  if (!user) {
+    return { agent: null, user: null, isClient: false, error: 'Unauthorized' } as const;
+  }
+
+  const { data: agent } = await client
+    .from('agents')
+    .select('id, tenant_id, role, name, email')
+    .eq('user_id', user.id)
+    .single();
+
+  if (!agent) {
+    return { agent: null, user, isClient: false, error: 'User not found' } as const;
+  }
+
+  const isClient = agent.role === 'readonly';
+  return { agent, user, isClient, error: null } as const;
+}
+
 /** Valid status transitions map. */
 const VALID_TRANSITIONS: Record<string, string[]> = {
   new: ['assigned', 'in_progress', 'cancelled'],
@@ -266,10 +293,15 @@ export async function changeTicketStatus(
     ticketStatusEnum.parse(newStatus);
 
     const client = getSupabaseServerClient();
-    const { agent, error: authError } = await requireAgent(client);
+    const { agent, isClient, error: authError } = await requireAuthUser(client);
 
     if (authError || !agent) {
       return { data: null, error: authError ?? 'Unauthorized' };
+    }
+
+    // Clients can only set limited statuses
+    if (isClient && !['new', 'in_progress', 'resolved'].includes(newStatus)) {
+      return { data: null, error: 'Not allowed for client users' };
     }
 
     // Fetch current ticket
@@ -357,10 +389,15 @@ export async function addFollowup(
   try {
     const validated = addFollowupSchema.parse(input);
     const client = getSupabaseServerClient();
-    const { agent, user, error: authError } = await requireAgent(client);
+    const { agent, user, isClient, error: authError } = await requireAuthUser(client);
 
     if (authError || !agent || !user) {
       return { data: null, error: authError ?? 'Unauthorized' };
+    }
+
+    // Clients can only add public replies, not internal notes
+    if (isClient && validated.is_private) {
+      return { data: null, error: 'Clients cannot add internal notes' };
     }
 
     // Verify ticket belongs to tenant

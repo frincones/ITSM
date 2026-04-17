@@ -147,6 +147,7 @@ interface TicketDetailClientProps {
   organizations?: Organization[];
   portalConversation?: any[];
   portalActivity?: any[];
+  userRole?: 'admin' | 'agent' | 'client';
 }
 
 /* -------------------------------------------------------------------------- */
@@ -208,7 +209,10 @@ export function TicketDetailClient({
   organizations = [],
   portalConversation = [],
   portalActivity = [],
+  userRole = 'agent',
 }: TicketDetailClientProps) {
+  const isClient = userRole === 'client';
+  const isAdmin = userRole === 'admin';
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [currentStatus, setCurrentStatus] = useState(ticket.status);
@@ -378,8 +382,9 @@ export function TicketDetailClient({
   return (
     <div className="flex h-full">
       {/* ================================================================== */}
-      {/* LEFT PANEL — AI Copilot                                            */}
+      {/* LEFT PANEL — AI Copilot (hidden for clients)                       */}
       {/* ================================================================== */}
+      {!isClient && (
       <aside className="hidden w-80 flex-shrink-0 overflow-hidden border-r border-gray-200 bg-gray-50/50 dark:border-gray-800 dark:bg-gray-900/50 xl:block">
         <AiCopilotPanel
           ticketId={ticket.id}
@@ -388,6 +393,7 @@ export function TicketDetailClient({
           ticketType={ticket.type}
         />
       </aside>
+      )}
 
       {/* ================================================================== */}
       {/* CENTER — Main Content Area                                         */}
@@ -420,6 +426,7 @@ export function TicketDetailClient({
 
           {/* Actions Row */}
           <div className="flex items-center gap-2">
+            {/* Status — clients get limited options */}
             <Select
               value={currentStatus}
               onValueChange={handleStatusChange}
@@ -428,17 +435,29 @@ export function TicketDetailClient({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="new">New</SelectItem>
-                <SelectItem value="assigned">Assigned</SelectItem>
-                <SelectItem value="in_progress">In Progress</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="testing">Testing</SelectItem>
-                <SelectItem value="resolved">Resolved</SelectItem>
-                <SelectItem value="closed">Closed</SelectItem>
-                <SelectItem value="cancelled">Cancelled</SelectItem>
+                {isClient ? (
+                  <>
+                    <SelectItem value="new">New</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="resolved">Resolved</SelectItem>
+                  </>
+                ) : (
+                  <>
+                    <SelectItem value="new">New</SelectItem>
+                    <SelectItem value="assigned">Assigned</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="testing">Testing</SelectItem>
+                    <SelectItem value="resolved">Resolved</SelectItem>
+                    <SelectItem value="closed">Closed</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                  </>
+                )}
               </SelectContent>
             </Select>
 
+            {/* Priority — hidden for clients */}
+            {!isClient && (
             <Select
               defaultValue={ticket.urgency}
               onValueChange={handlePriorityChange}
@@ -453,33 +472,39 @@ export function TicketDetailClient({
                 <SelectItem value="low">Low</SelectItem>
               </SelectContent>
             </Select>
+            )}
 
-            <Button variant="outline" size="sm">
-              Assign
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowEscalateDialog(true)}>
-              Escalate
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowMergeDialog(true)}>
-              Merge
-            </Button>
+            {/* Agent-only actions */}
+            {!isClient && (
+            <>
+              <Button variant="outline" size="sm">
+                Assign
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setShowEscalateDialog(true)}>
+                Escalate
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setShowMergeDialog(true)}>
+                Merge
+              </Button>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon">
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  className="text-red-600 dark:text-red-400"
-                  onClick={handleDeleteTicket}
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Delete Ticket
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    className="text-red-600 dark:text-red-400"
+                    onClick={handleDeleteTicket}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete Ticket
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+            )}
           </div>
         </div>
 
@@ -551,7 +576,7 @@ export function TicketDetailClient({
         </ScrollArea>
 
         {/* Reply Composer */}
-        <ReplyComposer ticketId={ticket.id} />
+        <ReplyComposer ticketId={ticket.id} hideInternalNote={isClient} />
       </div>
 
       {/* ================================================================== */}
@@ -684,8 +709,8 @@ export function TicketDetailClient({
 
           <Separator />
 
-          {/* Assignment */}
-          <div>
+          {/* Assignment — hidden for clients */}
+          {!isClient && (<div>
             <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">
               Assignment
             </h3>
@@ -739,11 +764,12 @@ export function TicketDetailClient({
                 </Select>
               </div>
             </div>
-          </div>
+          </div>)}
 
-          <Separator />
+          {!isClient && <Separator />}
 
-          {/* Category */}
+          {/* Category — hidden for clients */}
+          {!isClient && (
           <div>
             <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">
               Category
@@ -765,10 +791,12 @@ export function TicketDetailClient({
               </SelectContent>
             </Select>
           </div>
+          )}
 
-          <Separator />
+          {!isClient && <Separator />}
 
-          {/* Client / Organization */}
+          {/* Client / Organization — hidden for clients */}
+          {!isClient && (
           <div>
             <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">
               Client
@@ -796,6 +824,7 @@ export function TicketDetailClient({
               </SelectContent>
             </Select>
           </div>
+          )}
 
           <Separator />
 
@@ -909,7 +938,8 @@ export function TicketDetailClient({
 
           <Separator />
 
-          {/* Actions */}
+          {/* Actions — hidden for clients */}
+          {!isClient && (
           <div>
             <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">
               Actions
@@ -941,6 +971,7 @@ export function TicketDetailClient({
               </Button>
             </div>
           </div>
+          )}
         </div>
       </aside>
 

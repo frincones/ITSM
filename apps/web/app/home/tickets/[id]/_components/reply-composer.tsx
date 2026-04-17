@@ -16,6 +16,7 @@ import { addFollowup } from '~/lib/actions/tickets';
 
 interface ReplyComposerProps {
   ticketId: string;
+  hideInternalNote?: boolean;
 }
 
 interface UploadedFile {
@@ -37,7 +38,7 @@ interface MacroTemplate {
 /*  Component                                                                  */
 /* -------------------------------------------------------------------------- */
 
-export function ReplyComposer({ ticketId }: ReplyComposerProps) {
+export function ReplyComposer({ ticketId, hideInternalNote = false }: ReplyComposerProps) {
   const [replyMode, setReplyMode] = useState<'public' | 'internal'>('public');
   const [replyText, setReplyText] = useState('');
   const [isPending, startTransition] = useTransition();
@@ -136,9 +137,9 @@ export function ReplyComposer({ ticketId }: ReplyComposerProps) {
             <TabsTrigger value="public" className="gap-2">
               <MessageSquare className="h-4 w-4" /> Public Reply
             </TabsTrigger>
-            <TabsTrigger value="internal" className="gap-2">
+            {!hideInternalNote && (<TabsTrigger value="internal" className="gap-2">
               <Eye className="h-4 w-4" /> Internal Note
-            </TabsTrigger>
+            </TabsTrigger>)}
           </TabsList>
         </Tabs>
 

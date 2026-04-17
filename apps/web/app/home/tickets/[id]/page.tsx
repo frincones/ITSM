@@ -37,6 +37,24 @@ export default async function TicketDetailPage({
     notFound();
   }
 
+  // ---------- Resolve current user role ----------
+  const { data: { user: authUser } } = await client.auth.getUser();
+  let userRole: 'admin' | 'agent' | 'client' = 'client';
+  if (authUser) {
+    const { data: agentRecord } = await client
+      .from('agents')
+      .select('role')
+      .eq('user_id', authUser.id)
+      .maybeSingle();
+    if (agentRecord?.role === 'admin' || agentRecord?.role === 'supervisor') {
+      userRole = 'admin';
+    } else if (agentRecord?.role === 'agent') {
+      userRole = 'agent';
+    } else {
+      userRole = 'client'; // readonly or org_user
+    }
+  }
+
   // ---------- Fetch related data ----------
   console.log('[TicketDetail] Fetching related data...');
 
@@ -180,7 +198,9 @@ export default async function TicketDetailPage({
   return (
     <TicketDetailClient
       ticket={enrichedTicket}
-      followups={followupsResult.data ?? []}
+      followups={userRole === 'client'
+        ? (followupsResult.data ?? []).filter((f: any) => !f.is_private)
+        : (followupsResult.data ?? [])}
       tasks={tasksResult.data ?? []}
       solutions={solutionsResult.data ?? []}
       attachments={attachmentsResult.data ?? []}
@@ -191,6 +211,7 @@ export default async function TicketDetailPage({
       organizations={organizationsResult.data ?? []}
       portalConversation={portalConversation}
       portalActivity={portalActivity}
+      userRole={userRole}
     />
   );
 }
