@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CheckCircle2, Loader2, ShieldCheck } from 'lucide-react';
 
@@ -8,17 +8,31 @@ import { getSupabaseBrowserClient } from '@kit/supabase/browser-client';
 import { Button } from '@kit/ui/button';
 import { Input } from '@kit/ui/input';
 
-interface SetPasswordFormProps {
-  userEmail: string;
-}
-
-export function SetPasswordForm({ userEmail }: SetPasswordFormProps) {
+export function SetPasswordForm() {
   const router = useRouter();
+  const [userEmail, setUserEmail] = useState('');
+  const [initialLoading, setInitialLoading] = useState(true);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    const supabase = getSupabaseBrowserClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) {
+        window.location.replace('/auth/sign-in');
+        return;
+      }
+      if (user.user_metadata?.password_temporary !== true) {
+        window.location.replace('/home');
+        return;
+      }
+      setUserEmail(user.email ?? '');
+      setInitialLoading(false);
+    });
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -54,13 +68,21 @@ export function SetPasswordForm({ userEmail }: SetPasswordFormProps) {
       setSuccess(true);
 
       setTimeout(() => {
-        router.push('/home');
-        router.refresh();
+        window.location.replace('/home');
       }, 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error desconocido');
       setLoading(false);
     }
+  }
+
+  if (initialLoading) {
+    return (
+      <div className="flex flex-col items-center space-y-3 py-8">
+        <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+        <p className="text-sm text-muted-foreground">Cargando...</p>
+      </div>
+    );
   }
 
   if (success) {
@@ -71,7 +93,8 @@ export function SetPasswordForm({ userEmail }: SetPasswordFormProps) {
         </div>
         <h2 className="text-xl font-semibold">Contraseña actualizada</h2>
         <p className="text-center text-sm text-muted-foreground">
-          Tu contraseña ha sido configurada correctamente.<br />
+          Tu contraseña ha sido configurada correctamente.
+          <br />
           Redirigiendo al dashboard...
         </p>
       </div>
