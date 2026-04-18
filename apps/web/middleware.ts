@@ -150,16 +150,22 @@ function getPatterns() {
           return NextResponse.redirect(new URL(redirectPath, origin).href);
         }
 
-        // If user has a temporary password, force them to set a permanent one
-        const claims = data.claims as { user_metadata?: Record<string, unknown> };
-        const hasTempPassword = claims?.user_metadata?.password_temporary === true;
+        const supabase = createMiddlewareClient(req, res);
+
+        // Check the flag against the fresh user record (not JWT claims).
+        // The JWT can lag behind user_metadata updates until the session is
+        // refreshed, which would otherwise bounce users in a loop right
+        // after they set their permanent password.
+        const {
+          data: { user: freshUser },
+        } = await supabase.auth.getUser();
+        const hasTempPassword =
+          freshUser?.user_metadata?.password_temporary === true;
         if (hasTempPassword) {
           return NextResponse.redirect(
             new URL('/auth/set-password', origin).href,
           );
         }
-
-        const supabase = createMiddlewareClient(req, res);
 
         const requiresMultiFactorAuthentication =
           await checkRequiresMultiFactorAuthentication(supabase);
