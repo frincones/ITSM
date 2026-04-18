@@ -45,7 +45,10 @@ async function HomeLayout({ children }: React.PropsWithChildren) {
   return (
     <div className="flex h-screen bg-background">
       {/* Sidebar — icon rail (w-16) */}
-      <SidebarNav allowedModules={allowedModules} />
+      <SidebarNav
+        allowedModules={allowedModules}
+        isPlatformAdmin={userRole === 'admin'}
+      />
 
       {/* Main Content + Topbar + AI Sidebar */}
       <HomeLayoutClient userRole={userRole}>{children}</HomeLayoutClient>

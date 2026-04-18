@@ -25,13 +25,31 @@ export default async function ReportsPage({
   } = await client.auth.getUser();
 
   let tenantId = '';
+  let forcedOrgId: string | null = null;
   if (user) {
     const { data: agent } = await client
       .from('agents')
       .select('tenant_id')
       .eq('user_id', user.id)
       .maybeSingle();
-    tenantId = agent?.tenant_id ?? '';
+    if (agent) {
+      tenantId = agent.tenant_id;
+    } else {
+      // org_user: tenant comes from their organization, and org is forced
+      const { data: orgUser } = await client
+        .from('organization_users')
+        .select('organization:organizations(id, tenant_id)')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .maybeSingle();
+      const o = (orgUser?.organization ?? null) as
+        | { id: string; tenant_id: string }
+        | null;
+      if (o) {
+        tenantId = o.tenant_id;
+        forcedOrgId = o.id;
+      }
+    }
   }
 
   // Date range defaults: last 12 months
@@ -40,7 +58,7 @@ export default async function ReportsPage({
     params.from ??
     new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-  const orgId = params.org ?? null;
+  const orgId = forcedOrgId ?? params.org ?? null;
 
   // Fetch organizations for filter dropdown
   const { data: organizations } = await client

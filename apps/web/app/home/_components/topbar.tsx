@@ -114,8 +114,7 @@ export function Topbar({ aiOpen, onToggleAi, userRole = 'agent' }: TopbarProps) 
 
       {/* Org Selector + Actions */}
       <div className="flex items-center gap-3">
-        {!isClient && <OrgSelector />}
-        {!isClient && (
+        <OrgSelector />
         <Button
           variant="default"
           size="sm"
@@ -125,7 +124,6 @@ export function Topbar({ aiOpen, onToggleAi, userRole = 'agent' }: TopbarProps) 
           <Plus className="h-4 w-4" />
           New Ticket
         </Button>
-        )}
 
         <Button
           variant="ghost"

@@ -44,10 +44,25 @@ export async function POST(req: NextRequest) {
     // ── Extract ticket number from subject ────────────────────────────
     const ticketMatch = subject.match(/(TKT-\d{4}-\d{5}|PDZ-\d{4}-\d{5})/i);
 
+    // If there's no ticket number, try to treat this as a NEW ticket for an
+    // organization identified by a +slug in the To address.
     if (!ticketMatch) {
+      const slug = extractOrgSlug(to);
+      if (!slug) {
+        processing.delete(email_id);
+        console.log('[Resend Inbound] No ticket number and no org slug:', { subject, to });
+        return NextResponse.json({ ok: true, skipped: 'no ticket number and no org slug' });
+      }
+
+      const result = await handleNewTicketFromEmail({
+        email_id,
+        from: from ?? '',
+        to: Array.isArray(to) ? to.join(', ') : String(to ?? ''),
+        subject,
+        slug,
+      });
       processing.delete(email_id);
-      console.log('[Resend Inbound] No ticket number found in subject:', subject);
-      return NextResponse.json({ ok: true, skipped: 'no ticket number in subject' });
+      return NextResponse.json(result);
     }
 
     const ticketNumber = ticketMatch[1]!.toUpperCase();
@@ -248,6 +263,135 @@ function extractEmail(from: string): string {
   if (match) return match[1]!;
   if (from.includes('@')) return from.trim();
   return from;
+}
+
+/**
+ * Extract the +slug from a Resend "To" header.
+ * Example: "soporte+podenza@itsm.tdxcore.com" → "podenza"
+ * Works against a string or an array of recipients.
+ */
+function extractOrgSlug(to: unknown): string | null {
+  const candidates: string[] = Array.isArray(to)
+    ? (to as unknown[]).map((x) => String(x))
+    : to
+      ? [String(to)]
+      : [];
+
+  for (const entry of candidates) {
+    // strip any display name wrapper: "Foo <soporte+podenza@...>" → email
+    const addr = extractEmail(entry);
+    const m = addr.match(/^[^+@\s]+\+([a-z0-9._-]+)@/i);
+    if (m) return m[1]!.toLowerCase();
+  }
+  return null;
+}
+
+/**
+ * Create a new ticket from an inbound email addressed to soporte+<slug>@...
+ * Looks up the organization by slug (and falls back to inbound_email_slug
+ * when that column exists) and creates a ticket owned by that org.
+ */
+async function handleNewTicketFromEmail(args: {
+  email_id: string;
+  from: string;
+  to: string;
+  subject: string;
+  slug: string;
+}) {
+  const { email_id, from, subject, slug } = args;
+  const svc = getSvc();
+
+  // Look up org by slug. Try both the canonical slug column and the optional
+  // inbound_email_slug column — whichever the DB has.
+  let org: { id: string; tenant_id: string; name: string } | null = null;
+  try {
+    const { data } = await svc
+      .from('organizations')
+      .select('id, tenant_id, name')
+      .or(`slug.eq.${slug},inbound_email_slug.eq.${slug}`)
+      .limit(1)
+      .maybeSingle();
+    org = data as typeof org;
+  } catch {
+    const { data } = await svc
+      .from('organizations')
+      .select('id, tenant_id, name')
+      .eq('slug', slug)
+      .limit(1)
+      .maybeSingle();
+    org = data as typeof org;
+  }
+
+  if (!org) {
+    console.log('[Resend Inbound] Slug not mapped to any org:', slug);
+    return { ok: true, skipped: 'unknown org slug', slug };
+  }
+
+  const senderEmail = extractEmail(from);
+
+  // Fetch email body
+  let emailBody = '';
+  const resendKey = process.env.RESEND_API_KEY;
+  if (resendKey) {
+    try {
+      const r = await fetch(
+        `https://api.resend.com/emails/receiving/${email_id}`,
+        { headers: { Authorization: `Bearer ${resendKey}` } },
+      );
+      if (r.ok) {
+        const d = await r.json();
+        emailBody = cleanEmailReply(d.text ?? d.html ?? '');
+      }
+    } catch {
+      // swallow — will use fallback below
+    }
+  }
+  if (!emailBody.trim()) {
+    emailBody = `[Solicitud recibida por email de ${senderEmail}]`;
+  }
+
+  const title =
+    (subject ?? '').trim().slice(0, 200) ||
+    `Solicitud por email de ${senderEmail}`;
+
+  const { data: ticket, error } = await svc
+    .from('tickets')
+    .insert({
+      tenant_id: org.tenant_id,
+      organization_id: org.id,
+      title,
+      description: emailBody,
+      type: 'support',
+      status: 'new',
+      urgency: 'medium',
+      impact: 'medium',
+      requester_email: senderEmail,
+      source: 'email',
+      custom_fields: { inbound_email_id: email_id },
+    })
+    .select('id, ticket_number')
+    .single();
+
+  if (error) {
+    console.error('[Resend Inbound] Failed to create ticket from email:', error.message);
+    return { ok: false, error: error.message };
+  }
+
+  console.log(
+    '[Resend Inbound] Created ticket',
+    ticket?.ticket_number,
+    'for org',
+    org.name,
+    'from',
+    senderEmail,
+  );
+  return {
+    ok: true,
+    created: true,
+    ticket: ticket?.ticket_number,
+    organization: org.name,
+    from: senderEmail,
+  };
 }
 
 function cleanEmailReply(body: string): string {

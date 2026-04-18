@@ -44,9 +44,13 @@ const navItems = [
 
 interface SidebarNavProps {
   allowedModules?: string[] | null;
+  isPlatformAdmin?: boolean;
 }
 
-export function SidebarNav({ allowedModules }: SidebarNavProps = {}) {
+export function SidebarNav({
+  allowedModules,
+  isPlatformAdmin = false,
+}: SidebarNavProps = {}) {
   const pathname = usePathname();
 
   const isActive = (path: string) => {
@@ -98,27 +102,30 @@ export function SidebarNav({ allowedModules }: SidebarNavProps = {}) {
           ))}
         </nav>
 
-        {/* Settings at bottom */}
-        <Separator className="my-2 w-8" />
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Link
-              href="/home/settings"
-              className={cn(
-                'flex h-12 w-12 items-center justify-center rounded-lg transition-colors',
-                isActive('/home/settings')
-                  ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-              )}
-            >
-              <Settings className="h-5 w-5" />
-            </Link>
-          </TooltipTrigger>
-          <TooltipContent side="right" sideOffset={8}>
-            Settings
-          </TooltipContent>
-        </Tooltip>
+        {/* Settings at bottom — only for platform admins/supervisors */}
+        {isPlatformAdmin && (
+          <>
+            <Separator className="my-2 w-8" />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link
+                  href="/home/settings"
+                  className={cn(
+                    'flex h-12 w-12 items-center justify-center rounded-lg transition-colors',
+                    isActive('/home/settings')
+                      ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                  )}
+                >
+                  <Settings className="h-5 w-5" />
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent side="right" sideOffset={8}>
+                Settings
+              </TooltipContent>
+            </Tooltip>
+          </>
+        )}
       </TooltipProvider>
     </aside>
   );

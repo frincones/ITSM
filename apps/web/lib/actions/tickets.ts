@@ -108,17 +108,58 @@ export async function createTicket(
   try {
     const validated = createTicketSchema.parse(input);
     const client = getSupabaseServerClient();
-    const { agent, user, error: authError } = await requireAgent(client);
 
-    if (authError || !agent || !user) {
-      return { data: null, error: authError ?? 'Unauthorized' };
+    const {
+      data: { user },
+    } = await client.auth.getUser();
+    if (!user) return { data: null, error: 'Unauthorized' };
+
+    // Path A: agent creates a ticket — uses agent.tenant_id, any org allowed.
+    const { data: agent } = await client
+      .from('agents')
+      .select('id, tenant_id, role, name, email')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    let tenantId: string;
+    let enforcedOrgId: string | null = null;
+    let agentEmailForNotify: string | undefined;
+
+    if (agent) {
+      tenantId = agent.tenant_id;
+      agentEmailForNotify = agent.email;
+    } else {
+      // Path B: org_user creates a ticket — enforce their own organization.
+      const { data: orgUser } = await client
+        .from('organization_users')
+        .select('organization_id, organization:organizations(id, tenant_id)')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      const org = (orgUser?.organization ?? null) as
+        | { id: string; tenant_id: string }
+        | null;
+
+      if (!org) {
+        return { data: null, error: 'Not authorized to create tickets' };
+      }
+
+      tenantId = org.tenant_id;
+      enforcedOrgId = org.id;
+
+      // Overwrite any org_id the client sent — never trust the browser.
+      if (validated.organization_id && validated.organization_id !== org.id) {
+        return { data: null, error: 'Invalid organization' };
+      }
     }
 
     const { data: ticket, error } = await client
       .from('tickets')
       .insert({
         ...validated,
-        tenant_id: agent.tenant_id, // NEVER from frontend
+        organization_id: enforcedOrgId ?? validated.organization_id,
+        tenant_id: tenantId, // NEVER from frontend
         created_by: user.id,
         status: 'new',
       })
@@ -131,7 +172,7 @@ export async function createTicket(
 
     // Fire-and-forget notification
     notifyTicketCreated({
-      tenantId: agent.tenant_id,
+      tenantId,
       ticketNumber: ticket.ticket_number,
       ticketId: ticket.id,
       title: ticket.title,
@@ -140,7 +181,7 @@ export async function createTicket(
       status: ticket.status,
       requesterEmail: ticket.requester_email ?? undefined,
       agentUserId: user.id,
-      agentEmail: agent.email,
+      agentEmail: agentEmailForNotify,
     }).catch(() => {});
 
     revalidatePath('/home/tickets');

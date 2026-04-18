@@ -139,6 +139,14 @@ export function ReportsClient({
           <Button variant="outline" size="sm">
             <Download className="mr-2 h-4 w-4" /> Exportar
           </Button>
+
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => router.push('/home/reports/gestion-soporte')}
+          >
+            <Activity className="mr-2 h-4 w-4" /> Reporte Gestión Soporte
+          </Button>
         </div>
       </div>
 

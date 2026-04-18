@@ -72,6 +72,7 @@ interface CreateTicketFormProps {
   categories: Category[];
   contacts: Contact[];
   organizations?: Organization[];
+  lockedOrganizationId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -101,7 +102,11 @@ export function CreateTicketForm({
   categories,
   contacts,
   organizations = [],
+  lockedOrganizationId = null,
 }: CreateTicketFormProps) {
+  const lockedOrg = lockedOrganizationId
+    ? organizations.find((o) => o.id === lockedOrganizationId) ?? null
+    : null;
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -125,7 +130,7 @@ export function CreateTicketForm({
       type: 'incident',
       urgency: 'medium',
       impact: 'medium',
-      organization_id: undefined,
+      organization_id: lockedOrganizationId ?? undefined,
       category_id: undefined,
       requester_email: undefined,
       tags: [],
@@ -260,34 +265,48 @@ export function CreateTicketForm({
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* Organization */}
-                {organizations.length > 0 && (
-                  <FormField
-                    control={form.control}
-                    name="organization_id"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Organization</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          defaultValue={field.value ?? undefined}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select organization" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {organizations.map((org) => (
-                              <SelectItem key={org.id} value={org.id}>
-                                {org.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                {lockedOrg ? (
+                  <FormItem>
+                    <FormLabel>Organization</FormLabel>
+                    <div className="rounded-md border border-input bg-muted/30 px-3 py-2 text-sm font-medium">
+                      {lockedOrg.name}
+                    </div>
+                    <input
+                      type="hidden"
+                      {...form.register('organization_id')}
+                      value={lockedOrg.id}
+                    />
+                  </FormItem>
+                ) : (
+                  organizations.length > 0 && (
+                    <FormField
+                      control={form.control}
+                      name="organization_id"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Organization</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            defaultValue={field.value ?? undefined}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select organization" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {organizations.map((org) => (
+                                <SelectItem key={org.id} value={org.id}>
+                                  {org.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )
                 )}
 
                 {/* Title */}

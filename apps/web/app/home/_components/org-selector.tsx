@@ -45,12 +45,15 @@ export function OrgSelector() {
   const currentOrg = organizations.find((o) => o.id === currentOrgId);
   const displayLabel = currentOrg ? currentOrg.name : 'All Organizations';
 
+  // True when the user is an org_user (no agent record). These users
+  // belong to exactly one organization and cannot switch between orgs.
+  const [isOrgUser, setIsOrgUser] = useState(false);
+
   /* Fetch organizations on mount */
   useEffect(() => {
     const fetchOrgs = async () => {
       const supabase = getSupabaseBrowserClient();
 
-      // Get current user's agent record to find tenant_id
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -64,14 +67,32 @@ export function OrgSelector() {
         .from('agents')
         .select('tenant_id')
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
 
+      // Path A: user is an org_user (no agent record) → lock to their org
       if (!agent) {
+        const { data: orgUser } = await supabase
+          .from('organization_users')
+          .select('organization_id, organization:organizations(id, name, slug)')
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+          .maybeSingle();
+
+        const org = (orgUser?.organization ?? null) as
+          | { id: string; name: string; slug: string }
+          | null;
+
+        if (org) {
+          setOrganizations([
+            { id: org.id, name: org.name, slug: org.slug, ticket_count: 0 },
+          ]);
+          setIsOrgUser(true);
+        }
         setLoading(false);
         return;
       }
 
-      // Fetch organizations this agent has access to
+      // Path B: user is an agent
       const { data: agentOrgs } = await supabase
         .from('agent_organizations')
         .select('organization_id')
@@ -84,7 +105,6 @@ export function OrgSelector() {
         .eq('is_active', true)
         .order('name');
 
-      // If agent has specific org assignments, filter to those
       if (agentOrgs && agentOrgs.length > 0) {
         const orgIds = agentOrgs.map((ao) => ao.organization_id);
         query = query.in('id', orgIds);
@@ -92,7 +112,6 @@ export function OrgSelector() {
 
       const { data: orgs } = await query;
 
-      // Fetch ticket counts per org
       const orgsWithCounts: OrgOption[] = await Promise.all(
         (orgs ?? []).map(async (org) => {
           const { count } = await supabase
@@ -131,6 +150,17 @@ export function OrgSelector() {
 
   if (loading || organizations.length === 0) {
     return null;
+  }
+
+  // Org users: render a static badge with their org name — no dropdown.
+  if (isOrgUser) {
+    const only = organizations[0]!;
+    return (
+      <div className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-sm">
+        <Building2 className="h-4 w-4 text-muted-foreground" />
+        <span className="max-w-[160px] truncate font-medium">{only.name}</span>
+      </div>
+    );
   }
 
   return (
