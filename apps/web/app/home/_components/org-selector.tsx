@@ -65,12 +65,14 @@ export function OrgSelector() {
 
       const { data: agent } = await supabase
         .from('agents')
-        .select('tenant_id')
+        .select('tenant_id, role')
         .eq('user_id', user.id)
         .maybeSingle();
 
-      // Path A: user is an org_user (no agent record) → lock to their org
-      if (!agent) {
+      const isClient = !agent || agent.role === 'readonly';
+
+      // Path A: client (no agent row, or readonly) → lock to their org
+      if (isClient) {
         const { data: orgUser } = await supabase
           .from('organization_users')
           .select('organization_id, organization:organizations(id, name, slug)')

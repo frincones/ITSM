@@ -1,6 +1,9 @@
+import { redirect } from 'next/navigation';
+
 import { getSupabaseServerClient } from '@kit/supabase/server-client';
 
 import { requireUserInServerComponent } from '~/lib/server/require-user-in-server-component';
+import { getUserAllowedModules } from '~/lib/services/user-permissions.service';
 import {
   calculateAIPerformance,
   getLatestInsights,
@@ -477,6 +480,52 @@ interface HomePageProps {
 
 export default async function HomePage({ searchParams }: HomePageProps) {
   await requireUserInServerComponent();
+
+  // If the user's allowed modules don't include dashboard, bounce them to
+  // their first allowed module so they land on something they can use.
+  let redirectPath: string | null = null;
+  try {
+    const client = getSupabaseServerClient();
+    const {
+      data: { user },
+    } = await client.auth.getUser();
+    if (user) {
+      const allowed = await getUserAllowedModules(client, user.id);
+      if (allowed && !allowed.includes('dashboard')) {
+        const moduleToPath: Record<string, string> = {
+          inbox: '/home/inbox',
+          tickets: '/home/tickets',
+          problems: '/home/problems',
+          changes: '/home/changes',
+          projects: '/home/projects',
+          assets: '/home/assets',
+          kb: '/home/kb',
+          service_catalog: '/home/service-catalog',
+          automations: '/home/automations',
+          reports: '/home/reports',
+        };
+        const preferredOrder = [
+          'tickets',
+          'inbox',
+          'reports',
+          'kb',
+          'service_catalog',
+          'problems',
+          'changes',
+          'projects',
+          'assets',
+          'automations',
+        ];
+        const target =
+          preferredOrder.find((m) => allowed.includes(m)) ?? allowed[0];
+        redirectPath = target ? moduleToPath[target] ?? null : null;
+      }
+    }
+  } catch {
+    // ignore; fall through to rendering the dashboard
+  }
+  if (redirectPath) redirect(redirectPath);
+
   const params = await searchParams;
 
   let data: DashboardData;

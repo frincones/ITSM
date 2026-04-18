@@ -32,11 +32,13 @@ async function GestionSoportePage({ searchParams }: PageProps) {
 
   const { data: agent } = await client
     .from('agents')
-    .select('id, tenant_id')
+    .select('id, tenant_id, role')
     .eq('user_id', user.id)
     .maybeSingle();
 
-  if (!agent) {
+  const isClient = !agent || agent.role === 'readonly';
+
+  if (isClient) {
     const { data: orgUser } = await client
       .from('organization_users')
       .select('organization:organizations(id, name)')

@@ -125,11 +125,13 @@ export async function createTicket(
     let enforcedOrgId: string | null = null;
     let agentEmailForNotify: string | undefined;
 
-    if (agent) {
+    const isClient = !agent || agent.role === 'readonly';
+
+    if (agent && !isClient) {
       tenantId = agent.tenant_id;
       agentEmailForNotify = agent.email;
     } else {
-      // Path B: org_user creates a ticket — enforce their own organization.
+      // Path B: client/readonly — enforce their own organization.
       const { data: orgUser } = await client
         .from('organization_users')
         .select('organization_id, organization:organizations(id, tenant_id)')

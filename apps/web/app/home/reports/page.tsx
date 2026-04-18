@@ -29,13 +29,16 @@ export default async function ReportsPage({
   if (user) {
     const { data: agent } = await client
       .from('agents')
-      .select('tenant_id')
+      .select('tenant_id, role')
       .eq('user_id', user.id)
       .maybeSingle();
-    if (agent) {
+
+    const isClient = !agent || agent.role === 'readonly';
+
+    if (agent && !isClient) {
       tenantId = agent.tenant_id;
     } else {
-      // org_user: tenant comes from their organization, and org is forced
+      // client: tenant comes from their organization, and org is forced
       const { data: orgUser } = await client
         .from('organization_users')
         .select('organization:organizations(id, tenant_id)')

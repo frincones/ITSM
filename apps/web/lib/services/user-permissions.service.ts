@@ -95,13 +95,6 @@ export async function getUserType(
     .limit(1)
     .maybeSingle();
 
-  if (!agentError && agent) {
-    return {
-      type: 'tdx_agent',
-      agent: agent as UserTypeResult['agent'],
-    };
-  }
-
   // --- Check organization_users ---
   const { data: orgUser, error: orgUserError } = await client
     .from('organization_users')
@@ -109,6 +102,25 @@ export async function getUserType(
     .eq('user_id', userId)
     .limit(1)
     .maybeSingle();
+
+  // Readonly agents that also have an org membership are clients, not TDX
+  // agents — their permissions should come from the organization scope, not
+  // from the agents profile.
+  const isReadonlyAgent = !agentError && agent && agent.role === 'readonly';
+  if (isReadonlyAgent && !orgUserError && orgUser) {
+    return {
+      type: 'org_user',
+      orgUser: orgUser as UserTypeResult['orgUser'],
+      organizationId: orgUser.organization_id as string,
+    };
+  }
+
+  if (!agentError && agent) {
+    return {
+      type: 'tdx_agent',
+      agent: agent as UserTypeResult['agent'],
+    };
+  }
 
   if (!orgUserError && orgUser) {
     return {

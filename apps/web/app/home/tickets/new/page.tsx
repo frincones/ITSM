@@ -13,18 +13,20 @@ export default async function NewTicketPage() {
     data: { user },
   } = await client.auth.getUser();
 
-  // If the user is an org_user (client), lock them to their organization.
-  // Agents keep the full picker.
+  // If the user is a client (no agent row, or agents.role === 'readonly'),
+  // lock them to their organization. Real agents keep the full picker.
   let lockedOrg: { id: string; name: string } | null = null;
   if (user) {
     const { data: agent } = await client
       .from('agents')
-      .select('id')
+      .select('role')
       .eq('user_id', user.id)
       .eq('is_active', true)
       .maybeSingle();
 
-    if (!agent) {
+    const isClient = !agent || agent.role === 'readonly';
+
+    if (isClient) {
       const { data: orgUser } = await client
         .from('organization_users')
         .select('organization:organizations(id, name)')
