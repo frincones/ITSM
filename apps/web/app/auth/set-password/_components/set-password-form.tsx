@@ -79,11 +79,16 @@ export function SetPasswordForm() {
         return;
       }
 
+      // Force a session refresh so the JWT claims reflect the new metadata.
+      // Otherwise the middleware keeps reading password_temporary: true from
+      // the old token and bounces the user back here.
+      await supabase.auth.refreshSession();
+
       setSuccess(true);
 
       setTimeout(() => {
         window.location.replace('/home');
-      }, 1500);
+      }, 1200);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error desconocido');
       setLoading(false);
