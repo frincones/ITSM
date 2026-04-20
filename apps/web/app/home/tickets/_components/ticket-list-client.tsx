@@ -420,7 +420,12 @@ export function TicketListClient({
               <Filter className="h-4 w-4" />
               Advanced Filters
             </Button>
-            <Button variant="outline" size="sm" className="gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => exportTicketsCsv(tickets)}
+            >
               <Download className="h-4 w-4" />
               Export
             </Button>
@@ -757,4 +762,63 @@ export function TicketListClient({
       )}
     </div>
   );
+}
+
+function exportTicketsCsv(rows: TicketRow[]): void {
+  const headers = [
+    'ticket_number',
+    'title',
+    'status',
+    'type',
+    'urgency',
+    'priority',
+    'channel',
+    'category',
+    'organization_id',
+    'requester_name',
+    'requester_email',
+    'assignee',
+    'sla_due_date',
+    'sla_breached',
+    'created_at',
+  ];
+  const esc = (v: unknown): string => {
+    const s = v == null ? '' : String(v);
+    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  };
+  const body = rows.map((r) =>
+    [
+      r.ticket_number,
+      r.title,
+      r.status,
+      r.type,
+      r.urgency,
+      r.priority,
+      r.channel,
+      r.category?.name ?? '',
+      r.organization_id ?? '',
+      r.requester?.name ?? '',
+      r.requester?.email ?? '',
+      r.assigned_agent?.name ?? '',
+      r.sla_due_date ?? '',
+      r.sla_breached ? 'yes' : 'no',
+      r.created_at,
+    ]
+      .map(esc)
+      .join(','),
+  );
+  const csv = [headers.join(','), ...body].join('\r\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const ts = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `tickets-${ts}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

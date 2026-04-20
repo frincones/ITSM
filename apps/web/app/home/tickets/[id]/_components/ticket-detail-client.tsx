@@ -437,9 +437,11 @@ export function TicketDetailClient({
               <SelectContent>
                 {isClient ? (
                   <>
-                    <SelectItem value="new">New</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
-                    <SelectItem value="resolved">Resolved</SelectItem>
+                    <SelectItem value="new">Nuevo</SelectItem>
+                    <SelectItem value="in_progress">En Progreso</SelectItem>
+                    <SelectItem value="pending">Detenido</SelectItem>
+                    <SelectItem value="testing">Listo para Testing</SelectItem>
+                    <SelectItem value="closed">Cerrado</SelectItem>
                   </>
                 ) : (
                   <>
@@ -521,7 +523,7 @@ export function TicketDetailClient({
             <Clock className="h-3.5 w-3.5" />
             Historial
           </button>
-          {portalConversation.length > 0 && (
+          {!isClient && portalConversation.length > 0 && (
             <button
               onClick={() => setActiveContentTab('conversation')}
               className={`flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
@@ -534,7 +536,7 @@ export function TicketDetailClient({
               Chat Portal ({portalConversation.length})
             </button>
           )}
-          {portalActivity.length > 0 && (
+          {!isClient && portalActivity.length > 0 && (
             <button
               onClick={() => setActiveContentTab('activity')}
               className={`flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
@@ -709,24 +711,24 @@ export function TicketDetailClient({
 
           <Separator />
 
-          {/* Assignment — hidden for clients */}
-          {!isClient && (<div>
+          {/* Assignment — assignee available to everyone, group agents-only */}
+          <div>
             <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">
-              Assignment
+              Asignación
             </h3>
             <div className="space-y-3">
               {/* Assignee */}
               <div>
-                <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">Assignee</p>
+                <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">Responsable</p>
                 <Select
                   defaultValue={ticket.assigned_agent_id ?? 'unassigned'}
                   onValueChange={handleAgentChange}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Unassigned" />
+                    <SelectValue placeholder="Sin asignar" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="unassigned">Unassigned</SelectItem>
+                    <SelectItem value="unassigned">Sin asignar</SelectItem>
                     {agents.map((agent) => (
                       <SelectItem key={agent.id} value={agent.id}>
                         <div className="flex items-center gap-2">
@@ -743,30 +745,32 @@ export function TicketDetailClient({
                 </Select>
               </div>
 
-              {/* Group */}
-              <div>
-                <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">Group</p>
-                <Select
-                  defaultValue={ticket.assigned_group_id ?? 'unassigned'}
-                  onValueChange={handleGroupChange}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="No group" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="unassigned">No group</SelectItem>
-                    {groups.map((group) => (
-                      <SelectItem key={group.id} value={group.id}>
-                        {group.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {/* Group — agents only */}
+              {!isClient && (
+                <div>
+                  <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">Group</p>
+                  <Select
+                    defaultValue={ticket.assigned_group_id ?? 'unassigned'}
+                    onValueChange={handleGroupChange}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="No group" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unassigned">No group</SelectItem>
+                      {groups.map((group) => (
+                        <SelectItem key={group.id} value={group.id}>
+                          {group.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
-          </div>)}
+          </div>
 
-          {!isClient && <Separator />}
+          <Separator />
 
           {/* Category — hidden for clients */}
           {!isClient && (

@@ -26,6 +26,7 @@ export default async function ReportsPage({
 
   let tenantId = '';
   let forcedOrgId: string | null = null;
+  let isClient = false;
   if (user) {
     const { data: agent } = await client
       .from('agents')
@@ -33,7 +34,7 @@ export default async function ReportsPage({
       .eq('user_id', user.id)
       .maybeSingle();
 
-    const isClient = !agent || agent.role === 'readonly';
+    isClient = !agent || agent.role === 'readonly';
 
     if (agent && !isClient) {
       tenantId = agent.tenant_id;
@@ -85,6 +86,7 @@ export default async function ReportsPage({
       selectedOrg={orgId}
       dateFrom={from}
       dateTo={to}
+      isClient={isClient}
     />
   );
 }

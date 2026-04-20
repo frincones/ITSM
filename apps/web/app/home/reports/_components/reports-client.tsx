@@ -31,6 +31,7 @@ interface ReportsClientProps {
   selectedOrg: string | null;
   dateFrom: string;
   dateTo: string;
+  isClient?: boolean;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -64,6 +65,7 @@ export function ReportsClient({
   selectedOrg,
   dateFrom,
   dateTo,
+  isClient = false,
 }: ReportsClientProps) {
   const router = useRouter();
 
@@ -111,18 +113,22 @@ export function ReportsClient({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Select value={selectedOrg ?? 'all'} onValueChange={handleOrgChange}>
-            <SelectTrigger className="w-[200px]">
-              <Filter className="mr-2 h-4 w-4" />
-              <SelectValue placeholder="Organización" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas las organizaciones</SelectItem>
-              {organizations.map((o) => (
-                <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {!isClient && (
+            <Select value={selectedOrg ?? 'all'} onValueChange={handleOrgChange}>
+              <SelectTrigger className="w-[200px]">
+                <Filter className="mr-2 h-4 w-4" />
+                <SelectValue placeholder="Organización" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas las organizaciones</SelectItem>
+                {organizations.map((o) => (
+                  <SelectItem key={o.id} value={o.id}>
+                    {o.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
 
           <Select defaultValue="1y" onValueChange={handleDateChange}>
             <SelectTrigger className="w-[130px]">
@@ -136,7 +142,7 @@ export function ReportsClient({
             </SelectContent>
           </Select>
 
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" onClick={() => exportReportsCsv(d, dateFrom, dateTo)}>
             <Download className="mr-2 h-4 w-4" /> Exportar
           </Button>
 
@@ -373,4 +379,75 @@ function KpiCard({
       </CardContent>
     </Card>
   );
+}
+
+
+function exportReportsCsv(
+  d: ReportDashboard,
+  from: string,
+  to: string,
+): void {
+  const lines: string[] = [];
+  lines.push('Reports & Analytics');
+  lines.push(`Rango:,${from},${to}`);
+  lines.push('');
+
+  lines.push('KPIs');
+  lines.push(`Total tickets,${d.totalTickets}`);
+  lines.push(`Abiertos,${d.openTickets}`);
+  lines.push(`Cerrados,${d.closedTickets}`);
+  lines.push(
+    `Tiempo promedio resolución (h),${
+      d.avgResolutionMinutes ? (d.avgResolutionMinutes / 60).toFixed(2) : ''
+    }`,
+  );
+  lines.push(
+    `SLA Compliance (%),${d.slaCompliance?.rate ?? ''}`,
+  );
+  lines.push('');
+
+  lines.push('Gestión Soporte');
+  lines.push('Indicador,Cantidad');
+  (d.gestionSoporte ?? []).forEach((g) => {
+    lines.push(`${escapeCsv(g.label)},${g.count}`);
+  });
+  lines.push('');
+
+  lines.push('Por Estado');
+  lines.push('Estado,Cantidad');
+  (d.byStatus ?? []).forEach((r: { status: string; count: number }) => {
+    lines.push(`${escapeCsv(r.status)},${r.count}`);
+  });
+  lines.push('');
+
+  lines.push('Por Tipo');
+  lines.push('Tipo,Cantidad');
+  (d.byType ?? []).forEach((r: { type: string; count: number }) => {
+    lines.push(`${escapeCsv(r.type)},${r.count}`);
+  });
+  lines.push('');
+
+  lines.push('Por Urgencia');
+  lines.push('Urgencia,Cantidad');
+  (d.byUrgency ?? []).forEach((r: { urgency: string; count: number }) => {
+    lines.push(`${escapeCsv(r.urgency)},${r.count}`);
+  });
+
+  const csv = lines.join('\r\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `reports-${from}-${to}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function escapeCsv(v: string): string {
+  if (v.includes(',') || v.includes('"') || v.includes('\n')) {
+    return `"${v.replace(/"/g, '""')}"`;
+  }
+  return v;
 }

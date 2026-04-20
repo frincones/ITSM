@@ -94,7 +94,11 @@ async function GestionSoportePage({ searchParams }: PageProps) {
   const garantiaId = cats?.find((c) => c.name === 'Garantía')?.id ?? null;
   const soporteId = cats?.find((c) => c.name === 'Soporte')?.id ?? null;
 
-  // Count helper: tickets in this org + given status + given category
+  // Cutoff: include any ticket created up to the end of the selected day.
+  // This gives a "state as of" view so the report matches a daily snapshot.
+  const cutoffIso = `${reportDate}T23:59:59.999Z`;
+
+  // Count helper: tickets in this org + given status + given category up to date
   const countTickets = async (filters: {
     status?: string;
     categoryId?: string | null;
@@ -103,7 +107,8 @@ async function GestionSoportePage({ searchParams }: PageProps) {
     let q = client
       .from('tickets')
       .select('*', { count: 'exact', head: true })
-      .eq('organization_id', organizationId!);
+      .eq('organization_id', organizationId!)
+      .lte('created_at', cutoffIso);
 
     if (filters.status) q = q.eq('status', filters.status);
     if (filters.categoryId) q = q.eq('category_id', filters.categoryId);

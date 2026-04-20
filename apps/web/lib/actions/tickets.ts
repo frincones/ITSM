@@ -88,14 +88,14 @@ async function requireAuthUser(client: ReturnType<typeof getSupabaseServerClient
 
 /** Valid status transitions map. */
 const VALID_TRANSITIONS: Record<string, string[]> = {
-  new: ['assigned', 'in_progress', 'cancelled'],
-  assigned: ['in_progress', 'pending', 'cancelled'],
-  in_progress: ['pending', 'testing', 'resolved', 'cancelled'],
-  pending: ['in_progress', 'resolved', 'cancelled'],
-  testing: ['in_progress', 'resolved', 'cancelled'],
+  new: ['assigned', 'in_progress', 'pending', 'testing', 'closed', 'cancelled'],
+  assigned: ['in_progress', 'pending', 'testing', 'closed', 'cancelled'],
+  in_progress: ['pending', 'testing', 'resolved', 'closed', 'cancelled'],
+  pending: ['in_progress', 'testing', 'resolved', 'closed', 'cancelled'],
+  testing: ['in_progress', 'pending', 'resolved', 'closed', 'cancelled'],
   resolved: ['closed', 'in_progress'],
-  closed: [],
-  cancelled: [],
+  closed: ['in_progress'],
+  cancelled: ['new'],
 };
 
 // ---------------------------------------------------------------------------
@@ -342,8 +342,16 @@ export async function changeTicketStatus(
       return { data: null, error: authError ?? 'Unauthorized' };
     }
 
-    // Clients can only set limited statuses
-    if (isClient && !['new', 'in_progress', 'resolved'].includes(newStatus)) {
+    // Clients can only set the statuses exposed in their UI picker
+    const CLIENT_ALLOWED_STATUSES = [
+      'new',
+      'in_progress',
+      'pending',
+      'testing',
+      'resolved',
+      'closed',
+    ];
+    if (isClient && !CLIENT_ALLOWED_STATUSES.includes(newStatus)) {
       return { data: null, error: 'Not allowed for client users' };
     }
 
