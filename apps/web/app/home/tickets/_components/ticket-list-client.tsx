@@ -78,6 +78,7 @@ export interface TicketRow {
   assigned_agent: TicketAgent | null;
   requester: TicketRequester | null;
   category: TicketCategory | null;
+  custom_fields?: Record<string, unknown> | null;
 }
 
 interface Filters {
@@ -543,6 +544,7 @@ export function TicketListClient({
               <TableHead>Type</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Priority</TableHead>
+              <TableHead>Orden Cliente</TableHead>
               <TableHead>Client</TableHead>
               <TableHead>Requester</TableHead>
               <TableHead>Assignee</TableHead>
@@ -555,7 +557,7 @@ export function TicketListClient({
             {displayTickets.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={12}
+                  colSpan={13}
                   className="py-12 text-center text-gray-500"
                 >
                   No tickets found.
@@ -626,6 +628,33 @@ export function TicketListClient({
                     >
                       {formatPriorityLabel(ticket.priority)}
                     </Badge>
+                  </TableCell>
+
+                  {/* Client priority rank (manual order set by the customer) */}
+                  <TableCell>
+                    {(() => {
+                      const raw = (ticket.custom_fields ?? {})[
+                        'client_rank' as keyof typeof ticket.custom_fields
+                      ];
+                      const rank =
+                        typeof raw === 'number'
+                          ? raw
+                          : typeof raw === 'string' && raw !== ''
+                            ? Number(raw)
+                            : null;
+                      if (rank === null || Number.isNaN(rank)) {
+                        return (
+                          <span className="text-xs text-muted-foreground">
+                            --
+                          </span>
+                        );
+                      }
+                      return (
+                        <Badge className="border border-indigo-200 bg-indigo-50 text-indigo-700">
+                          #{rank}
+                        </Badge>
+                      );
+                    })()}
                   </TableCell>
 
                   {/* Client (Organization) */}
@@ -774,6 +803,7 @@ function exportTicketsCsv(rows: TicketRow[]): void {
     'type',
     'urgency',
     'priority',
+    'client_rank',
     'channel',
     'category',
     'organization_id',
@@ -791,14 +821,24 @@ function exportTicketsCsv(rows: TicketRow[]): void {
     }
     return s;
   };
-  const body = rows.map((r) =>
-    [
+  const body = rows.map((r) => {
+    const raw = (r.custom_fields ?? {})[
+      'client_rank' as keyof typeof r.custom_fields
+    ];
+    const clientRank =
+      typeof raw === 'number'
+        ? raw
+        : typeof raw === 'string' && raw !== ''
+          ? raw
+          : '';
+    return [
       r.ticket_number,
       r.title,
       r.status,
       r.type,
       r.urgency,
       r.priority,
+      clientRank,
       r.channel,
       r.category?.name ?? '',
       r.organization_id ?? '',
@@ -810,8 +850,8 @@ function exportTicketsCsv(rows: TicketRow[]): void {
       r.created_at,
     ]
       .map(esc)
-      .join(','),
-  );
+      .join(',');
+  });
   const csv = [headers.join(','), ...body].join('\r\n');
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);

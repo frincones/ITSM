@@ -281,9 +281,15 @@ export async function assignTicket(
     }
 
     const updatePayload: Record<string, unknown> = {
-      status: 'assigned',
       updated_at: new Date().toISOString(),
     };
+
+    // Only auto-flip to 'assigned' from the freshly-created 'new' state.
+    // Reassigning a ticket that's already in progress / pending / testing
+    // should keep the current status so clients don't reset real work.
+    if (existing.status === 'new' && agentId) {
+      updatePayload.status = 'assigned';
+    }
 
     if (agentId !== undefined) {
       updatePayload.assigned_agent_id = agentId;
@@ -428,6 +434,104 @@ export async function changeTicketStatus(
       return { data: null, error: err.errors.map((e) => e.message).join(', ') };
     }
     return { data: null, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 4b. setClientPriorityRank — manual 1..50 ordering used by client users
+// ---------------------------------------------------------------------------
+
+/**
+ * Set (or clear) the client-defined priority rank for a ticket. Each rank
+ * value is unique per organization among *open* tickets (not closed or
+ * cancelled), so a client can express a strict ordering of the tickets that
+ * still need attention.
+ *
+ * Pass `rank = null` to clear the rank.
+ */
+export async function setClientPriorityRank(
+  ticketId: string,
+  rank: number | null,
+): Promise<ActionResult> {
+  try {
+    if (
+      rank !== null &&
+      (!Number.isInteger(rank) || rank < 1 || rank > 50)
+    ) {
+      return { data: null, error: 'El orden debe ser un entero entre 1 y 50' };
+    }
+
+    const client = getSupabaseServerClient();
+    const {
+      data: { user },
+    } = await client.auth.getUser();
+    if (!user) return { data: null, error: 'Unauthorized' };
+
+    // Fetch ticket with tenant + org scope
+    const { data: ticket, error: tErr } = await client
+      .from('tickets')
+      .select('id, tenant_id, organization_id, custom_fields')
+      .eq('id', ticketId)
+      .is('deleted_at', null)
+      .maybeSingle();
+
+    if (tErr || !ticket) return { data: null, error: 'Ticket not found' };
+    if (!ticket.organization_id) {
+      return {
+        data: null,
+        error: 'El ticket no pertenece a ninguna organización',
+      };
+    }
+
+    // Uniqueness check (only when setting a value)
+    if (rank !== null) {
+      const { data: clashes } = await client
+        .from('tickets')
+        .select('id, ticket_number, title')
+        .eq('organization_id', ticket.organization_id)
+        .neq('id', ticketId)
+        .is('deleted_at', null)
+        .not('status', 'in', '(closed,cancelled,resolved)')
+        .eq('custom_fields->>client_rank', String(rank))
+        .limit(1);
+
+      if (clashes && clashes.length > 0) {
+        const clash = clashes[0];
+        return {
+          data: null,
+          error: `El orden ${rank} ya está asignado al ticket ${clash?.ticket_number ?? ''}. Escoge otro número.`,
+        };
+      }
+    }
+
+    const currentCustom =
+      (ticket.custom_fields as Record<string, unknown> | null) ?? {};
+    const nextCustom: Record<string, unknown> = { ...currentCustom };
+    if (rank === null) {
+      delete nextCustom.client_rank;
+    } else {
+      nextCustom.client_rank = rank;
+    }
+
+    const { error } = await client
+      .from('tickets')
+      .update({
+        custom_fields: nextCustom,
+        updated_at: new Date().toISOString(),
+        updated_by: user.id,
+      })
+      .eq('id', ticketId);
+
+    if (error) return { data: null, error: error.message };
+
+    revalidatePath(`/home/tickets/${ticketId}`);
+    revalidatePath('/home/tickets');
+    return { data: { client_rank: rank }, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    };
   }
 }
 

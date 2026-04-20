@@ -54,6 +54,7 @@ import {
   assignTicket,
   deleteTicket,
   addFollowup,
+  setClientPriorityRank,
 } from '~/lib/actions/tickets';
 
 import {
@@ -323,6 +324,40 @@ export function TicketDetailClient({
       await updateTicket(ticket.id, {
         category_id: categoryId === 'none' ? undefined : categoryId,
       });
+    });
+  }
+
+  const [clientRank, setClientRank] = useState<number | null>(() => {
+    const raw = (ticket.custom_fields as Record<string, unknown> | null)?.[
+      'client_rank'
+    ];
+    if (typeof raw === 'number') return raw;
+    if (typeof raw === 'string' && raw.trim() !== '') {
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : null;
+    }
+    return null;
+  });
+  const [clientRankError, setClientRankError] = useState<string | null>(null);
+
+  function handleClientRankChange(value: string) {
+    const nextRank = value === 'none' ? null : Number(value);
+    const prev = clientRank;
+    setClientRank(nextRank);
+    setClientRankError(null);
+    startTransition(async () => {
+      const result = await setClientPriorityRank(ticket.id, nextRank);
+      if (result.error) {
+        setClientRankError(result.error);
+        setClientRank(prev);
+        toast.error(result.error);
+      } else {
+        toast.success(
+          nextRank === null
+            ? 'Orden de cliente removido'
+            : `Orden de cliente: ${nextRank}`,
+        );
+      }
     });
   }
 
@@ -768,6 +803,49 @@ export function TicketDetailClient({
                 </div>
               )}
             </div>
+          </div>
+
+          <Separator />
+
+          {/* Client priority rank — editable by client, read-only display for agents */}
+          <div>
+            <h3 className="mb-1 text-sm font-semibold text-gray-900 dark:text-gray-100">
+              Orden del Cliente
+            </h3>
+            <p className="mb-3 text-xs text-muted-foreground">
+              {isClient
+                ? 'Número único (1-50) para priorizar tus tickets. 1 = el más urgente.'
+                : 'Orden manual asignado por el cliente (1 = el más urgente).'}
+            </p>
+            {isClient ? (
+              <Select
+                value={clientRank === null ? 'none' : String(clientRank)}
+                onValueChange={handleClientRankChange}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Sin orden" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin orden</SelectItem>
+                  {Array.from({ length: 50 }, (_, i) => i + 1).map((n) => (
+                    <SelectItem key={n} value={String(n)}>
+                      {n}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="rounded-md border border-input bg-muted/30 px-3 py-2 text-sm">
+                {clientRank === null ? (
+                  <span className="text-muted-foreground">Sin definir</span>
+                ) : (
+                  <span className="font-semibold">{clientRank}</span>
+                )}
+              </div>
+            )}
+            {clientRankError && (
+              <p className="mt-2 text-xs text-red-600">{clientRankError}</p>
+            )}
           </div>
 
           <Separator />

@@ -48,8 +48,9 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
       requester_email,
       assigned_agent_id,
       category_id,
-      organization_id
-    `,
+      organization_id,
+      custom_fields
+`,
       { count: 'exact' },
     )
     .is('deleted_at', null)
