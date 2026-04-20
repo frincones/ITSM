@@ -86,6 +86,94 @@ async function requireAuthUser(client: ReturnType<typeof getSupabaseServerClient
   return { agent, user, isClient, error: null } as const;
 }
 
+/**
+ * Round-robin assignment for a single freshly-created ticket.
+ * Picks whichever TDX staff agent currently has the fewest open tickets
+ * in this tenant (tie-break: alphabetical by name). Skips the
+ * admin@novadesk.com service account so only real agents get picked.
+ *
+ * Invoked fire-and-forget from createTicket so a failure never blocks
+ * the ticket insert.
+ */
+async function autoAssignRoundRobin(
+  client: ReturnType<typeof getSupabaseServerClient>,
+  ticketId: string,
+  tenantId: string,
+): Promise<void> {
+  const EXCLUDED_EMAILS = ['admin@novadesk.com'];
+  const TERMINAL = ['closed', 'cancelled', 'resolved'];
+
+  const { data: allAgents } = await client
+    .from('agents')
+    .select('id, user_id, email, name, role')
+    .eq('tenant_id', tenantId)
+    .eq('is_active', true)
+    .in('role', ['admin', 'supervisor', 'agent'])
+    .order('name', { ascending: true });
+
+  const agents = (allAgents ?? []).filter(
+    (a: { email: string }) => !EXCLUDED_EMAILS.includes(a.email.toLowerCase()),
+  );
+  if (agents.length === 0) return;
+
+  const { data: openRows } = await client
+    .from('tickets')
+    .select('assigned_agent_id')
+    .eq('tenant_id', tenantId)
+    .is('deleted_at', null)
+    .not('status', 'in', `(${TERMINAL.join(',')})`)
+    .not('assigned_agent_id', 'is', null);
+
+  const counts = new Map<string, number>();
+  for (const a of agents) counts.set(a.id, 0);
+  for (const row of openRows ?? []) {
+    const aid = (row as { assigned_agent_id: string }).assigned_agent_id;
+    if (counts.has(aid)) counts.set(aid, (counts.get(aid) ?? 0) + 1);
+  }
+
+  let best: (typeof agents)[number] | null = null;
+  let bestCount = Infinity;
+  for (const a of agents) {
+    const c = counts.get(a.id) ?? 0;
+    if (c < bestCount) {
+      best = a;
+      bestCount = c;
+    }
+  }
+  if (!best) return;
+
+  await client
+    .from('tickets')
+    .update({
+      assigned_agent_id: best.id,
+      status: 'assigned',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', ticketId);
+
+  // Notify the freshly-assigned agent
+  const { notifyTicketAssigned } = await import('~/lib/services/notify.service');
+  const { data: t } = await client
+    .from('tickets')
+    .select('ticket_number, title, type, urgency, status')
+    .eq('id', ticketId)
+    .maybeSingle();
+  if (t) {
+    notifyTicketAssigned({
+      tenantId,
+      ticketNumber: t.ticket_number,
+      ticketId,
+      title: t.title,
+      type: t.type,
+      urgency: t.urgency,
+      status: t.status,
+      agentUserId: best.user_id ?? undefined,
+      agentEmail: best.email,
+      agentName: best.name,
+    }).catch(() => {});
+  }
+}
+
 /** Valid status transitions map. */
 const VALID_TRANSITIONS: Record<string, string[]> = {
   new: ['backlog', 'assigned', 'in_progress', 'pending', 'detenido', 'testing', 'closed', 'cancelled'],
@@ -187,6 +275,11 @@ export async function createTicket(
       agentUserId: user.id,
       agentEmail: agentEmailForNotify,
     }).catch(() => {});
+
+    // Real-time round-robin: assign the brand-new ticket to the TDX staff
+    // member with the fewest open tickets right now. This replaces the
+    // every-5-minute cron we can't run on Hobby.
+    autoAssignRoundRobin(client, ticket.id, tenantId).catch(() => {});
 
     revalidatePath('/home/tickets');
     return { data: ticket, error: null };
