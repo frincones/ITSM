@@ -29,6 +29,22 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
   const limit = 50;
   const offset = (page - 1) * limit;
 
+  // Resolve current agent up-front so tab filters like "Assigned to Me" can
+  // use it when building the query below.
+  const {
+    data: { user },
+  } = await client.auth.getUser();
+
+  let currentAgentId: string | null = null;
+  if (user) {
+    const { data: agent } = await client
+      .from('agents')
+      .select('id')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    currentAgentId = agent?.id ?? null;
+  }
+
   // Build query with server-side filters
   let query = client
     .from('tickets')
@@ -64,24 +80,29 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
   // If no org param → show all (backwards compatible for TDX admin)
   if (params.org) {
     query = query.eq('organization_id', params.org);
-  } else {
+  } else if (user) {
     // Check if user is an org_user (not TDX agent) → auto-filter by their org
-    const { data: { user: authUser } } = await client.auth.getUser();
-    if (authUser) {
-      const { data: orgUser } = await client
-        .from('organization_users')
-        .select('organization_id')
-        .eq('user_id', authUser.id)
-        .eq('is_active', true)
-        .maybeSingle();
-      if (orgUser?.organization_id) {
-        query = query.eq('organization_id', orgUser.organization_id);
-      }
+    const { data: orgUser } = await client
+      .from('organization_users')
+      .select('organization_id')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .maybeSingle();
+    if (orgUser?.organization_id) {
+      query = query.eq('organization_id', orgUser.organization_id);
     }
   }
 
   // Apply tab-based filters
-  if (params.tab === 'unassigned') {
+  if (params.tab === 'mine') {
+    // If the user has no agent row (shouldn't happen in prod) return nothing
+    // rather than leaking every ticket.
+    if (currentAgentId) {
+      query = query.eq('assigned_agent_id', currentAgentId);
+    } else {
+      query = query.eq('assigned_agent_id', '00000000-0000-0000-0000-000000000000');
+    }
+  } else if (params.tab === 'unassigned') {
     query = query.is('assigned_agent_id', null);
   } else if (params.tab === 'overdue') {
     query = query.eq('sla_breached', true);
@@ -163,23 +184,6 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
     for (const org of orgs) {
       organizationMap[org.id] = org.name;
     }
-  }
-
-  // Fetch current agent for "Assigned to Me" tab
-  const {
-    data: { user },
-  } = await client.auth.getUser();
-
-  let currentAgentId: string | null = null;
-
-  if (user) {
-    const { data: agent } = await client
-      .from('agents')
-      .select('id')
-      .eq('user_id', user.id)
-      .single();
-
-    currentAgentId = agent?.id ?? null;
   }
 
   // Agents list for the multi-select filter (scoped to the tenant)
