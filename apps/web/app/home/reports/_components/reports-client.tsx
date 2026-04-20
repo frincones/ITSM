@@ -41,13 +41,15 @@ interface ReportsClientProps {
 
 const STATUS_COLORS: Record<string, string> = {
   new: '#3b82f6', backlog: '#64748b', assigned: '#06b6d4',
-  in_progress: '#f59e0b', pending: '#f97316', testing: '#8b5cf6',
-  resolved: '#22c55e', closed: '#6b7280', cancelled: '#ef4444',
+  in_progress: '#f59e0b', pending: '#f97316', detenido: '#b45309',
+  testing: '#8b5cf6', resolved: '#22c55e', closed: '#6b7280',
+  cancelled: '#ef4444',
 };
 
 const TYPE_COLORS: Record<string, string> = {
   support: '#3b82f6', incident: '#ef4444', backlog: '#8b5cf6',
   request: '#06b6d4', warranty: '#f59e0b',
+  desarrollo_pendiente: '#d97706',
 };
 
 const URGENCY_COLORS: Record<string, string> = {

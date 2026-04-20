@@ -20,6 +20,7 @@ export const ticketTypeEnum = z.enum([
   'warranty',
   'support',
   'backlog',
+  'desarrollo_pendiente',
 ]);
 
 export const ticketStatusEnum = z.enum([
@@ -28,6 +29,7 @@ export const ticketStatusEnum = z.enum([
   'assigned',
   'in_progress',
   'pending',
+  'detenido',
   'testing',
   'resolved',
   'closed',

@@ -88,12 +88,13 @@ async function requireAuthUser(client: ReturnType<typeof getSupabaseServerClient
 
 /** Valid status transitions map. */
 const VALID_TRANSITIONS: Record<string, string[]> = {
-  new: ['backlog', 'assigned', 'in_progress', 'pending', 'testing', 'closed', 'cancelled'],
-  backlog: ['new', 'assigned', 'in_progress', 'pending', 'testing', 'closed', 'cancelled'],
-  assigned: ['backlog', 'in_progress', 'pending', 'testing', 'closed', 'cancelled'],
-  in_progress: ['backlog', 'pending', 'testing', 'resolved', 'closed', 'cancelled'],
-  pending: ['backlog', 'in_progress', 'testing', 'resolved', 'closed', 'cancelled'],
-  testing: ['backlog', 'in_progress', 'pending', 'resolved', 'closed', 'cancelled'],
+  new: ['backlog', 'assigned', 'in_progress', 'pending', 'detenido', 'testing', 'closed', 'cancelled'],
+  backlog: ['new', 'assigned', 'in_progress', 'pending', 'detenido', 'testing', 'closed', 'cancelled'],
+  assigned: ['backlog', 'in_progress', 'pending', 'detenido', 'testing', 'closed', 'cancelled'],
+  in_progress: ['backlog', 'pending', 'detenido', 'testing', 'resolved', 'closed', 'cancelled'],
+  pending: ['backlog', 'in_progress', 'detenido', 'testing', 'resolved', 'closed', 'cancelled'],
+  detenido: ['backlog', 'in_progress', 'pending', 'testing', 'resolved', 'closed', 'cancelled'],
+  testing: ['backlog', 'in_progress', 'pending', 'detenido', 'resolved', 'closed', 'cancelled'],
   resolved: ['closed', 'in_progress'],
   closed: ['in_progress', 'backlog'],
   cancelled: ['new', 'backlog'],
@@ -355,6 +356,7 @@ export async function changeTicketStatus(
       'backlog',
       'in_progress',
       'pending',
+      'detenido',
       'testing',
       'resolved',
       'closed',

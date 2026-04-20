@@ -475,7 +475,8 @@ export function TicketDetailClient({
                     <SelectItem value="new">Nuevo</SelectItem>
                     <SelectItem value="backlog">Backlog</SelectItem>
                     <SelectItem value="in_progress">En Progreso</SelectItem>
-                    <SelectItem value="pending">Detenido</SelectItem>
+                    <SelectItem value="pending">Pendiente</SelectItem>
+                    <SelectItem value="detenido">Detenido</SelectItem>
                     <SelectItem value="testing">Listo para Testing</SelectItem>
                     <SelectItem value="closed">Cerrado</SelectItem>
                   </>
@@ -486,6 +487,7 @@ export function TicketDetailClient({
                     <SelectItem value="assigned">Assigned</SelectItem>
                     <SelectItem value="in_progress">In Progress</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="detenido">Detenido</SelectItem>
                     <SelectItem value="testing">Testing</SelectItem>
                     <SelectItem value="resolved">Resolved</SelectItem>
                     <SelectItem value="closed">Closed</SelectItem>
@@ -738,6 +740,9 @@ export function TicketDetailClient({
                     <SelectItem value="warranty">Warranty</SelectItem>
                     <SelectItem value="support">Support</SelectItem>
                     <SelectItem value="backlog">Backlog</SelectItem>
+                    <SelectItem value="desarrollo_pendiente">
+                      Desarrollo Pendiente
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>

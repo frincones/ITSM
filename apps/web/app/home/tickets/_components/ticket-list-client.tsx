@@ -124,6 +124,7 @@ const getStatusColor = (status: string) => {
     assigned: 'bg-indigo-100 text-indigo-700 border-indigo-200',
     in_progress: 'bg-purple-100 text-purple-700 border-purple-200',
     pending: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+    detenido: 'bg-amber-100 text-amber-800 border-amber-300',
     testing: 'bg-cyan-100 text-cyan-700 border-cyan-200',
     resolved: 'bg-green-100 text-green-700 border-green-200',
     closed: 'bg-gray-100 text-gray-700 border-gray-200',
@@ -139,6 +140,7 @@ const formatStatusLabel = (status: string) => {
     assigned: 'Assigned',
     in_progress: 'In Progress',
     pending: 'Pending',
+    detenido: 'Detenido',
     testing: 'Testing',
     resolved: 'Resolved',
     closed: 'Closed',
@@ -160,6 +162,11 @@ const formatPriorityLabel = (priority: string) => {
 const formatTypeLabel = (type: string) => {
   const labels: Record<string, string> = {
     incident: 'Incident',
+    request: 'Request',
+    warranty: 'Warranty',
+    support: 'Support',
+    backlog: 'Backlog',
+    desarrollo_pendiente: 'Desarrollo Pendiente',
     service_request: 'Service Request',
     question: 'Question',
     problem: 'Problem',
@@ -171,6 +178,11 @@ const formatTypeLabel = (type: string) => {
 const getTypeBadgeColor = (type: string) => {
   const colors: Record<string, string> = {
     incident: 'bg-red-50 text-red-600 border-red-200',
+    request: 'bg-cyan-50 text-cyan-600 border-cyan-200',
+    warranty: 'bg-amber-50 text-amber-600 border-amber-200',
+    support: 'bg-blue-50 text-blue-600 border-blue-200',
+    backlog: 'bg-violet-50 text-violet-600 border-violet-200',
+    desarrollo_pendiente: 'bg-orange-50 text-orange-700 border-orange-300',
     service_request: 'bg-blue-50 text-blue-600 border-blue-200',
     question: 'bg-purple-50 text-purple-600 border-purple-200',
     problem: 'bg-orange-50 text-orange-600 border-orange-200',

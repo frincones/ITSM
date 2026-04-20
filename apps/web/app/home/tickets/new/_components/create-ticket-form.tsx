@@ -85,6 +85,7 @@ const TICKET_TYPES = [
   { value: 'warranty', label: 'Warranty' },
   { value: 'support', label: 'Support' },
   { value: 'backlog', label: 'Backlog' },
+  { value: 'desarrollo_pendiente', label: 'Desarrollo Pendiente' },
 ] as const;
 
 const SEVERITY_LEVELS = [
