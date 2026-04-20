@@ -88,14 +88,15 @@ async function requireAuthUser(client: ReturnType<typeof getSupabaseServerClient
 
 /** Valid status transitions map. */
 const VALID_TRANSITIONS: Record<string, string[]> = {
-  new: ['assigned', 'in_progress', 'pending', 'testing', 'closed', 'cancelled'],
-  assigned: ['in_progress', 'pending', 'testing', 'closed', 'cancelled'],
-  in_progress: ['pending', 'testing', 'resolved', 'closed', 'cancelled'],
-  pending: ['in_progress', 'testing', 'resolved', 'closed', 'cancelled'],
-  testing: ['in_progress', 'pending', 'resolved', 'closed', 'cancelled'],
+  new: ['backlog', 'assigned', 'in_progress', 'pending', 'testing', 'closed', 'cancelled'],
+  backlog: ['new', 'assigned', 'in_progress', 'pending', 'testing', 'closed', 'cancelled'],
+  assigned: ['backlog', 'in_progress', 'pending', 'testing', 'closed', 'cancelled'],
+  in_progress: ['backlog', 'pending', 'testing', 'resolved', 'closed', 'cancelled'],
+  pending: ['backlog', 'in_progress', 'testing', 'resolved', 'closed', 'cancelled'],
+  testing: ['backlog', 'in_progress', 'pending', 'resolved', 'closed', 'cancelled'],
   resolved: ['closed', 'in_progress'],
-  closed: ['in_progress'],
-  cancelled: ['new'],
+  closed: ['in_progress', 'backlog'],
+  cancelled: ['new', 'backlog'],
 };
 
 // ---------------------------------------------------------------------------
@@ -345,6 +346,7 @@ export async function changeTicketStatus(
     // Clients can only set the statuses exposed in their UI picker
     const CLIENT_ALLOWED_STATUSES = [
       'new',
+      'backlog',
       'in_progress',
       'pending',
       'testing',

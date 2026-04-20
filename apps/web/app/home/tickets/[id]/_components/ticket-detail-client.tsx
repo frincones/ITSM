@@ -438,6 +438,7 @@ export function TicketDetailClient({
                 {isClient ? (
                   <>
                     <SelectItem value="new">Nuevo</SelectItem>
+                    <SelectItem value="backlog">Backlog</SelectItem>
                     <SelectItem value="in_progress">En Progreso</SelectItem>
                     <SelectItem value="pending">Detenido</SelectItem>
                     <SelectItem value="testing">Listo para Testing</SelectItem>
@@ -446,6 +447,7 @@ export function TicketDetailClient({
                 ) : (
                   <>
                     <SelectItem value="new">New</SelectItem>
+                    <SelectItem value="backlog">Backlog</SelectItem>
                     <SelectItem value="assigned">Assigned</SelectItem>
                     <SelectItem value="in_progress">In Progress</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>

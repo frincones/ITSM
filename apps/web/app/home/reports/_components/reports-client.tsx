@@ -39,9 +39,9 @@ interface ReportsClientProps {
 /* -------------------------------------------------------------------------- */
 
 const STATUS_COLORS: Record<string, string> = {
-  new: '#3b82f6', assigned: '#06b6d4', in_progress: '#f59e0b',
-  pending: '#f97316', testing: '#8b5cf6', resolved: '#22c55e',
-  closed: '#6b7280', cancelled: '#ef4444',
+  new: '#3b82f6', backlog: '#64748b', assigned: '#06b6d4',
+  in_progress: '#f59e0b', pending: '#f97316', testing: '#8b5cf6',
+  resolved: '#22c55e', closed: '#6b7280', cancelled: '#ef4444',
 };
 
 const TYPE_COLORS: Record<string, string> = {

@@ -24,6 +24,7 @@ export const ticketTypeEnum = z.enum([
 
 export const ticketStatusEnum = z.enum([
   'new',
+  'backlog',
   'assigned',
   'in_progress',
   'pending',

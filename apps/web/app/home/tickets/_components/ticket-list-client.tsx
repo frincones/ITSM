@@ -119,6 +119,7 @@ const getPriorityColor = (priority: string) => {
 const getStatusColor = (status: string) => {
   const colors: Record<string, string> = {
     new: 'bg-blue-100 text-blue-700 border-blue-200',
+    backlog: 'bg-slate-100 text-slate-700 border-slate-200',
     assigned: 'bg-indigo-100 text-indigo-700 border-indigo-200',
     in_progress: 'bg-purple-100 text-purple-700 border-purple-200',
     pending: 'bg-yellow-100 text-yellow-700 border-yellow-200',
@@ -133,6 +134,7 @@ const getStatusColor = (status: string) => {
 const formatStatusLabel = (status: string) => {
   const labels: Record<string, string> = {
     new: 'New',
+    backlog: 'Backlog',
     assigned: 'Assigned',
     in_progress: 'In Progress',
     pending: 'Pending',
