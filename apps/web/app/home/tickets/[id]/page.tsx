@@ -63,20 +63,87 @@ export default async function TicketDetailPage({
     tasksResult,
     solutionsResult,
     attachmentsResult,
-    agentsResult,
+    staffAgentsResult,
     groupsResult,
     categoriesResult,
     organizationsResult,
+    orgUsersOfTicketOrg,
+    agentOrgLinks,
   ] = await Promise.all([
     client.from('ticket_followups').select('*').eq('ticket_id', id).order('created_at', { ascending: true }),
     client.from('ticket_tasks').select('*').eq('ticket_id', id).order('created_at', { ascending: true }),
     client.from('ticket_solutions').select('*').eq('ticket_id', id).order('created_at', { ascending: true }),
     client.from('ticket_attachments').select('*').eq('ticket_id', id).order('created_at', { ascending: true }),
-    client.from('agents').select('id, user_id, name, avatar_url, email').order('name'),
+    // TDX staff — always available as assignees
+    client
+      .from('agents')
+      .select('id, user_id, name, avatar_url, email, role')
+      .in('role', ['admin', 'supervisor', 'agent'])
+      .eq('is_active', true)
+      .order('name'),
     client.from('groups').select('id, name').order('name'),
     client.from('categories').select('id, name').order('name'),
     client.from('organizations').select('id, name').eq('is_active', true).order('name'),
+    // Users of the ticket's organization (scoped view)
+    ticket.organization_id
+      ? client
+          .from('organization_users')
+          .select('user_id')
+          .eq('organization_id', ticket.organization_id)
+          .eq('is_active', true)
+          .not('user_id', 'is', null)
+      : Promise.resolve({ data: [] as { user_id: string }[] }),
+    // Agents explicitly linked to the ticket's org
+    ticket.organization_id
+      ? client
+          .from('agent_organizations')
+          .select('agent_id')
+          .eq('organization_id', ticket.organization_id)
+      : Promise.resolve({ data: [] as { agent_id: string }[] }),
   ]);
+
+  // Merge: TDX staff + any agents belonging to the ticket's org (readonly clients of that org,
+  // plus agents explicitly linked via agent_organizations).
+  const staffAgents = staffAgentsResult.data ?? [];
+  const orgUserIds = new Set(
+    (orgUsersOfTicketOrg.data ?? []).map((r: any) => r.user_id as string),
+  );
+  const linkedAgentIds = new Set(
+    (agentOrgLinks.data ?? []).map((r: any) => r.agent_id as string),
+  );
+
+  let scopedReadonlyAgents: typeof staffAgents = [];
+  if (orgUserIds.size > 0 || linkedAgentIds.size > 0) {
+    const { data: orgReadonly } = await client
+      .from('agents')
+      .select('id, user_id, name, avatar_url, email, role')
+      .eq('is_active', true)
+      .eq('role', 'readonly')
+      .or(
+        [
+          orgUserIds.size > 0
+            ? `user_id.in.(${[...orgUserIds].join(',')})`
+            : null,
+          linkedAgentIds.size > 0
+            ? `id.in.(${[...linkedAgentIds].join(',')})`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(','),
+      );
+    scopedReadonlyAgents = orgReadonly ?? [];
+  }
+
+  const mergedAgentsMap = new Map<string, (typeof staffAgents)[number]>();
+  [...staffAgents, ...scopedReadonlyAgents].forEach((a) => {
+    if (a?.id) mergedAgentsMap.set(a.id, a);
+  });
+  const agentsResult = {
+    data: [...mergedAgentsMap.values()].sort((a, b) =>
+      (a.name ?? '').localeCompare(b.name ?? ''),
+    ),
+    error: staffAgentsResult.error,
+  };
 
   console.log('[TicketDetail] Related data:', {
     followups: followupsResult.data?.length ?? 0,

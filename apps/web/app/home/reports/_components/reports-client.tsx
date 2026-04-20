@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation';
 import {
   BarChart3, TrendingUp, TrendingDown, Clock, CheckCircle,
   AlertTriangle, Users, FolderOpen, Building2, Download,
-  Filter, Activity,
+  Filter, Activity, Calendar,
 } from 'lucide-react';
+import { Input } from '@kit/ui/input';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Legend,
@@ -85,19 +86,34 @@ export function ReportsClient({
     router.push(`/home/reports?${p.toString()}`);
   };
 
+  const pushDateRange = (nextFrom: string, nextTo: string) => {
+    const p = new URLSearchParams();
+    if (selectedOrg) p.set('org', selectedOrg);
+    p.set('from', nextFrom);
+    p.set('to', nextTo);
+    router.push(`/home/reports?${p.toString()}`);
+  };
+
   const handleDateChange = (range: string) => {
     const now = new Date();
     let from = dateFrom;
+    const to = now.toISOString().slice(0, 10);
     if (range === '7d') from = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10);
     else if (range === '30d') from = new Date(now.getTime() - 30 * 86400000).toISOString().slice(0, 10);
     else if (range === '90d') from = new Date(now.getTime() - 90 * 86400000).toISOString().slice(0, 10);
     else if (range === '1y') from = new Date(now.getTime() - 365 * 86400000).toISOString().slice(0, 10);
 
-    const p = new URLSearchParams();
-    if (selectedOrg) p.set('org', selectedOrg);
-    p.set('from', from);
-    p.set('to', dateTo);
-    router.push(`/home/reports?${p.toString()}`);
+    pushDateRange(from, to);
+  };
+
+  const handleFromChange = (value: string) => {
+    if (!value) return;
+    pushDateRange(value, dateTo);
+  };
+
+  const handleToChange = (value: string) => {
+    if (!value) return;
+    pushDateRange(dateFrom, value);
   };
 
   const resHours = d.avgResolutionMinutes ? (d.avgResolutionMinutes / 60).toFixed(1) : '--';
@@ -141,6 +157,25 @@ export function ReportsClient({
               <SelectItem value="1y">1 año</SelectItem>
             </SelectContent>
           </Select>
+
+          <div className="flex items-center gap-1 rounded-md border border-input bg-background px-2 py-1">
+            <Calendar className="h-4 w-4 text-muted-foreground" />
+            <Input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => handleFromChange(e.target.value)}
+              max={dateTo}
+              className="h-7 w-[130px] border-0 px-1 text-xs shadow-none focus-visible:ring-0"
+            />
+            <span className="text-xs text-muted-foreground">→</span>
+            <Input
+              type="date"
+              value={dateTo}
+              onChange={(e) => handleToChange(e.target.value)}
+              min={dateFrom}
+              className="h-7 w-[130px] border-0 px-1 text-xs shadow-none focus-visible:ring-0"
+            />
+          </div>
 
           <Button variant="outline" size="sm" onClick={() => exportReportsCsv(d, dateFrom, dateTo)}>
             <Download className="mr-2 h-4 w-4" /> Exportar

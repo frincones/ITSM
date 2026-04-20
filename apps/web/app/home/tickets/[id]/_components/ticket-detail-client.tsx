@@ -460,8 +460,7 @@ export function TicketDetailClient({
               </SelectContent>
             </Select>
 
-            {/* Priority — hidden for clients */}
-            {!isClient && (
+            {/* Priority — available to everyone so clients can signal urgency */}
             <Select
               defaultValue={ticket.urgency}
               onValueChange={handlePriorityChange}
@@ -476,7 +475,6 @@ export function TicketDetailClient({
                 <SelectItem value="low">Low</SelectItem>
               </SelectContent>
             </Select>
-            )}
 
             {/* Agent-only actions */}
             {!isClient && (
