@@ -571,7 +571,6 @@ export function TicketListClient({
               <TableHead>Client</TableHead>
               <TableHead>Requester</TableHead>
               <TableHead>Assignee</TableHead>
-              <TableHead>SLA</TableHead>
               <TableHead>Created</TableHead>
               <TableHead className="w-12"></TableHead>
             </TableRow>
@@ -580,7 +579,7 @@ export function TicketListClient({
             {displayTickets.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={13}
+                  colSpan={12}
                   className="py-12 text-center text-gray-500"
                 >
                   No tickets found.
@@ -729,15 +728,6 @@ export function TicketListClient({
                     ) : (
                       <span className="text-sm text-gray-400">Unassigned</span>
                     )}
-                  </TableCell>
-
-                  {/* SLA */}
-                  <TableCell>
-                    <SLAIndicator
-                      slaDueDate={ticket.sla_due_date}
-                      slaBreached={ticket.sla_breached}
-                      status={ticket.status}
-                    />
                   </TableCell>
 
                   {/* Created (relative time) */}
