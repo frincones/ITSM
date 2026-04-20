@@ -1,5 +1,3 @@
-import Link from 'next/link';
-
 import { SignInMethodsContainer } from '@kit/auth/sign-in';
 import { Heading } from '@kit/ui/heading';
 
@@ -68,16 +66,6 @@ function SignInPage() {
               paths={paths}
               providers={authConfig.providers}
             />
-
-            <p className="mt-6 text-center text-sm text-muted-foreground">
-              Don&apos;t have an account?{' '}
-              <Link
-                href={pathsConfig.auth.signUp}
-                className="font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
-              >
-                Contact sales
-              </Link>
-            </p>
           </div>
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
