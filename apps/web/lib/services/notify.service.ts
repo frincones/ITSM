@@ -258,7 +258,9 @@ export async function notifyTicketAssigned(evt: TicketEvent) {
 
 export async function notifyTicketStatusChanged(evt: TicketEvent) {
   const link = `/home/tickets/${evt.ticketId}`;
+  const portalUrl = `https://itsm-web.vercel.app${link}`;
 
+  // Requester — email
   if (evt.requesterEmail) {
     await notifyEmail(evt.requesterEmail,
       `📌 Actualización: ${evt.ticketNumber} — ${evt.status}`,
@@ -272,7 +274,29 @@ export async function notifyTicketStatusChanged(evt: TicketEvent) {
           { label: 'Título', value: evt.title },
           { label: 'Nuevo Estado', value: `<strong>${evt.status}</strong>` },
         ],
+        ctaText: 'Ver Ticket',
+        ctaUrl: portalUrl,
         footerNote: 'Te mantendremos informado sobre cualquier cambio adicional en tu solicitud.',
+      }));
+  }
+
+  // Assignee — email + in-app
+  if (evt.agentEmail) {
+    await notifyEmail(evt.agentEmail,
+      `📌 ${evt.ticketNumber} cambió a ${evt.status}`,
+      emailTemplate({
+        preheader: `El ticket ${evt.ticketNumber} cambió de estado`,
+        heading: 'Cambio de Estado en Ticket Asignado',
+        badgeText: evt.status.toUpperCase().replace('_', ' '),
+        badgeColor: STATUS_COLORS[evt.status] ?? '#6366f1',
+        bodyRows: [
+          { label: 'Ticket', value: `<strong>${evt.ticketNumber}</strong>` },
+          { label: 'Título', value: evt.title },
+          { label: 'Nuevo Estado', value: `<strong>${evt.status}</strong>` },
+          { label: 'Urgencia', value: evt.urgency },
+        ],
+        ctaText: 'Abrir Ticket',
+        ctaUrl: portalUrl,
       }));
   }
 

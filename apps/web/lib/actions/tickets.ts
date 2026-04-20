@@ -419,13 +419,27 @@ export async function changeTicketStatus(
       return { data: null, error: error.message };
     }
 
+    // Resolve the ASSIGNEE (not the actor) so email + in-app reach the
+    // person responsible for the ticket.
+    let assigneeEmail: string | undefined;
+    let assigneeUserId: string | undefined;
+    if (ticket.assigned_agent_id) {
+      const { data: assignee } = await client
+        .from('agents')
+        .select('email, user_id')
+        .eq('id', ticket.assigned_agent_id)
+        .maybeSingle();
+      assigneeEmail = assignee?.email ?? undefined;
+      assigneeUserId = assignee?.user_id ?? undefined;
+    }
+
     // Notify status change
     const notifyFn = newStatus === 'resolved' ? notifyTicketResolved : notifyTicketStatusChanged;
     notifyFn({
       tenantId: agent.tenant_id, ticketNumber: ticket.ticket_number, ticketId: ticket.id,
       title: ticket.title, type: ticket.type, urgency: ticket.urgency, status: newStatus,
       requesterEmail: ticket.requester_email ?? undefined,
-      agentUserId: user.id, agentEmail: agent.email,
+      agentUserId: assigneeUserId, agentEmail: assigneeEmail,
     }).catch(() => {});
 
     revalidatePath('/home/tickets');

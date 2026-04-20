@@ -1,0 +1,25 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/cron/sla-check",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/notification-processor",
+      "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/metrics-snapshot",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/ai-insights",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/ticket-auto-assign",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}

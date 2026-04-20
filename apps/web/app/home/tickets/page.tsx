@@ -74,6 +74,9 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
       { count: 'exact' },
     )
     .is('deleted_at', null)
+    // Open tickets (no closed_at) show first; then closed ordered by most
+    // recently closed. Within each bucket the newest created_at wins.
+    .order('closed_at', { ascending: false, nullsFirst: true })
     .order('created_at', { ascending: false });
 
   // Filter by organization (from OrgSelector ?org= param or user context)
