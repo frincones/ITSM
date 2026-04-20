@@ -53,7 +53,7 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
       custom_fields,
       requester:contacts(id, name, email),
       assigned_agent:agents(id, name, avatar_url, email),
-      category:categories(id, name)
+      category:categories!tickets_category_id_fkey(id, name)
 `,
       { count: 'exact' },
     )
