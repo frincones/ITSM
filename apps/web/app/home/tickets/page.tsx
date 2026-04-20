@@ -45,11 +45,15 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
       sla_due_date,
       sla_breached,
       created_at,
+      requester_id,
       requester_email,
       assigned_agent_id,
       category_id,
       organization_id,
-      custom_fields
+      custom_fields,
+      requester:contacts(id, name, email),
+      assigned_agent:agents(id, name, avatar_url, email),
+      category:categories(id, name)
 `,
       { count: 'exact' },
     )
@@ -92,13 +96,17 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
     );
   }
 
-  // Apply dropdown filters
+  // Apply dropdown filters (accept single or comma-separated multi-value)
   if (params.status) {
-    query = query.eq('status', params.status);
+    const values = params.status.split(',').map((s) => s.trim()).filter(Boolean);
+    if (values.length === 1) query = query.eq('status', values[0]!);
+    else if (values.length > 1) query = query.in('status', values);
   }
 
   if (params.type) {
-    query = query.eq('type', params.type);
+    const values = params.type.split(',').map((s) => s.trim()).filter(Boolean);
+    if (values.length === 1) query = query.eq('type', values[0]!);
+    else if (values.length > 1) query = query.in('type', values);
   }
 
   if (params.priority) {
@@ -110,7 +118,23 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
   }
 
   if (params.agent) {
-    query = query.eq('assigned_agent_id', params.agent);
+    const values = params.agent.split(',').map((s) => s.trim()).filter(Boolean);
+    if (values.length === 1) {
+      if (values[0] === 'unassigned') query = query.is('assigned_agent_id', null);
+      else query = query.eq('assigned_agent_id', values[0]!);
+    } else if (values.length > 1) {
+      const hasUnassigned = values.includes('unassigned');
+      const realIds = values.filter((v) => v !== 'unassigned');
+      if (hasUnassigned && realIds.length > 0) {
+        query = query.or(
+          `assigned_agent_id.is.null,assigned_agent_id.in.(${realIds.join(',')})`,
+        );
+      } else if (hasUnassigned) {
+        query = query.is('assigned_agent_id', null);
+      } else {
+        query = query.in('assigned_agent_id', realIds);
+      }
+    }
   }
 
   // Date range filter
@@ -158,6 +182,13 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
     currentAgentId = agent?.id ?? null;
   }
 
+  // Agents list for the multi-select filter (scoped to the tenant)
+  const { data: allAgents } = await client
+    .from('agents')
+    .select('id, name, email, role, avatar_url')
+    .eq('is_active', true)
+    .order('name');
+
   return (
     <TicketListClient
       tickets={tickets ?? []}
@@ -166,6 +197,7 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
       pageSize={limit}
       currentAgentId={currentAgentId}
       organizationMap={organizationMap}
+      agents={allAgents ?? []}
       activeTab={params.tab ?? 'all'}
       searchQuery={params.search ?? ''}
       filters={{

@@ -91,6 +91,14 @@ interface Filters {
   to: string;
 }
 
+interface AgentOption {
+  id: string;
+  name: string;
+  email: string;
+  avatar_url: string | null;
+  role: string;
+}
+
 interface TicketListClientProps {
   tickets: TicketRow[];
   totalCount: number;
@@ -98,6 +106,7 @@ interface TicketListClientProps {
   pageSize: number;
   currentAgentId: string | null;
   organizationMap?: Record<string, string>;
+  agents?: AgentOption[];
   activeTab: string;
   searchQuery: string;
   filters: Filters;
@@ -314,6 +323,7 @@ export function TicketListClient({
   pageSize,
   currentAgentId,
   organizationMap = {},
+  agents = [],
   activeTab,
   searchQuery,
   filters,
@@ -469,6 +479,7 @@ export function TicketListClient({
       {showFilters && (
         <TicketFilters
           filters={filters}
+          agents={agents}
           onApply={(newFilters) => {
             navigateTo({
               ...newFilters,
