@@ -73,11 +73,14 @@ export function ReportsClient({
   const router = useRouter();
 
   const d = dashboard ?? {
+    createdInRange: 0, closedInRange: 0, resolvedInRange: 0,
+    openTicketsSnapshot: 0,
     totalTickets: 0, openTickets: 0, closedTickets: 0,
     avgResolutionMinutes: null,
     slaCompliance: { rate: 0, met: 0, breached: 0, total: 0 },
     byStatus: [], byType: [], byCategory: [], byUrgency: [],
-    byAgent: [], byOrganization: [], dailyTrend: [], gestionSoporte: [],
+    byAgent: [], byOrganization: [], dailyTrend: [],
+    activityMetrics: [], snapshotMetrics: [], gestionSoporte: [],
   };
 
   const handleOrgChange = (val: string) => {
@@ -193,47 +196,133 @@ export function ReportsClient({
         </div>
       </div>
 
-      {/* ── KPI Cards ────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-        <KpiCard title="Total Tickets" value={d.totalTickets} icon={BarChart3} color="text-indigo-600" />
-        <KpiCard title="Abiertos" value={d.openTickets} icon={FolderOpen} color="text-orange-500" />
-        <KpiCard title="Cerrados" value={d.closedTickets} icon={CheckCircle} color="text-green-600" />
-        <KpiCard title="Tiempo Resolución" value={`${resHours}h`} icon={Clock} color="text-blue-500" />
-        <KpiCard title="SLA Compliance" value={`${d.slaCompliance.rate}%`} icon={d.slaCompliance.rate >= 80 ? TrendingUp : AlertTriangle} color={d.slaCompliance.rate >= 80 ? 'text-green-600' : 'text-red-500'} />
+      {/* ── KPI Cards — activity in range + snapshot ─────────────────────── */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
+        <KpiCard
+          title="Creados en rango"
+          value={d.createdInRange ?? d.totalTickets}
+          icon={BarChart3}
+          color="text-indigo-600"
+        />
+        <KpiCard
+          title="Cerrados en rango"
+          value={d.closedInRange ?? d.closedTickets}
+          icon={CheckCircle}
+          color="text-green-600"
+        />
+        <KpiCard
+          title="Resueltos en rango"
+          value={d.resolvedInRange ?? 0}
+          icon={TrendingUp}
+          color="text-emerald-600"
+        />
+        <KpiCard
+          title="Abiertos (hoy)"
+          value={d.openTicketsSnapshot ?? d.openTickets}
+          icon={FolderOpen}
+          color="text-orange-500"
+        />
+        <KpiCard
+          title="Tiempo Resolución"
+          value={`${resHours}h`}
+          icon={Clock}
+          color="text-blue-500"
+        />
+        <KpiCard
+          title="SLA Compliance"
+          value={`${d.slaCompliance.rate}%`}
+          icon={d.slaCompliance.rate >= 80 ? TrendingUp : AlertTriangle}
+          color={d.slaCompliance.rate >= 80 ? 'text-green-600' : 'text-red-500'}
+        />
       </div>
 
-      {/* ── Gestión Soporte (Type x Status Matrix) ───────────────────────── */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Activity className="h-5 w-5" />
-            Reporte Gestión Soporte
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="px-3 py-2 text-left font-medium">Indicador</th>
-                  <th className="px-3 py-2 text-right font-medium">Cantidad</th>
-                </tr>
-              </thead>
-              <tbody>
-                {d.gestionSoporte.map((g, i) => (
-                  <tr key={i} className="border-b hover:bg-muted/30">
-                    <td className="px-3 py-2">{g.label}</td>
-                    <td className="px-3 py-2 text-right font-semibold">{g.count}</td>
+      {/* ── Gestión Soporte — split into Movimiento vs Snapshot ──────────── */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5" />
+              Movimiento del Periodo
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Casos creados, cerrados o resueltos entre{' '}
+              <strong>{dateFrom}</strong> y <strong>{dateTo}</strong>.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="px-3 py-2 text-left font-medium">Indicador</th>
+                    <th className="px-3 py-2 text-right font-medium">Cantidad</th>
                   </tr>
-                ))}
-                {d.gestionSoporte.length === 0 && (
-                  <tr><td colSpan={2} className="px-3 py-4 text-center text-muted-foreground">Sin datos</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+                </thead>
+                <tbody>
+                  {(d.activityMetrics ?? []).map((g, i) => (
+                    <tr key={i} className="border-b hover:bg-muted/30">
+                      <td className="px-3 py-2">{g.label}</td>
+                      <td className="px-3 py-2 text-right font-semibold">{g.count}</td>
+                    </tr>
+                  ))}
+                  {(d.activityMetrics ?? []).length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={2}
+                        className="px-3 py-4 text-center text-muted-foreground"
+                      >
+                        Sin movimiento en este rango
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FolderOpen className="h-5 w-5" />
+              Estado Actual (snapshot)
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Casos que siguen abiertos hoy — independiente del rango.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="px-3 py-2 text-left font-medium">Indicador</th>
+                    <th className="px-3 py-2 text-right font-medium">Cantidad</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(d.snapshotMetrics ?? []).map((g, i) => (
+                    <tr key={i} className="border-b hover:bg-muted/30">
+                      <td className="px-3 py-2">{g.label}</td>
+                      <td className="px-3 py-2 text-right font-semibold">{g.count}</td>
+                    </tr>
+                  ))}
+                  {(d.snapshotMetrics ?? []).length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={2}
+                        className="px-3 py-4 text-center text-muted-foreground"
+                      >
+                        Sin casos abiertos
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* ── Charts Row 1: Status + Type + Urgency ────────────────────────── */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -430,22 +519,28 @@ function exportReportsCsv(
   lines.push('');
 
   lines.push('KPIs');
-  lines.push(`Total tickets,${d.totalTickets}`);
-  lines.push(`Abiertos,${d.openTickets}`);
-  lines.push(`Cerrados,${d.closedTickets}`);
+  lines.push(`Creados en rango,${d.createdInRange ?? d.totalTickets}`);
+  lines.push(`Cerrados en rango,${d.closedInRange ?? d.closedTickets}`);
+  lines.push(`Resueltos en rango,${d.resolvedInRange ?? 0}`);
+  lines.push(`Abiertos (snapshot),${d.openTicketsSnapshot ?? d.openTickets}`);
   lines.push(
     `Tiempo promedio resolución (h),${
       d.avgResolutionMinutes ? (d.avgResolutionMinutes / 60).toFixed(2) : ''
     }`,
   );
-  lines.push(
-    `SLA Compliance (%),${d.slaCompliance?.rate ?? ''}`,
-  );
+  lines.push(`SLA Compliance (%),${d.slaCompliance?.rate ?? ''}`);
   lines.push('');
 
-  lines.push('Gestión Soporte');
+  lines.push('Movimiento del Periodo');
   lines.push('Indicador,Cantidad');
-  (d.gestionSoporte ?? []).forEach((g) => {
+  (d.activityMetrics ?? []).forEach((g) => {
+    lines.push(`${escapeCsv(g.label)},${g.count}`);
+  });
+  lines.push('');
+
+  lines.push('Estado Actual (snapshot)');
+  lines.push('Indicador,Cantidad');
+  (d.snapshotMetrics ?? []).forEach((g) => {
     lines.push(`${escapeCsv(g.label)},${g.count}`);
   });
   lines.push('');

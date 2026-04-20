@@ -633,30 +633,61 @@ export async function getAgentPerformance(
  * Builds a human-readable label for a type+status combination.
  * Maps to the Spanish labels used in the NovaDesk reporting UI.
  */
+const TYPE_LABELS: Record<string, string> = {
+  warranty: 'Garantia',
+  support: 'Soporte',
+  incident: 'Incidente',
+  request: 'Solicitud',
+  backlog: 'Backlog',
+  desarrollo_pendiente: 'Desarrollo Pendiente',
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  new: 'Nuevos',
+  assigned: 'Asignados',
+  in_progress: 'En Progreso',
+  pending: 'Pendientes',
+  detenido: 'Detenidos',
+  testing: 'Testing',
+  resolved: 'Resueltos',
+  closed: 'Cerrados',
+  cancelled: 'Cancelados',
+  backlog: 'Backlog',
+};
+
 function buildMetricLabel(type: string, status: string): string {
-  const typeLabels: Record<string, string> = {
-    warranty: 'Garantia',
-    support: 'Soporte',
-    incident: 'Incidente',
-    request: 'Solicitud',
-    backlog: 'Backlog',
-  };
-
-  const statusLabels: Record<string, string> = {
-    new: 'Nuevos',
-    assigned: 'Asignados',
-    in_progress: 'En Progreso',
-    pending: 'Pendientes',
-    testing: 'Testing',
-    resolved: 'Resueltos',
-    closed: 'Cerrados',
-    cancelled: 'Cancelados',
-  };
-
-  const typeLabel = typeLabels[type] ?? type;
-  const statusLabel = statusLabels[status] ?? status;
-
+  const typeLabel = TYPE_LABELS[type] ?? type;
+  const statusLabel = STATUS_LABELS[status] ?? status;
   return `${statusLabel} ${typeLabel}`;
+}
+
+function labelType(type: string): string {
+  return TYPE_LABELS[type] ?? type;
+}
+
+function labelStatus(status: string): string {
+  return STATUS_LABELS[status] ?? status;
+}
+
+/** Ticket row we use to compute metrics. */
+interface TicketForMetrics {
+  id: string;
+  status: string;
+  type: string;
+  urgency: string;
+  category_id: string | null;
+  assigned_agent_id: string | null;
+  organization_id: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  closed_at: string | null;
+  sla_breached: boolean | null;
+  first_response_at: string | null;
+}
+
+function inRange(value: string | null | undefined, fromIso: string, toIso: string): boolean {
+  if (!value) return false;
+  return value >= fromIso && value <= toIso;
 }
 
 // ---------------------------------------------------------------------------
@@ -664,14 +695,33 @@ function buildMetricLabel(type: string, status: string): string {
 // ---------------------------------------------------------------------------
 
 export interface ReportDashboard {
-  // KPIs
-  totalTickets: number;
-  openTickets: number;
-  closedTickets: number;
+  // ── KPIs ────────────────────────────────────────────────────────────────
+  // Activity in the selected date range
+  createdInRange: number;
+  closedInRange: number;
+  resolvedInRange: number;
   avgResolutionMinutes: number | null;
   slaCompliance: { rate: number; met: number; breached: number; total: number };
 
-  // Breakdowns
+  // Snapshot at the moment the report is generated
+  openTicketsSnapshot: number;
+
+  // Back-compat aliases so existing UIs keep working
+  totalTickets: number;   // = createdInRange + closedInRange (unique tickets)
+  openTickets: number;    // = openTicketsSnapshot
+  closedTickets: number;  // = closedInRange
+
+  // ── Activity matrix (date-filtered) ─────────────────────────────────────
+  // Rows like "Cerrados Soporte: 12" meaning 12 tickets whose closed_at
+  // falls in the range AND whose type = support.
+  activityMetrics: GranularMetric[];
+
+  // ── Snapshot matrix (current state, NO date filter) ─────────────────────
+  // Rows like "Pendientes Soporte: 12" meaning 12 tickets currently in
+  // status='pending' and type=support — regardless of when they were created.
+  snapshotMetrics: GranularMetric[];
+
+  // ── Breakdowns (over tickets with activity in range) ────────────────────
   byStatus: Array<{ status: string; count: number }>;
   byType: Array<{ type: string; count: number }>;
   byCategory: Array<{ category_id: string | null; category_name: string; count: number }>;
@@ -679,10 +729,11 @@ export interface ReportDashboard {
   byAgent: AgentPerformance[];
   byOrganization: Array<{ org_id: string; org_name: string; count: number }>;
 
-  // Trends (daily)
+  // Trends (daily) — created vs closed per day in range
   dailyTrend: Array<{ date: string; created: number; closed: number }>;
 
-  // Gestion Soporte matrix (type x status)
+  // Deprecated alias: activityMetrics merged with snapshotMetrics, kept for
+  // older callers + the Exportar CSV helper. Will be removed.
   gestionSoporte: GranularMetric[];
 }
 
@@ -693,27 +744,30 @@ export async function getReportDashboard(
   organizationId?: string | null,
 ): Promise<ServiceResult<ReportDashboard>> {
   try {
-    // Base filter for tickets
-    let ticketQuery = client
-      .from('tickets')
-      .select('id, status, type, urgency, category_id, assigned_agent_id, organization_id, channel, created_at, resolved_at, closed_at, sla_breached, first_response_at')
-      .eq('tenant_id', tenantId)
-      .is('deleted_at', null)
-      .gte('created_at', `${dateRange.from}T00:00:00.000Z`)
-      .lte('created_at', `${dateRange.to}T23:59:59.999Z`);
+    const fromIso = `${dateRange.from}T00:00:00.000Z`;
+    const toIso = `${dateRange.to}T23:59:59.999Z`;
 
-    if (organizationId) {
-      ticketQuery = ticketQuery.eq('organization_id', organizationId);
-    }
+    // Pull every non-deleted ticket for this tenant/org. We filter in-memory
+    // by the correct date column per metric (created_at, closed_at, or
+    // resolved_at). For a tenant with a few thousand tickets this is fine
+    // and dramatically simpler than doing four parallel queries.
+    let q = client
+      .from('tickets')
+      .select(
+        'id, status, type, urgency, category_id, assigned_agent_id, organization_id, created_at, resolved_at, closed_at, sla_breached, first_response_at',
+      )
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null);
+    if (organizationId) q = q.eq('organization_id', organizationId);
 
     const [ticketResult, categoriesResult, orgsResult, agentsResult] = await Promise.all([
-      ticketQuery,
+      q,
       client.from('categories').select('id, name').eq('tenant_id', tenantId),
       client.from('organizations').select('id, name').eq('tenant_id', tenantId).eq('is_active', true),
       client.from('agents').select('id, name').eq('tenant_id', tenantId),
     ]);
 
-    const tickets = ticketResult.data ?? [];
+    const allTickets = (ticketResult.data ?? []) as TicketForMetrics[];
     const categories = categoriesResult.data ?? [];
     const orgs = orgsResult.data ?? [];
     const agents = agentsResult.data ?? [];
@@ -722,151 +776,209 @@ export async function getReportDashboard(
     const orgMap = new Map(orgs.map((o: any) => [o.id, o.name]));
     const agentMap = new Map(agents.map((a: any) => [a.id, a.name]));
 
-    // KPIs
-    const totalTickets = tickets.length;
-    const openTickets = tickets.filter((t: any) => !['closed', 'resolved', 'cancelled'].includes(t.status)).length;
-    const closedTickets = tickets.filter((t: any) => ['closed', 'resolved'].includes(t.status)).length;
+    // ── Date-sliced ticket sets ─────────────────────────────────────────────
+    const createdInRange = allTickets.filter((t) => inRange(t.created_at, fromIso, toIso));
+    const closedInRange = allTickets.filter((t) => inRange(t.closed_at, fromIso, toIso));
+    const resolvedInRange = allTickets.filter((t) => inRange(t.resolved_at, fromIso, toIso));
 
+    // Snapshot: whatever is currently open.
+    const TERMINAL = new Set(['closed', 'resolved', 'cancelled']);
+    const snapshotOpen = allTickets.filter((t) => !TERMINAL.has(t.status));
+
+    // ── KPIs ────────────────────────────────────────────────────────────────
+    // Unique tickets that had any activity in the range.
+    const activityIds = new Set<string>();
+    createdInRange.forEach((t) => activityIds.add(t.id));
+    closedInRange.forEach((t) => activityIds.add(t.id));
+    resolvedInRange.forEach((t) => activityIds.add(t.id));
+
+    // avg resolution time — only over tickets whose resolved_at lives in the
+    // range. Negative deltas (bad legacy data) are clamped to 0.
     let totalResMinutes = 0;
     let resCount = 0;
-    for (const t of tickets) {
-      if ((t as any).resolved_at && (t as any).created_at) {
-        totalResMinutes += (new Date((t as any).resolved_at).getTime() - new Date((t as any).created_at).getTime()) / 60000;
-        resCount++;
-      }
+    for (const t of resolvedInRange) {
+      if (!t.resolved_at || !t.created_at) continue;
+      const delta =
+        (new Date(t.resolved_at).getTime() - new Date(t.created_at).getTime()) / 60000;
+      if (delta < 0) continue;
+      totalResMinutes += delta;
+      resCount++;
     }
 
+    // SLA — only over tickets closed in range
     let slaMet = 0;
     let slaBreached = 0;
-    for (const t of tickets) {
-      if ((t as any).sla_breached === true) slaBreached++;
-      else if ((t as any).sla_breached === false) slaMet++;
+    for (const t of closedInRange) {
+      if (t.sla_breached === true) slaBreached++;
+      else if (t.sla_breached === false) slaMet++;
     }
     const slaTotal = slaMet + slaBreached;
 
-    // By status
+    // ── Activity matrix (Nuevos/Cerrados/Resueltos by type) ─────────────────
+    // Each row reflects a transition that happened in the range.
+    const activityMap = new Map<string, number>();
+    const addActivity = (label: string) => {
+      activityMap.set(label, (activityMap.get(label) ?? 0) + 1);
+    };
+    for (const t of createdInRange) {
+      addActivity(`Creados ${labelType(t.type)}`);
+    }
+    for (const t of closedInRange) {
+      addActivity(`Cerrados ${labelType(t.type)}`);
+    }
+    for (const t of resolvedInRange) {
+      // Avoid double-counting: resolved → closed normally fires closed in
+      // the same window, so only track resolutions that are NOT already
+      // counted as closed in range.
+      if (!closedInRange.some((c) => c.id === t.id)) {
+        addActivity(`Resueltos ${labelType(t.type)}`);
+      }
+    }
+
+    // ── Snapshot matrix (current state — ignores dates) ─────────────────────
+    const snapshotMap = new Map<string, number>();
+    for (const t of snapshotOpen) {
+      const label = `${labelStatus(t.status)} ${labelType(t.type)}`;
+      snapshotMap.set(label, (snapshotMap.get(label) ?? 0) + 1);
+    }
+
+    // ── Breakdowns — computed over tickets with activity in range ───────────
+    const activityTickets = allTickets.filter((t) => activityIds.has(t.id));
+
     const statusCounts = new Map<string, number>();
-    for (const t of tickets) {
-      const s = (t as any).status ?? 'unknown';
-      statusCounts.set(s, (statusCounts.get(s) ?? 0) + 1);
-    }
-
-    // By type
     const typeCounts = new Map<string, number>();
-    for (const t of tickets) {
-      const tp = (t as any).type ?? 'unknown';
-      typeCounts.set(tp, (typeCounts.get(tp) ?? 0) + 1);
-    }
-
-    // By category
     const catCounts = new Map<string, number>();
-    for (const t of tickets) {
-      const cid = (t as any).category_id ?? 'uncategorized';
-      catCounts.set(cid, (catCounts.get(cid) ?? 0) + 1);
-    }
-
-    // By urgency
     const urgCounts = new Map<string, number>();
-    for (const t of tickets) {
-      const u = (t as any).urgency ?? 'medium';
-      urgCounts.set(u, (urgCounts.get(u) ?? 0) + 1);
-    }
-
-    // By organization
     const orgCounts = new Map<string, number>();
-    for (const t of tickets) {
-      const oid = (t as any).organization_id;
-      if (oid) orgCounts.set(oid, (orgCounts.get(oid) ?? 0) + 1);
+    for (const t of activityTickets) {
+      statusCounts.set(t.status, (statusCounts.get(t.status) ?? 0) + 1);
+      typeCounts.set(t.type, (typeCounts.get(t.type) ?? 0) + 1);
+      const cid = t.category_id ?? 'uncategorized';
+      catCounts.set(cid, (catCounts.get(cid) ?? 0) + 1);
+      urgCounts.set(t.urgency, (urgCounts.get(t.urgency) ?? 0) + 1);
+      if (t.organization_id) orgCounts.set(t.organization_id, (orgCounts.get(t.organization_id) ?? 0) + 1);
     }
 
-    // By agent
-    const agentCounts = new Map<string, { assigned: number; resolved: number; totalRes: number; resCount: number; slaMet: number; slaBreached: number }>();
-    for (const t of tickets) {
-      const aid = (t as any).assigned_agent_id;
-      if (!aid) continue;
-      let s = agentCounts.get(aid);
+    // By agent — counts every ticket touched in range, plus resolution stats
+    const agentCounts = new Map<
+      string,
+      { assigned: number; resolved: number; totalRes: number; resCount: number; slaMet: number; slaBreached: number }
+    >();
+    for (const t of activityTickets) {
+      if (!t.assigned_agent_id) continue;
+      let s = agentCounts.get(t.assigned_agent_id);
       if (!s) s = { assigned: 0, resolved: 0, totalRes: 0, resCount: 0, slaMet: 0, slaBreached: 0 };
       s.assigned++;
-      if (['closed', 'resolved'].includes((t as any).status)) {
+      if (t.resolved_at && inRange(t.resolved_at, fromIso, toIso)) {
         s.resolved++;
-        if ((t as any).resolved_at) {
-          s.totalRes += (new Date((t as any).resolved_at).getTime() - new Date((t as any).created_at).getTime()) / 60000;
-          s.resCount++;
+        if (t.created_at) {
+          const delta =
+            (new Date(t.resolved_at).getTime() - new Date(t.created_at).getTime()) / 60000;
+          if (delta >= 0) {
+            s.totalRes += delta;
+            s.resCount++;
+          }
         }
       }
-      if ((t as any).sla_breached === true) s.slaBreached++;
-      else if ((t as any).sla_breached === false) s.slaMet++;
-      agentCounts.set(aid, s);
+      if (t.closed_at && inRange(t.closed_at, fromIso, toIso)) {
+        if (t.sla_breached === true) s.slaBreached++;
+        else if (t.sla_breached === false) s.slaMet++;
+      }
+      agentCounts.set(t.assigned_agent_id, s);
     }
 
-    // Daily trend
+    // Daily trend — created + closed per day in the range
     const dailyMap = new Map<string, { created: number; closed: number }>();
-    for (const t of tickets) {
-      const day = (t as any).created_at?.slice(0, 10) ?? '';
-      if (!day) continue;
+    const touchDay = (day: string, key: 'created' | 'closed') => {
       let d = dailyMap.get(day);
       if (!d) d = { created: 0, closed: 0 };
-      d.created++;
-      if ((t as any).closed_at) {
-        const closedDay = (t as any).closed_at.slice(0, 10);
-        let cd = dailyMap.get(closedDay);
-        if (!cd) cd = { created: 0, closed: 0 };
-        cd.closed++;
-        dailyMap.set(closedDay, cd);
-      }
+      d[key]++;
       dailyMap.set(day, d);
-    }
+    };
+    for (const t of createdInRange) touchDay(t.created_at.slice(0, 10), 'created');
+    for (const t of closedInRange) if (t.closed_at) touchDay(t.closed_at.slice(0, 10), 'closed');
 
-    // Gestion Soporte (type x status matrix)
-    const gestionMap = new Map<string, { count: number; frTotal: number; frCount: number; resTotal: number; resCount: number; slaMet: number; slaBreached: number }>();
-    for (const t of tickets) {
-      const label = buildMetricLabel((t as any).type ?? 'support', (t as any).status ?? 'new');
-      let g = gestionMap.get(label);
-      if (!g) g = { count: 0, frTotal: 0, frCount: 0, resTotal: 0, resCount: 0, slaMet: 0, slaBreached: 0 };
-      g.count++;
-      gestionMap.set(label, g);
-    }
+    const activityMetrics: GranularMetric[] = Array.from(activityMap.entries())
+      .map(([label, count]) => ({
+        label,
+        count,
+        avg_first_response_minutes: null,
+        avg_resolution_minutes: null,
+        sla_met_count: 0,
+        sla_breached_count: 0,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    const snapshotMetrics: GranularMetric[] = Array.from(snapshotMap.entries())
+      .map(([label, count]) => ({
+        label,
+        count,
+        avg_first_response_minutes: null,
+        avg_resolution_minutes: null,
+        sla_met_count: 0,
+        sla_breached_count: 0,
+      }))
+      .sort((a, b) => b.count - a.count);
 
     return {
       data: {
-        totalTickets,
-        openTickets,
-        closedTickets,
+        // New KPIs
+        createdInRange: createdInRange.length,
+        closedInRange: closedInRange.length,
+        resolvedInRange: resolvedInRange.length,
+        openTicketsSnapshot: snapshotOpen.length,
         avgResolutionMinutes: resCount > 0 ? Math.round(totalResMinutes / resCount) : null,
         slaCompliance: {
           rate: slaTotal > 0 ? Math.round((slaMet / slaTotal) * 100) : 100,
-          met: slaMet, breached: slaBreached, total: slaTotal,
+          met: slaMet,
+          breached: slaBreached,
+          total: slaTotal,
         },
-        byStatus: Array.from(statusCounts.entries()).map(([status, count]) => ({ status, count })).sort((a, b) => b.count - a.count),
-        byType: Array.from(typeCounts.entries()).map(([type, count]) => ({ type, count })).sort((a, b) => b.count - a.count),
-        byCategory: Array.from(catCounts.entries()).map(([cid, count]) => ({
-          category_id: cid === 'uncategorized' ? null : cid,
-          category_name: catMap.get(cid) ?? 'Sin categoría',
-          count,
-        })).sort((a, b) => b.count - a.count),
-        byUrgency: Array.from(urgCounts.entries()).map(([urgency, count]) => ({ urgency, count })).sort((a, b) => b.count - a.count),
-        byAgent: Array.from(agentCounts.entries()).map(([aid, s]) => ({
-          agent_id: aid,
-          agent_name: agentMap.get(aid) ?? 'Sin asignar',
-          tickets_assigned: s.assigned,
-          tickets_resolved: s.resolved,
-          avg_first_response_minutes: null,
-          avg_resolution_minutes: s.resCount > 0 ? Math.round(s.totalRes / s.resCount) : null,
-          sla_met_count: s.slaMet,
-          sla_breached_count: s.slaBreached,
-          satisfaction_avg: null,
-        })).sort((a, b) => b.tickets_assigned - a.tickets_assigned),
-        byOrganization: Array.from(orgCounts.entries()).map(([oid, count]) => ({
-          org_id: oid, org_name: orgMap.get(oid) ?? 'Sin org', count,
-        })).sort((a, b) => b.count - a.count),
-        dailyTrend: Array.from(dailyMap.entries()).map(([date, d]) => ({ date, ...d })).sort((a, b) => a.date.localeCompare(b.date)),
-        gestionSoporte: Array.from(gestionMap.entries()).map(([label, g]) => ({
-          label, count: g.count,
-          avg_first_response_minutes: null,
-          avg_resolution_minutes: null,
-          sla_met_count: g.slaMet,
-          sla_breached_count: g.slaBreached,
-        })).sort((a, b) => b.count - a.count),
+        // Back-compat aliases
+        totalTickets: activityIds.size,
+        openTickets: snapshotOpen.length,
+        closedTickets: closedInRange.length,
+        // New split matrices
+        activityMetrics,
+        snapshotMetrics,
+        // Legacy combined (activity first, then snapshot) for old CSV exports
+        gestionSoporte: [...activityMetrics, ...snapshotMetrics],
+        // Breakdowns
+        byStatus: Array.from(statusCounts.entries())
+          .map(([status, count]) => ({ status, count }))
+          .sort((a, b) => b.count - a.count),
+        byType: Array.from(typeCounts.entries())
+          .map(([type, count]) => ({ type, count }))
+          .sort((a, b) => b.count - a.count),
+        byCategory: Array.from(catCounts.entries())
+          .map(([cid, count]) => ({
+            category_id: cid === 'uncategorized' ? null : cid,
+            category_name: catMap.get(cid) ?? 'Sin categoría',
+            count,
+          }))
+          .sort((a, b) => b.count - a.count),
+        byUrgency: Array.from(urgCounts.entries())
+          .map(([urgency, count]) => ({ urgency, count }))
+          .sort((a, b) => b.count - a.count),
+        byAgent: Array.from(agentCounts.entries())
+          .map(([aid, s]) => ({
+            agent_id: aid,
+            agent_name: agentMap.get(aid) ?? 'Sin asignar',
+            tickets_assigned: s.assigned,
+            tickets_resolved: s.resolved,
+            avg_first_response_minutes: null,
+            avg_resolution_minutes: s.resCount > 0 ? Math.round(s.totalRes / s.resCount) : null,
+            sla_met_count: s.slaMet,
+            sla_breached_count: s.slaBreached,
+            satisfaction_avg: null,
+          }))
+          .sort((a, b) => b.tickets_assigned - a.tickets_assigned),
+        byOrganization: Array.from(orgCounts.entries())
+          .map(([oid, count]) => ({ org_id: oid, org_name: orgMap.get(oid) ?? 'Sin org', count }))
+          .sort((a, b) => b.count - a.count),
+        dailyTrend: Array.from(dailyMap.entries())
+          .map(([date, d]) => ({ date, ...d }))
+          .sort((a, b) => a.date.localeCompare(b.date)),
       },
       error: null,
     };
