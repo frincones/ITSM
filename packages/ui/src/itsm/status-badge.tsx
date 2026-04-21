@@ -10,9 +10,11 @@ import { cn } from '../lib/utils';
  */
 export type TicketStatus =
   | 'new'
+  | 'backlog'
   | 'assigned'
   | 'in_progress'
   | 'pending'
+  | 'detenido'
   | 'testing'
   | 'resolved'
   | 'closed'
@@ -31,6 +33,11 @@ const STATUS_CONFIG: Record<
     color: 'text-blue-700 dark:text-blue-300',
     bg: 'bg-blue-50 dark:bg-blue-500/20',
   },
+  backlog: {
+    label: 'Backlog',
+    color: 'text-slate-700 dark:text-slate-300',
+    bg: 'bg-slate-50 dark:bg-slate-500/20',
+  },
   assigned: {
     label: 'Assigned',
     color: 'text-violet-700 dark:text-violet-300',
@@ -45,6 +52,11 @@ const STATUS_CONFIG: Record<
     label: 'Pending',
     color: 'text-gray-700 dark:text-gray-300',
     bg: 'bg-gray-50 dark:bg-gray-500/20',
+  },
+  detenido: {
+    label: 'Detenido',
+    color: 'text-orange-700 dark:text-orange-300',
+    bg: 'bg-orange-50 dark:bg-orange-500/20',
   },
   testing: {
     label: 'Testing',
@@ -72,8 +84,22 @@ const STATUS_CONFIG: Record<
  * StatusBadge renders a colored badge based on ticket status.
  * Uses CSS variable-aligned Tailwind colors for consistency with the design system.
  */
+const FALLBACK_CONFIG = {
+  label: 'Unknown',
+  color: 'text-gray-700 dark:text-gray-300',
+  bg: 'bg-gray-50 dark:bg-gray-500/20',
+};
+
 export function StatusBadge({ status, className, ...props }: StatusBadgeProps) {
-  const config = STATUS_CONFIG[status];
+  // Defensive: a new enum value added to the DB without a matching entry
+  // here used to crash the whole ticket detail page with "Cannot read
+  // properties of undefined (reading 'bg')". Falling back keeps the UI
+  // rendering while we wire up the new status.
+  const config = STATUS_CONFIG[status] ?? FALLBACK_CONFIG;
+  const displayLabel =
+    config === FALLBACK_CONFIG
+      ? (status as string).replace(/_/g, ' ')
+      : config.label;
 
   return (
     <Badge
@@ -88,9 +114,9 @@ export function StatusBadge({ status, className, ...props }: StatusBadgeProps) {
     >
       <span
         className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full"
-        style={{ backgroundColor: `var(--status-${status.replace('_', '-')})` }}
+        style={{ backgroundColor: `var(--status-${String(status).replace('_', '-')})` }}
       />
-      {config.label}
+      {displayLabel}
     </Badge>
   );
 }
