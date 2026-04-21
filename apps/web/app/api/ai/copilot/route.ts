@@ -160,7 +160,7 @@ ${orgContext ? `\nContexto del cliente ${orgName}:\n${orgContext.slice(0, 500)}`
 Sé empático, claro y orientado a soluciones. Responde en español.
 Si hay artículos KB relevantes, menciónalos. Si hay soluciones de tickets similares, úsalas como base.`,
         prompt: ticketContext + (kbArticles.length ? '\n\nArtículos KB relevantes:\n' + kbArticles.map(a => `- "${a.title}": ${a.preview}`).join('\n') : ''),
-        temperature: 0.4, maxTokens: 500,
+        temperature: 0.4, maxOutputTokens: 500,
         abortSignal: AbortSignal.timeout(LLM_TIMEOUT_MS),
       });
       return Response.json({ draftReply: result.text });
@@ -171,7 +171,7 @@ Si hay artículos KB relevantes, menciónalos. Si hay soluciones de tickets simi
       const result = await generateText({
         model: openai('gpt-4o-mini'),
         system: `Reescribe el siguiente texto en tono ${tone}. Mantén el significado. Responde solo con el texto reescrito.`,
-        prompt: text, temperature: 0.3, maxTokens: 500,
+        prompt: text, temperature: 0.3, maxOutputTokens: 500,
         abortSignal: AbortSignal.timeout(LLM_TIMEOUT_MS),
       });
       return Response.json({ rewritten: result.text });
@@ -201,7 +201,7 @@ Genera un análisis completo con este formato:
 }
 Responde SOLO JSON.`,
       prompt: ticketContext,
-      temperature: 0.2, maxTokens: 1000,
+      temperature: 0.2, maxOutputTokens: 1000,
       abortSignal: AbortSignal.timeout(LLM_TIMEOUT_MS),
     });
 

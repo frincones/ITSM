@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
         'Use bullet points. Keep it under 200 words.',
       prompt: context,
       temperature: 0.3,
-      maxTokens: 512,
+      maxOutputTokens: 512,
     });
 
     return NextResponse.json({

@@ -417,7 +417,7 @@ Datos del sistema:\n${dataContext}`;
       system: systemPrompt,
       messages,
       temperature: 0.3,
-      maxTokens: 1500,
+      maxOutputTokens: 1500,
     });
 
     return Response.json({ text: result.text });

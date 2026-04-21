@@ -138,7 +138,7 @@ ${aiContext}
 Return ONLY valid JSON.`,
           messages: [{ role: 'user', content: conversationSummary }],
           temperature: 0.2,
-          maxTokens: 512,
+          maxOutputTokens: 512,
         });
 
         let ticketTitle = 'Solicitud de soporte desde portal';
@@ -284,7 +284,7 @@ Return ONLY valid JSON.`,
         system: portalSystemPrompt + kbContext,
         messages: portalMessages,
         temperature: 0.4,
-        maxTokens: 1024,
+        maxOutputTokens: 1024,
       });
 
       // Clean trigger phrase from response
@@ -414,7 +414,7 @@ Return ONLY valid JSON.`,
       system: systemPrompt,
       messages,
       temperature: 0.4,
-      maxTokens: 1024,
+      maxOutputTokens: 1024,
     });
 
     return new Response(result.text, {

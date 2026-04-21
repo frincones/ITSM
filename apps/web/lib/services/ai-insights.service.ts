@@ -191,7 +191,7 @@ Be SPECIFIC with real data — never generic. Always mention organization names,
 Each insight MUST reference specific data points from the analysis.`,
       prompt: dataContext,
       temperature: 0.3,
-      maxTokens: 1024,
+      maxOutputTokens: 1024,
     });
 
     const cleaned = result.text.replace(/```json\s*|\s*```/g, '').trim();
