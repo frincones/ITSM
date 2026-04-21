@@ -17,11 +17,15 @@
 CREATE EXTENSION IF NOT EXISTS unaccent;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
--- Immutable unaccent wrapper so we can use it in generated columns / indexes.
+-- Immutable unaccent wrapper so we can use it in generated columns /
+-- indexes. The built-in unaccent() is marked STABLE (it can in theory
+-- reload its dictionary), but in practice the unaccent dictionary is
+-- static — wrapping it lets Postgres accept the call in GENERATED
+-- ALWAYS AS STORED expressions.
 CREATE OR REPLACE FUNCTION immutable_unaccent(text)
 RETURNS text
 LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
-AS $$ SELECT unaccent('unaccent', $1) $$;
+AS $$ SELECT unaccent($1) $$;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 2) search_tsv GENERATED COLUMNS (auto-maintained, no triggers needed)
