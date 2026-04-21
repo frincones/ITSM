@@ -13,43 +13,89 @@
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 1) EXTENSIONS
 -- ═══════════════════════════════════════════════════════════════════════════
+--
+-- Different Supabase projects place extension objects in different
+-- schemas (older projects use `extensions`, the Makerkit boilerplate
+-- uses `kit`, fresh projects may install into `public`). We install
+-- the missing ones without forcing a schema and adapt downstream
+-- references to use the actual schema the extensions ended up in.
 
-CREATE EXTENSION IF NOT EXISTS unaccent SCHEMA extensions;
-CREATE EXTENSION IF NOT EXISTS pg_trgm  SCHEMA extensions;
+DO $ext$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'unaccent') THEN
+    CREATE EXTENSION unaccent;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN
+    CREATE EXTENSION pg_trgm;
+  END IF;
+END
+$ext$;
 
--- Make the rest of this script see the extension objects (unaccent,
--- gin_trgm_ops, similarity) without forcing every caller to schema-qualify.
-SET search_path = public, extensions;
+-- Give the whole script (and every function defined below) a search_path
+-- that can resolve unaccent(), similarity() and gin_trgm_ops no matter
+-- which schema hosts the extension in the current project.
+SET search_path = public, extensions, kit;
 
 -- Immutable unaccent wrapper so we can use it in generated columns /
--- indexes. The built-in unaccent() is marked STABLE (it can in theory
--- reload its dictionary), but in practice the unaccent dictionary is
--- static — wrapping it lets Postgres accept the call in GENERATED
--- ALWAYS AS STORED expressions.
+-- indexes.
 --
--- SET search_path inside the function so that every call resolves
--- `unaccent()` via the extensions schema regardless of the caller's
--- search_path (required for Supabase, where extensions are installed
--- outside `public`).
-CREATE OR REPLACE FUNCTION public.immutable_unaccent(text)
-RETURNS text
-LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
-SET search_path = public, extensions
-AS $$ SELECT extensions.unaccent($1) $$;
+-- The upstream unaccent() often ships as STABLE (dictionary could
+-- theoretically reload), which PG rejects inside GENERATED STORED
+-- expressions. We declare our wrapper IMMUTABLE — safe in practice
+-- because the dictionary doesn't actually reload between writes.
+--
+-- We also schema-qualify the underlying call because (a) the extension
+-- can live in `extensions`, `public`, or `kit` depending on how the
+-- project was bootstrapped, and (b) wrappers with `SET search_path`
+-- clauses are NOT accepted in GENERATED STORED columns.
+--
+-- The DO block below detects which schema hosts `unaccent(regdictionary, text)`
+-- in this project and creates the wrapper with the correct qualified call.
+DO $unaccent_wrapper$
+DECLARE
+  schema_name text;
+BEGIN
+  SELECT n.nspname INTO schema_name
+  FROM pg_proc p
+  JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE p.proname = 'unaccent'
+    AND p.pronargs = 2
+  LIMIT 1;
+
+  IF schema_name IS NULL THEN
+    RAISE EXCEPTION 'unaccent(regdictionary, text) not found in any schema — is the unaccent extension installed?';
+  END IF;
+
+  EXECUTE format(
+    $f$
+      CREATE OR REPLACE FUNCTION public.immutable_unaccent(text)
+      RETURNS text
+      LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
+      AS $body$ SELECT %I.unaccent(%L::regdictionary, $1) $body$;
+    $f$,
+    schema_name, schema_name || '.unaccent'
+  );
+END
+$unaccent_wrapper$;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 2) search_tsv GENERATED COLUMNS (auto-maintained, no triggers needed)
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- tickets
+-- tickets — tags[] excluded from the tsvector on purpose. Both
+-- `array_to_string(text[], text)` and the `::text` cast on text[] go
+-- through `array_out`, which is marked STABLE in this Postgres build
+-- and PG refuses STABLE functions inside GENERATED STORED. Ticket
+-- tags can still be searched via trigram on title/description or a
+-- separate tag filter in the ticket list — losing them from FTS is a
+-- small price to pay for keeping the column auto-maintained.
 ALTER TABLE tickets
   ADD COLUMN IF NOT EXISTS search_tsv tsvector
   GENERATED ALWAYS AS (
     setweight(to_tsvector('spanish', coalesce(immutable_unaccent(ticket_number), '')), 'A') ||
     setweight(to_tsvector('spanish', coalesce(immutable_unaccent(title), '')), 'A') ||
     setweight(to_tsvector('spanish', coalesce(immutable_unaccent(requester_email), '')), 'B') ||
-    setweight(to_tsvector('spanish', coalesce(immutable_unaccent(description), '')), 'C') ||
-    setweight(to_tsvector('spanish', coalesce(immutable_unaccent(array_to_string(tags, ' ')), '')), 'C')
+    setweight(to_tsvector('spanish', coalesce(immutable_unaccent(description), '')), 'C')
   ) STORED;
 
 -- contacts
@@ -185,7 +231,7 @@ CREATE OR REPLACE FUNCTION search_global(
 LANGUAGE plpgsql
 SECURITY DEFINER
 STABLE
-SET search_path = public, extensions
+SET search_path = public, extensions, kit
 AS $$
 DECLARE
   q text;
