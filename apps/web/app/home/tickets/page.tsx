@@ -36,13 +36,18 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
   } = await client.auth.getUser();
 
   let currentAgentId: string | null = null;
+  let isClient = false;
   if (user) {
     const { data: agent } = await client
       .from('agents')
-      .select('id')
+      .select('id, role')
       .eq('user_id', user.id)
       .maybeSingle();
     currentAgentId = agent?.id ?? null;
+    if (!agent || agent.role === 'readonly') isClient = true;
+  } else {
+    // No auth → keep TicketListClient hiding the button
+    isClient = true;
   }
 
   // Build query with server-side filters
@@ -205,6 +210,7 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
       currentAgentId={currentAgentId}
       organizationMap={organizationMap}
       agents={allAgents ?? []}
+      isClient={isClient}
       activeTab={params.tab ?? 'all'}
       searchQuery={params.search ?? ''}
       filters={{

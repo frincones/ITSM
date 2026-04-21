@@ -18,6 +18,7 @@ import {
   Globe,
   Phone,
   Bot,
+  LayoutGrid,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -110,6 +111,7 @@ interface TicketListClientProps {
   activeTab: string;
   searchQuery: string;
   filters: Filters;
+  isClient?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -327,6 +329,7 @@ export function TicketListClient({
   activeTab,
   searchQuery,
   filters,
+  isClient = false,
 }: TicketListClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -436,6 +439,14 @@ export function TicketListClient({
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {!isClient && (
+              <Link href="/home/workspace">
+                <Button variant="outline" size="sm" className="gap-2">
+                  <LayoutGrid className="h-4 w-4" />
+                  Workspace
+                </Button>
+              </Link>
+            )}
             <Button
               variant="outline"
               size="sm"
