@@ -58,22 +58,15 @@ async function ReportsPage({ searchParams }: PageProps) {
       .maybeSingle();
     organizationName = o?.name ?? '';
   } else {
-    // Agent with no org selected: pick first org in tenant
-    const { data: firstOrg } = await client
-      .from('organizations')
-      .select('id, name')
-      .eq('tenant_id', agent!.tenant_id)
-      .eq('is_active', true)
-      .order('name')
-      .limit(1)
-      .maybeSingle();
-    if (firstOrg) {
-      organizationId = firstOrg.id;
-      organizationName = firstOrg.name;
-    }
+    // TDX admin with "All Organizations" selected — aggregate across every
+    // active client in the tenant. We deliberately stop picking the first
+    // alphabetical org (it used to land on "ITSM- TDX" — an internal org
+    // with no soporte/garantía tickets — so the whole report showed zeros).
+    organizationName = 'Todos los clientes';
   }
 
-  if (!organizationId) redirect('/home');
+  if (!isClient && !organizationId && !organizationName) redirect('/home');
+  if (isClient && !organizationId) redirect('/home');
 
   // Garantía / Soporte are driven by ticket_type now — not by category_id.
   // The redundant Garantía/Soporte categories were removed in the Apr-21
@@ -84,6 +77,9 @@ async function ReportsPage({ searchParams }: PageProps) {
   const TICKET_SELECT =
     'id, ticket_number, title, status, type, urgency, created_at, closed_at, assigned_agent_id';
 
+  // When organizationId is null we're in "aggregate mode" — RLS already
+  // scopes queries to the current tenant, so skipping the .eq filter
+  // returns every client's tickets.
   const listByDate = async (filters: {
     dateCol: 'created_at' | 'closed_at';
     type?: string;
@@ -91,10 +87,11 @@ async function ReportsPage({ searchParams }: PageProps) {
     let q = client
       .from('tickets')
       .select(TICKET_SELECT)
-      .eq('organization_id', organizationId!)
+      .is('deleted_at', null)
       .gte(filters.dateCol, fromIso)
       .lte(filters.dateCol, toIso)
       .order(filters.dateCol, { ascending: true });
+    if (organizationId) q = q.eq('organization_id', organizationId);
     if (filters.type) q = q.eq('type', filters.type);
     const { data } = await q;
     return (data ?? []) as unknown as TicketSummary[];
@@ -108,9 +105,10 @@ async function ReportsPage({ searchParams }: PageProps) {
     let q = client
       .from('tickets')
       .select(TICKET_SELECT)
-      .eq('organization_id', organizationId!)
+      .is('deleted_at', null)
       .order('created_at', { ascending: false })
       .limit(500);
+    if (organizationId) q = q.eq('organization_id', organizationId);
     if (filters.status) q = q.eq('status', filters.status);
     if (filters.type) q = q.eq('type', filters.type);
     if (filters.customTestingResult) {
@@ -123,15 +121,17 @@ async function ReportsPage({ searchParams }: PageProps) {
   const listNuevosTesting = async (
     type: string,
   ): Promise<TicketSummary[]> => {
-    const { data } = await client
+    let q = client
       .from('tickets')
       .select(TICKET_SELECT)
-      .eq('organization_id', organizationId!)
+      .is('deleted_at', null)
       .eq('status', 'testing')
       .eq('type', type)
       .gte('custom_fields->>testing_entered_at', fromIso)
       .lte('custom_fields->>testing_entered_at', toIso)
       .order('updated_at', { ascending: false });
+    if (organizationId) q = q.eq('organization_id', organizationId);
+    const { data } = await q;
     return (data ?? []) as unknown as TicketSummary[];
   };
 
