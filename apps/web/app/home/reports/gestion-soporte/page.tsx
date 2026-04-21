@@ -100,7 +100,7 @@ async function GestionSoportePage({ searchParams }: PageProps) {
   const fromIso = `${reportDate}T00:00:00.000Z`;
   const toIso = `${reportDate}T23:59:59.999Z`;
 
-  // Counter for tickets with an activity within the day (created/closed).
+  // Movement counter — tickets whose given date column falls inside the day.
   const countByDate = async (filters: {
     dateCol: 'created_at' | 'closed_at';
     status?: string;
@@ -139,22 +139,41 @@ async function GestionSoportePage({ searchParams }: PageProps) {
     return count ?? 0;
   };
 
+  // "Nuevos Testing" — tickets that transitioned INTO status='testing' on the
+  // selected day. Relies on custom_fields.testing_entered_at (set by
+  // changeTicketStatus when status becomes 'testing').
+  const countNuevosTesting = async (categoryId: string | null): Promise<number> => {
+    let q = client
+      .from('tickets')
+      .select('*', { count: 'exact', head: true })
+      .eq('organization_id', organizationId!)
+      .eq('status', 'testing')
+      .gte('custom_fields->>testing_entered_at', fromIso)
+      .lte('custom_fields->>testing_entered_at', toIso);
+    if (categoryId) q = q.eq('category_id', categoryId);
+    const { count } = await q;
+    return count ?? 0;
+  };
+
   const metrics = {
     // Cerrados = closed_at dentro del día, filtrado por categoría
     cerradosGarantia: await countByDate({ dateCol: 'closed_at', categoryId: garantiaId }),
     cerradosSoporte: await countByDate({ dateCol: 'closed_at', categoryId: soporteId }),
-    // Nuevo = tickets cuya fecha de creación cae en el día (sin importar su estado actual)
+    // Nuevo = tickets cuya fecha de creación cae en el día
     nuevoGarantia: await countByDate({ dateCol: 'created_at', categoryId: garantiaId }),
     nuevoSoporte: await countByDate({ dateCol: 'created_at', categoryId: soporteId }),
     // Estados activos = snapshot (sin filtro de fecha)
     progresoGarantia: await countSnapshot({ status: 'in_progress', categoryId: garantiaId }),
     progresoSoporte: await countSnapshot({ status: 'in_progress', categoryId: soporteId }),
-    testingGarantia: await countSnapshot({ status: 'testing', categoryId: garantiaId }),
-    testingSoporte: await countSnapshot({ status: 'testing', categoryId: soporteId }),
+    // Nuevos Testing = transición a testing ocurrió hoy
+    testingGarantia: await countNuevosTesting(garantiaId),
+    testingSoporte: await countNuevosTesting(soporteId),
+    // Pendientes = snapshot de status='pending'
     pendientesGarantia: await countSnapshot({ status: 'pending', categoryId: garantiaId }),
     pendientesSoporte: await countSnapshot({ status: 'pending', categoryId: soporteId }),
-    fracasoTesting: await countSnapshot({ customTestingResult: 'failed' }),
-    pendientesTesting: await countSnapshot({ customTestingResult: 'pending' }),
+    // Fracaso / Pendientes de Testing = snapshot del sub-estado en testing
+    fracasoTesting: await countSnapshot({ customTestingResult: 'fracaso' }),
+    pendientesTesting: await countSnapshot({ customTestingResult: 'pendiente' }),
   };
 
   return (

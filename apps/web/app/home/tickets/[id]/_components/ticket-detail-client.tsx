@@ -55,6 +55,7 @@ import {
   deleteTicket,
   addFollowup,
   setClientPriorityRank,
+  setTestingResult,
 } from '~/lib/actions/tickets';
 
 import {
@@ -361,6 +362,34 @@ export function TicketDetailClient({
     });
   }
 
+  // ── Testing sub-state ────────────────────────────────────────────────────
+  const rawTestingResult =
+    (ticket.custom_fields as Record<string, unknown> | null)?.['testing_result'];
+  const [testingResult, setTestingResultState] = useState<string>(
+    typeof rawTestingResult === 'string' ? rawTestingResult : 'new',
+  );
+
+  function handleTestingResultChange(next: string) {
+    const prev = testingResult;
+    setTestingResultState(next);
+    startTransition(async () => {
+      const normalized = next === 'new' ? null : next;
+      const result = await setTestingResult(ticket.id, normalized);
+      if (result.error) {
+        setTestingResultState(prev);
+        toast.error(result.error);
+      } else {
+        const labels: Record<string, string> = {
+          new: 'Nuevo',
+          pendiente: 'Pendiente',
+          exitoso: 'Exitoso',
+          fracaso: 'Fracaso',
+        };
+        toast.success(`Resultado testing: ${labels[next] ?? next}`);
+      }
+    });
+  }
+
   function handleDeleteTicket() {
     if (!confirm(`¿Eliminar ticket ${ticket.ticket_number ?? ticket.id}? Esta acción no se puede deshacer.`)) return;
     startTransition(async () => {
@@ -512,6 +541,24 @@ export function TicketDetailClient({
                 <SelectItem value="low">Low</SelectItem>
               </SelectContent>
             </Select>
+
+            {/* Testing sub-state — only shown when status = testing */}
+            {currentStatus === 'testing' && (
+              <Select
+                value={testingResult}
+                onValueChange={handleTestingResultChange}
+              >
+                <SelectTrigger className="w-44">
+                  <SelectValue placeholder="Resultado testing" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="new">🆕 Nuevo testing</SelectItem>
+                  <SelectItem value="pendiente">⏳ Pendiente</SelectItem>
+                  <SelectItem value="exitoso">✅ Exitoso</SelectItem>
+                  <SelectItem value="fracaso">❌ Fracaso</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
 
             {/* Agent-only actions */}
             {!isClient && (

@@ -30,6 +30,7 @@ import {
 import {
   assignTicket,
   changeTicketStatus,
+  setTestingResult,
   updateTicket,
 } from '~/lib/actions/tickets';
 import type { TicketStatus, SeverityLevel } from '@kit/ui/itsm';
@@ -140,6 +141,25 @@ export function TicketPreviewPanel({
     });
   };
 
+  const currentTestingResult = (() => {
+    const raw = (ticket.custom_fields ?? {})['testing_result'];
+    return typeof raw === 'string' ? raw : 'new';
+  })();
+
+  const handleTestingResultChange = (next: string) => {
+    startTransition(async () => {
+      const result = await setTestingResult(
+        ticket.id,
+        next === 'new' ? null : next,
+      );
+      if (result.error) toast.error(result.error);
+      else {
+        toast.success('Resultado testing actualizado');
+        router.refresh();
+      }
+    });
+  };
+
   return (
     <Sheet open={true} onOpenChange={(open) => !open && onClose()}>
       <SheetContent side="right" className="w-full sm:max-w-[480px]">
@@ -245,6 +265,30 @@ export function TicketPreviewPanel({
               </SelectContent>
             </Select>
           </div>
+
+          {/* Testing sub-state — only while status='testing' */}
+          {ticket.status === 'testing' && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                Resultado Testing
+              </label>
+              <Select
+                value={currentTestingResult}
+                onValueChange={handleTestingResultChange}
+                disabled={isPending}
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="new">🆕 Nuevo testing</SelectItem>
+                  <SelectItem value="pendiente">⏳ Pendiente</SelectItem>
+                  <SelectItem value="exitoso">✅ Exitoso</SelectItem>
+                  <SelectItem value="fracaso">❌ Fracaso</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <Separator />
 

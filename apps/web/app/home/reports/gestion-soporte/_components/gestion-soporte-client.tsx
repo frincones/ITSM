@@ -122,47 +122,70 @@ export function GestionSoporteClient({
         </div>
       </div>
 
-      <Card className="overflow-hidden">
-        <CardContent className="p-0">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="bg-emerald-700 text-left text-white">
-                <th className="flex items-center gap-2 border border-emerald-800 px-4 py-3 font-semibold">
-                  <FileSpreadsheet className="h-4 w-4" />
+      <div className="mx-auto w-full max-w-xl overflow-hidden rounded-md border-2 border-slate-900">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr>
+              <th
+                colSpan={2}
+                className="border-2 border-slate-900 bg-emerald-100 px-4 py-3 text-center text-lg font-bold text-slate-900"
+              >
+                <span className="flex items-center justify-center gap-2">
+                  <FileSpreadsheet className="h-5 w-5" />
                   Reporte Gestión Soporte
-                </th>
-                <th className="border border-emerald-800 px-4 py-3 text-right font-semibold">
-                  Fecha: {formatDate(reportDate)}
-                </th>
+                </span>
+              </th>
+            </tr>
+            <tr>
+              <th className="w-2/3 border-2 border-slate-900 bg-emerald-100 px-4 py-2 text-center text-base font-bold text-slate-900">
+                Fecha:
+              </th>
+              <th className="border-2 border-slate-900 bg-white px-4 py-2 text-center text-base font-bold text-slate-900">
+                {formatDate(reportDate)}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {ROWS.map((row) => (
+              <tr key={row.key}>
+                <td className="border-2 border-slate-900 bg-white px-4 py-2 text-sm font-bold text-slate-900">
+                  {row.label}
+                </td>
+                <td className="border-2 border-slate-900 bg-white px-4 py-2 text-center text-base font-bold text-slate-900 tabular-nums">
+                  {metrics[row.key]}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {ROWS.map((row, idx) => (
-                <tr
-                  key={row.key}
-                  className={idx % 2 === 0 ? 'bg-emerald-50/50' : 'bg-white'}
-                >
-                  <td className="border border-emerald-100 px-4 py-2.5 font-semibold text-slate-800">
-                    {row.label}
-                  </td>
-                  <td className="border border-emerald-100 px-4 py-2.5 text-center font-semibold text-slate-900">
-                    {metrics[row.key]}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-      <p className="text-xs text-muted-foreground">
-        <strong>Nota:</strong> las métricas de &quot;Nuevos Testing&quot; se
-        calculan de tickets en estado <code>testing</code> por categoría.
-        &quot;Fracaso Testing&quot; y &quot;Pendientes Testing&quot; se leen del
-        campo personalizado <code>testing_result</code> del ticket. Si tu equipo
-        aún no está marcando ese campo, estos dos contadores pueden aparecer en
-        cero.
-      </p>
+      <div className="mx-auto w-full max-w-xl rounded-md bg-muted/30 p-3">
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          <strong>Notas:</strong>
+        </p>
+        <ul className="mt-1 ml-4 list-disc space-y-0.5 text-xs leading-relaxed text-muted-foreground">
+          <li>
+            <strong>Cerrados / Nuevo</strong>: tickets cuyo
+            <code className="mx-1">closed_at</code> /
+            <code className="mx-1">created_at</code> cae en el día seleccionado.
+          </li>
+          <li>
+            <strong>En Progreso / Pendientes</strong>: snapshot actual por
+            estado × categoría.
+          </li>
+          <li>
+            <strong>Nuevos Testing</strong>: tickets que transicionaron a testing
+            ese día (campo <code>testing_entered_at</code>, se captura desde el
+            deploy del 21-abr-2026 en adelante).
+          </li>
+          <li>
+            <strong>Fracaso / Pendientes Testing</strong>: sub-estado marcado
+            por el agente / cliente en el ticket (campo
+            <code className="mx-1">testing_result</code>).
+          </li>
+        </ul>
+      </div>
     </div>
   );
 }

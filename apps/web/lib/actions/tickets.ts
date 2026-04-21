@@ -461,7 +461,7 @@ export async function changeTicketStatus(
     // Fetch current ticket
     const { data: existing } = await client
       .from('tickets')
-      .select('id, tenant_id, status, first_response_at')
+      .select('id, tenant_id, status, first_response_at, custom_fields')
       .eq('id', ticketId)
       .eq('tenant_id', agent.tenant_id)
       .is('deleted_at', null)
@@ -498,6 +498,28 @@ export async function changeTicketStatus(
     // first_response_at: set on first transition away from 'new'
     if (existing.status === 'new' && !existing.first_response_at) {
       updatePayload.first_response_at = now;
+    }
+
+    // Track when the ticket entered / left the Testing stage so the daily
+    // "Nuevos Testing" metric can distinguish fresh transitions from the
+    // snapshot of every ticket ever sitting in testing.
+    const nextCustom: Record<string, unknown> = {
+      ...((existing.custom_fields as Record<string, unknown> | null) ?? {}),
+    };
+    let customChanged = false;
+    if (newStatus === 'testing' && existing.status !== 'testing') {
+      nextCustom.testing_entered_at = now;
+      // reset any previous result when re-entering testing
+      delete nextCustom.testing_result;
+      customChanged = true;
+    }
+    if (existing.status === 'testing' && newStatus !== 'testing') {
+      delete nextCustom.testing_entered_at;
+      delete nextCustom.testing_result;
+      customChanged = true;
+    }
+    if (customChanged) {
+      updatePayload.custom_fields = nextCustom;
     }
 
     const { data: ticket, error } = await client
@@ -558,6 +580,91 @@ export async function changeTicketStatus(
  *
  * Pass `rank = null` to clear the rank.
  */
+
+// ---------------------------------------------------------------------------
+// 4c. setTestingResult — testing sub-state for a ticket in status='testing'
+// ---------------------------------------------------------------------------
+
+const TESTING_RESULT_VALUES = [
+  'new',
+  'pendiente',
+  'exitoso',
+  'fracaso',
+] as const;
+type TestingResult = (typeof TESTING_RESULT_VALUES)[number];
+
+/**
+ * Set or clear the testing sub-state on a ticket. Only meaningful while the
+ * ticket is in status='testing'. Clients (readonly agents) + TDX agents are
+ * both allowed to write it — Bibiana/Camilo/Daniel/Andres need to flag
+ * exitoso/fracaso after QA, Freddy/Emma move tickets to pendiente when
+ * awaiting something.
+ *
+ * Pass `result = null` to clear.
+ */
+export async function setTestingResult(
+  ticketId: string,
+  result: string | null,
+): Promise<ActionResult> {
+  try {
+    if (
+      result !== null &&
+      !TESTING_RESULT_VALUES.includes(result as TestingResult)
+    ) {
+      return {
+        data: null,
+        error: `Valor inválido. Permitidos: ${TESTING_RESULT_VALUES.join(', ')}`,
+      };
+    }
+
+    const client = getSupabaseServerClient();
+    const {
+      data: { user },
+    } = await client.auth.getUser();
+    if (!user) return { data: null, error: 'Unauthorized' };
+
+    const { data: ticket, error: tErr } = await client
+      .from('tickets')
+      .select('id, tenant_id, status, custom_fields')
+      .eq('id', ticketId)
+      .is('deleted_at', null)
+      .maybeSingle();
+
+    if (tErr || !ticket) return { data: null, error: 'Ticket not found' };
+
+    const currentCustom =
+      (ticket.custom_fields as Record<string, unknown> | null) ?? {};
+    const nextCustom: Record<string, unknown> = { ...currentCustom };
+    if (result === null || result === 'new') {
+      delete nextCustom.testing_result;
+    } else {
+      nextCustom.testing_result = result;
+    }
+
+    const { error } = await client
+      .from('tickets')
+      .update({
+        custom_fields: nextCustom,
+        updated_at: new Date().toISOString(),
+        updated_by: user.id,
+      })
+      .eq('id', ticketId);
+
+    if (error) return { data: null, error: error.message };
+
+    revalidatePath(`/home/tickets/${ticketId}`);
+    revalidatePath('/home/tickets');
+    revalidatePath('/home/workspace');
+    revalidatePath('/home/reports/gestion-soporte');
+    return { data: { testing_result: result }, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    };
+  }
+}
+
 export async function setClientPriorityRank(
   ticketId: string,
   rank: number | null,
