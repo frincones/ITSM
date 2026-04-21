@@ -172,6 +172,9 @@ function ColumnHeader({ sort, onToggle }: ColumnHeaderProps) {
       <SortButton col="title" className="flex-1" sort={sort} onToggle={onToggle}>
         Título
       </SortButton>
+      <SortButton col="type" className="w-[100px]" sort={sort} onToggle={onToggle}>
+        Tipo
+      </SortButton>
       <SortButton col="status" className="w-[110px]" sort={sort} onToggle={onToggle}>
         Estado
       </SortButton>

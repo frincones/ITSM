@@ -60,6 +60,7 @@ export type SortColumn =
   | 'ticket_number'
   | 'rank'
   | 'title'
+  | 'type'
   | 'status'
   | 'org'
   | 'assignee'
@@ -258,6 +259,9 @@ function makeSortComparator(
         break;
       case 'title':
         cmp = a.title.localeCompare(b.title);
+        break;
+      case 'type':
+        cmp = (a.type ?? '').localeCompare(b.type ?? '');
         break;
       case 'status':
         cmp = (a.status ?? '').localeCompare(b.status ?? '');

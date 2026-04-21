@@ -38,6 +38,33 @@ const STATUS_CLASSES: Record<string, string> = {
     'bg-gray-100 text-gray-500 border-gray-200 dark:bg-gray-800/50 dark:text-gray-400',
 };
 
+const TYPE_LABEL: Record<string, string> = {
+  incident: 'Incident',
+  request: 'Request',
+  warranty: 'Warranty',
+  support: 'Support',
+  backlog: 'Backlog',
+  desarrollo_pendiente: 'Desarrollo',
+  service_request: 'Service Req.',
+  question: 'Question',
+  problem: 'Problem',
+  change: 'Change',
+};
+
+const TYPE_CLASSES: Record<string, string> = {
+  incident: 'bg-red-50 text-red-600 border-red-200 dark:bg-red-950/40 dark:text-red-300',
+  request: 'bg-cyan-50 text-cyan-600 border-cyan-200 dark:bg-cyan-950/40 dark:text-cyan-300',
+  warranty: 'bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300',
+  support: 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300',
+  backlog: 'bg-violet-50 text-violet-600 border-violet-200 dark:bg-violet-950/40 dark:text-violet-300',
+  desarrollo_pendiente:
+    'bg-orange-50 text-orange-700 border-orange-300 dark:bg-orange-950/40 dark:text-orange-300',
+  service_request: 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300',
+  question: 'bg-purple-50 text-purple-600 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300',
+  problem: 'bg-orange-50 text-orange-600 border-orange-200 dark:bg-orange-950/40 dark:text-orange-300',
+  change: 'bg-teal-50 text-teal-600 border-teal-200 dark:bg-teal-950/40 dark:text-teal-300',
+};
+
 const STATUS_LABEL: Record<string, string> = {
   new: 'Nuevo',
   backlog: 'Backlog',
@@ -113,6 +140,10 @@ export function TicketRow({
 
   const statusClass = STATUS_CLASSES[ticket.status] ?? STATUS_CLASSES.new;
   const statusLabel = STATUS_LABEL[ticket.status] ?? ticket.status;
+  const typeClass =
+    TYPE_CLASSES[ticket.type] ??
+    'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-800/40 dark:text-gray-300';
+  const typeLabel = TYPE_LABEL[ticket.type] ?? ticket.type;
   const orgName = ticket.organization_id
     ? organizations.get(ticket.organization_id) ?? '—'
     : '—';
@@ -154,6 +185,18 @@ export function TicketRow({
       <span className="flex-1 truncate text-sm">
         {ticket.title}
       </span>
+
+      <div className="flex w-[100px] shrink-0 items-center">
+        <Badge
+          variant="outline"
+          className={cn(
+            'h-6 max-w-full px-2 text-[10px] font-medium',
+            typeClass,
+          )}
+        >
+          <span className="truncate">{typeLabel}</span>
+        </Badge>
+      </div>
 
       <div className="flex w-[110px] shrink-0 items-center">
         <Badge
