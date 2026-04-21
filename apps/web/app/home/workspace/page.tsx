@@ -47,14 +47,18 @@ async function WorkspacePage() {
 
   if (!agent || agent.role === 'readonly') redirect('/home/tickets');
 
-  // Open tickets (status NOT in closed/resolved/cancelled) — full set.
+  // Open tickets (status NOT in closed/resolved/cancelled). Capped to 500
+  // rows to protect the payload — a healthy queue should never exceed this,
+  // and the workspace does client-side grouping so bigger sets inflate both
+  // the RSC response AND the hydration cost for no visible benefit.
   const openPromise = client
     .from('tickets')
     .select(TICKET_SELECT)
     .eq('tenant_id', agent.tenant_id)
     .is('deleted_at', null)
     .not('status', 'in', '(closed,resolved,cancelled)')
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .limit(500);
 
   // Recent closed — last 50 by closed_at (keeps payload small).
   const closedPromise = client

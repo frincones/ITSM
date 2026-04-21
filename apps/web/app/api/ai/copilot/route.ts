@@ -3,6 +3,13 @@ import { openai } from '@ai-sdk/openai';
 import { createClient } from '@supabase/supabase-js';
 import { getSupabaseServerClient } from '@kit/supabase/server-client';
 
+// Cap the whole request at 30s so a stuck OpenAI call never holds a Vercel
+// function open indefinitely; individual LLM calls time out at 15s via the
+// abortSignal below.
+export const maxDuration = 30;
+
+const LLM_TIMEOUT_MS = 15_000;
+
 function getSvc() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -90,25 +97,36 @@ export async function POST(req: NextRequest) {
       }));
     }
 
-    // Search similar resolved tickets
+    // Search similar resolved tickets. Selecting `id` up-front lets us join
+    // to solutions directly and skip the per-row lookup that used to stall
+    // this endpoint (O(N) nested queries was adding 3-5s per call).
     let similarTickets: Array<{ ticket_number: string; title: string; solution: string }> = [];
     if (searchTerms.length > 0) {
       const { data: similar } = await svc.from('tickets')
-        .select('ticket_number, title')
+        .select('id, ticket_number, title')
         .eq('tenant_id', tenantId).is('deleted_at', null)
         .in('status', ['resolved', 'closed'])
         .neq('id', ticketId)
         .or(searchTerms.map((t: string) => `title.ilike.%${t}%`).join(','))
         .limit(3);
 
-      for (const t of similar ?? []) {
-        const { data: sol } = await svc.from('ticket_solutions')
-          .select('content').eq('ticket_id', (await svc.from('tickets').select('id').eq('ticket_number', t.ticket_number).single()).data?.id ?? '')
-          .eq('status', 'approved').limit(1);
-        similarTickets.push({
-          ticket_number: t.ticket_number, title: t.title,
-          solution: sol?.[0]?.content?.slice(0, 200) ?? 'Sin solución documentada',
-        });
+      if (similar?.length) {
+        const ids = similar.map((t: any) => t.id);
+        const { data: sols } = await svc.from('ticket_solutions')
+          .select('ticket_id, content')
+          .in('ticket_id', ids)
+          .eq('status', 'approved');
+        const solByTicket = new Map<string, string>();
+        for (const s of sols ?? []) {
+          if (!solByTicket.has(s.ticket_id)) {
+            solByTicket.set(s.ticket_id, (s.content ?? '').slice(0, 200));
+          }
+        }
+        similarTickets = similar.map((t: any) => ({
+          ticket_number: t.ticket_number,
+          title: t.title,
+          solution: solByTicket.get(t.id) ?? 'Sin solución documentada',
+        }));
       }
     }
 
@@ -143,6 +161,7 @@ Sé empático, claro y orientado a soluciones. Responde en español.
 Si hay artículos KB relevantes, menciónalos. Si hay soluciones de tickets similares, úsalas como base.`,
         prompt: ticketContext + (kbArticles.length ? '\n\nArtículos KB relevantes:\n' + kbArticles.map(a => `- "${a.title}": ${a.preview}`).join('\n') : ''),
         temperature: 0.4, maxTokens: 500,
+        abortSignal: AbortSignal.timeout(LLM_TIMEOUT_MS),
       });
       return Response.json({ draftReply: result.text });
     }
@@ -153,6 +172,7 @@ Si hay artículos KB relevantes, menciónalos. Si hay soluciones de tickets simi
         model: openai('gpt-4o-mini'),
         system: `Reescribe el siguiente texto en tono ${tone}. Mantén el significado. Responde solo con el texto reescrito.`,
         prompt: text, temperature: 0.3, maxTokens: 500,
+        abortSignal: AbortSignal.timeout(LLM_TIMEOUT_MS),
       });
       return Response.json({ rewritten: result.text });
     }
@@ -182,6 +202,7 @@ Genera un análisis completo con este formato:
 Responde SOLO JSON.`,
       prompt: ticketContext,
       temperature: 0.2, maxTokens: 1000,
+      abortSignal: AbortSignal.timeout(LLM_TIMEOUT_MS),
     });
 
     let analysis: Record<string, unknown> = {};
@@ -207,6 +228,21 @@ Responde SOLO JSON.`,
     });
   } catch (err) {
     console.error('[AI Copilot] Error:', err);
-    return Response.json({ error: err instanceof Error ? err.message : 'Unknown' }, { status: 500 });
+    // AbortSignal.timeout fires a DOMException('TimeoutError') — surface a
+    // friendly 504 so the UI can show "AI timed out, please retry" instead
+    // of a generic 500.
+    const isTimeout =
+      err instanceof Error &&
+      (err.name === 'TimeoutError' || err.name === 'AbortError');
+    return Response.json(
+      {
+        error: isTimeout
+          ? 'El análisis tardó demasiado. Intenta de nuevo.'
+          : err instanceof Error
+          ? err.message
+          : 'Unknown',
+      },
+      { status: isTimeout ? 504 : 500 },
+    );
   }
 }

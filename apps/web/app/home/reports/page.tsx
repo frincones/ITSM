@@ -109,7 +109,8 @@ async function ReportsPage({ searchParams }: PageProps) {
       .from('tickets')
       .select(TICKET_SELECT)
       .eq('organization_id', organizationId!)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(500);
     if (filters.status) q = q.eq('status', filters.status);
     if (filters.type) q = q.eq('type', filters.type);
     if (filters.customTestingResult) {
@@ -134,19 +135,49 @@ async function ReportsPage({ searchParams }: PageProps) {
     return (data ?? []) as unknown as TicketSummary[];
   };
 
+  // Fire all 12 queries in parallel — they're independent, so serializing
+  // the awaits was adding ~12× the round-trip latency for no reason.
+  const [
+    cerradosGarantia,
+    cerradosSoporte,
+    nuevoGarantia,
+    nuevoSoporte,
+    progresoGarantia,
+    progresoSoporte,
+    testingGarantia,
+    testingSoporte,
+    pendientesGarantia,
+    pendientesSoporte,
+    fracasoTesting,
+    pendientesTesting,
+  ] = await Promise.all([
+    listByDate({ dateCol: 'closed_at', type: 'warranty' }),
+    listByDate({ dateCol: 'closed_at', type: 'support' }),
+    listByDate({ dateCol: 'created_at', type: 'warranty' }),
+    listByDate({ dateCol: 'created_at', type: 'support' }),
+    listSnapshot({ status: 'in_progress', type: 'warranty' }),
+    listSnapshot({ status: 'in_progress', type: 'support' }),
+    listNuevosTesting('warranty'),
+    listNuevosTesting('support'),
+    listSnapshot({ status: 'pending', type: 'warranty' }),
+    listSnapshot({ status: 'pending', type: 'support' }),
+    listSnapshot({ customTestingResult: 'fracaso' }),
+    listSnapshot({ customTestingResult: 'pendiente' }),
+  ]);
+
   const lists = {
-    cerradosGarantia: await listByDate({ dateCol: 'closed_at', type: 'warranty' }),
-    cerradosSoporte: await listByDate({ dateCol: 'closed_at', type: 'support' }),
-    nuevoGarantia: await listByDate({ dateCol: 'created_at', type: 'warranty' }),
-    nuevoSoporte: await listByDate({ dateCol: 'created_at', type: 'support' }),
-    progresoGarantia: await listSnapshot({ status: 'in_progress', type: 'warranty' }),
-    progresoSoporte: await listSnapshot({ status: 'in_progress', type: 'support' }),
-    testingGarantia: await listNuevosTesting('warranty'),
-    testingSoporte: await listNuevosTesting('support'),
-    pendientesGarantia: await listSnapshot({ status: 'pending', type: 'warranty' }),
-    pendientesSoporte: await listSnapshot({ status: 'pending', type: 'support' }),
-    fracasoTesting: await listSnapshot({ customTestingResult: 'fracaso' }),
-    pendientesTesting: await listSnapshot({ customTestingResult: 'pendiente' }),
+    cerradosGarantia,
+    cerradosSoporte,
+    nuevoGarantia,
+    nuevoSoporte,
+    progresoGarantia,
+    progresoSoporte,
+    testingGarantia,
+    testingSoporte,
+    pendientesGarantia,
+    pendientesSoporte,
+    fracasoTesting,
+    pendientesTesting,
   };
 
   const metrics = Object.fromEntries(
