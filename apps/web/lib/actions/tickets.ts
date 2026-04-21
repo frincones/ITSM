@@ -88,12 +88,15 @@ async function requireAuthUser(client: ReturnType<typeof getSupabaseServerClient
 
 /**
  * Round-robin assignment for a single freshly-created ticket.
- * Picks whichever TDX staff agent currently has the fewest open tickets
- * in this tenant (tie-break: alphabetical by name). Skips the
- * admin@novadesk.com service account so only real agents get picked.
  *
- * Invoked fire-and-forget from createTicket so a failure never blocks
- * the ticket insert.
+ * Uses a per-tenant cursor in `tenants.settings.round_robin_last_agent_id`
+ * to rotate strictly through the eligible agents in alphabetical order.
+ * This ignores the historical ticket distribution — a bulk import that
+ * concentrated hundreds of tickets on one person can't starve the others.
+ *
+ * Skips the admin@novadesk.com service account so only real agents get
+ * picked. Invoked fire-and-forget from createTicket so a failure never
+ * blocks the ticket insert.
  */
 async function autoAssignRoundRobin(
   client: ReturnType<typeof getSupabaseServerClient>,
@@ -101,7 +104,6 @@ async function autoAssignRoundRobin(
   tenantId: string,
 ): Promise<void> {
   const EXCLUDED_EMAILS = ['admin@novadesk.com'];
-  const TERMINAL = ['closed', 'cancelled', 'resolved'];
 
   const { data: allAgents } = await client
     .from('agents')
@@ -116,31 +118,37 @@ async function autoAssignRoundRobin(
   );
   if (agents.length === 0) return;
 
-  const { data: openRows } = await client
-    .from('tickets')
-    .select('assigned_agent_id')
-    .eq('tenant_id', tenantId)
-    .is('deleted_at', null)
-    .not('status', 'in', `(${TERMINAL.join(',')})`)
-    .not('assigned_agent_id', 'is', null);
+  // Read the rotation cursor. Next agent = the one right after the cursor
+  // in the (alphabetically) sorted list, wrapping around at the end.
+  const { data: tenant } = await client
+    .from('tenants')
+    .select('settings')
+    .eq('id', tenantId)
+    .maybeSingle();
 
-  const counts = new Map<string, number>();
-  for (const a of agents) counts.set(a.id, 0);
-  for (const row of openRows ?? []) {
-    const aid = (row as { assigned_agent_id: string }).assigned_agent_id;
-    if (counts.has(aid)) counts.set(aid, (counts.get(aid) ?? 0) + 1);
-  }
+  const settings =
+    ((tenant as { settings: Record<string, unknown> } | null)?.settings as
+      | Record<string, unknown>
+      | null) ?? {};
+  const lastAgentId =
+    typeof settings.round_robin_last_agent_id === 'string'
+      ? settings.round_robin_last_agent_id
+      : null;
 
-  let best: (typeof agents)[number] | null = null;
-  let bestCount = Infinity;
-  for (const a of agents) {
-    const c = counts.get(a.id) ?? 0;
-    if (c < bestCount) {
-      best = a;
-      bestCount = c;
-    }
-  }
+  const lastIdx = agents.findIndex((a: { id: string }) => a.id === lastAgentId);
+  const nextIdx = lastIdx === -1 ? 0 : (lastIdx + 1) % agents.length;
+  const best = agents[nextIdx];
   if (!best) return;
+
+  // Advance the cursor (fire-and-forget — a stale cursor just risks one
+  // duplicate pick, not a correctness issue).
+  void client
+    .from('tenants')
+    .update({
+      settings: { ...settings, round_robin_last_agent_id: best.id },
+    })
+    .eq('id', tenantId)
+    .then(() => {});
 
   await client
     .from('tickets')

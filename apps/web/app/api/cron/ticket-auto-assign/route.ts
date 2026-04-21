@@ -4,20 +4,20 @@ import { createClient } from '@supabase/supabase-js';
 import { notifyTicketAssigned } from '~/lib/services/notify.service';
 
 /**
- * Vercel Cron Job — AI Round-Robin Auto-Assign
- *
- * Schedule: every 5 minutes (`*\/5 * * * *`) — configured in vercel.json.
+ * Vercel Cron Job — Round-Robin Auto-Assign
  *
  * Finds every unassigned ticket (non-terminal status) across tenants and
- * assigns it to one of the TDX staff agents in strict round-robin order,
- * deterministically distributing load between them.
+ * assigns it to one of the TDX staff agents in strict rotation order.
+ *
+ * Rotation strategy: pick whichever eligible agent was assigned longest
+ * ago (or has never been assigned). After assigning, bump that agent's
+ * "last assigned" timestamp in-memory so the next iteration rotates to
+ * a different agent. This intentionally ignores historical open-ticket
+ * counts — so a bulk import concentrated on one person doesn't starve
+ * the other agents.
  *
  * Eligible assignees per tenant = agents.role IN (admin, supervisor, agent)
- * AND is_active. The round-robin uses the current assignment counts
- * (excluding closed/cancelled/resolved tickets) as the "pointer", so the
- * next ticket goes to whoever has the fewest open tickets — and on a tie,
- * the agent that comes first alphabetically. That guarantees a balanced
- * distribution without a separate counter in the DB.
+ * AND is_active, excluding the admin@novadesk.com service account.
  */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -84,34 +84,30 @@ export async function GET(request: NextRequest) {
     );
     if (agents.length === 0) continue;
 
-    // 3. Compute current open-ticket count per agent.
-    const counts = new Map<string, number>();
-    for (const a of agents) counts.set(a.id, 0);
-    const { data: openCounts } = await svc
-      .from('tickets')
-      .select('assigned_agent_id')
-      .eq('tenant_id', tenantId)
-      .is('deleted_at', null)
-      .not('status', 'in', `(${TERMINAL_STATUSES.join(',')})`)
-      .not('assigned_agent_id', 'is', null);
-    for (const row of openCounts ?? []) {
-      const aid = (row as { assigned_agent_id: string }).assigned_agent_id;
-      if (counts.has(aid)) counts.set(aid, (counts.get(aid) ?? 0) + 1);
-    }
+    // 3. Load the tenant's rotation cursor (shared with createTicket). We
+    // advance it locally per assignment in this batch, then persist the
+    // final value once at the end. Pure rotation — no dependency on the
+    // historical open-ticket count.
+    const { data: tenantRow } = await svc
+      .from('tenants')
+      .select('settings')
+      .eq('id', tenantId)
+      .maybeSingle();
 
-    // 4. Assign each ticket to the agent with the smallest running count.
+    const settings =
+      ((tenantRow as { settings: Record<string, unknown> } | null)?.settings as
+        | Record<string, unknown>
+        | null) ?? {};
+    let cursor =
+      typeof settings.round_robin_last_agent_id === 'string'
+        ? settings.round_robin_last_agent_id
+        : null;
+
+    // 4. Assign each ticket, rotating through agents in alphabetical order.
     for (const t of tickets) {
-      // Pick the agent with fewest open tickets (tie-break: alphabetical).
-      let best: { id: string; user_id: string | null; email: string; name: string } | null =
-        null;
-      let bestCount = Infinity;
-      for (const a of agents) {
-        const c = counts.get(a.id) ?? 0;
-        if (c < bestCount) {
-          best = a;
-          bestCount = c;
-        }
-      }
+      const lastIdx = agents.findIndex((a) => a.id === cursor);
+      const nextIdx = lastIdx === -1 ? 0 : (lastIdx + 1) % agents.length;
+      const best = agents[nextIdx];
       if (!best) continue;
 
       const { error: updateError } = await svc
@@ -133,7 +129,7 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      counts.set(best.id, bestCount + 1);
+      cursor = best.id;
       assignedCount++;
       assignmentLog.push({ ticket: t.ticket_number, agent: best.name });
 
@@ -150,6 +146,15 @@ export async function GET(request: NextRequest) {
         agentEmail: best.email,
         agentName: best.name,
       }).catch(() => {});
+    }
+
+    // Persist the final cursor for this tenant so the next batch (and any
+    // ticket created via createTicket between runs) picks up where we left.
+    if (cursor && cursor !== settings.round_robin_last_agent_id) {
+      await svc
+        .from('tenants')
+        .update({ settings: { ...settings, round_robin_last_agent_id: cursor } })
+        .eq('id', tenantId);
     }
   }
 
