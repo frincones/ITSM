@@ -9,8 +9,6 @@ import {
   ExternalLink,
   FileSpreadsheet,
 } from 'lucide-react';
-import { formatDistanceToNowStrict } from 'date-fns';
-import { es } from 'date-fns/locale';
 
 import { Button } from '@kit/ui/button';
 import { Input } from '@kit/ui/input';
@@ -94,10 +92,6 @@ function urgencyIcon(urgency: string) {
   if (urgency === 'high')
     return <ArrowUpCircle className="h-3.5 w-3.5 text-orange-500" />;
   return null;
-}
-
-function formatCreated(iso: string): string {
-  return formatDistanceToNowStrict(new Date(iso), { locale: es, addSuffix: false });
 }
 
 export function GestionSoporteClient({
@@ -341,9 +335,6 @@ function DetailGroup({ title, tickets }: DetailGroupProps) {
                 )}
               >
                 {STATUS_LABEL[t.status] ?? t.status}
-              </span>
-              <span className="hidden w-[60px] shrink-0 text-right text-xs tabular-nums text-muted-foreground sm:block">
-                {formatCreated(t.created_at)}
               </span>
               <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
             </Link>
