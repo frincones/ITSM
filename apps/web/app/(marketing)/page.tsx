@@ -1,7 +1,15 @@
-import Image from 'next/image';
 import Link from 'next/link';
 
-import { ArrowRightIcon, LayoutDashboard } from 'lucide-react';
+import {
+  ArrowRightIcon,
+  BotIcon,
+  GaugeIcon,
+  InboxIcon,
+  LayersIcon,
+  ShieldCheckIcon,
+  SparklesIcon,
+  WorkflowIcon,
+} from 'lucide-react';
 
 import {
   CtaButton,
@@ -23,34 +31,24 @@ function Home() {
         <Hero
           pill={
             <Pill label={'New'}>
-              <span>The leading SaaS Starter Kit for ambitious developers</span>
+              <span>AI-first IT Service Management for modern teams</span>
             </Pill>
           }
           title={
             <>
-              <span>The ultimate SaaS Starter</span>
-              <span>for your next project</span>
+              <span>Resolve tickets 3× faster</span>
+              <span>with agentic AI that works for you</span>
             </>
           }
           subtitle={
             <span>
-              Build and Ship a SaaS faster than ever before with the next-gen
-              SaaS Starter Kit. Ship your SaaS in days, not months.
+              NovaDesk ITSM combines ticketing, knowledge, workflows, and a
+              multi-agent AI to help IT teams ship support that feels like
+              product. Cut first-response time, automate the boring 80%, and
+              delight every requester.
             </span>
           }
           cta={<MainCallToActionButton />}
-          image={
-            <Image
-              priority
-              className={
-                'dark:border-primary/10 rounded-2xl border border-gray-200'
-              }
-              width={3558}
-              height={2222}
-              src={`/images/dashboard.webp`}
-              alt={`App Image`}
-            />
-          }
         />
       </div>
 
@@ -62,57 +60,186 @@ function Home() {
             heading={
               <>
                 <b className="font-semibold dark:text-white">
-                  The ultimate SaaS Starter Kit
-                </b>
-                .{' '}
+                  Everything your IT team needs.
+                </b>{' '}
                 <span className="text-muted-foreground font-normal">
-                  Unleash your creativity and build your SaaS faster than ever
-                  with Makerkit.
+                  One platform that replaces the tangle of help-desk tools,
+                  automations, and AI copilots you&apos;re paying for today.
                 </span>
               </>
             }
             icon={
               <FeatureShowcaseIconContainer>
-                <LayoutDashboard className="h-5" />
-                <span>All-in-one solution</span>
+                <LayersIcon className="h-5" />
+                <span>All-in-one ITSM platform</span>
               </FeatureShowcaseIconContainer>
             }
           >
             <FeatureGrid>
               <FeatureCard
                 className={'relative col-span-2 overflow-hidden'}
-                label={'Beautiful Dashboard'}
-                description={`Makerkit provides a beautiful dashboard to manage your SaaS business.`}
+                label={'Multi-agent AI'}
+                description={
+                  'Eight specialized agents — triage, support, resolution, routing, escalation, analytics, quality, inbox — collaborate to resolve up to 80% of tickets automatically.'
+                }
               />
 
               <FeatureCard
                 className={
                   'relative col-span-2 w-full overflow-hidden lg:col-span-1'
                 }
-                label={'Authentication'}
-                description={`Makerkit provides a variety of providers to allow your users to sign in.`}
+                label={'Omnichannel inbox'}
+                description={
+                  'Email, WhatsApp, portal, API, and web widget converge into a single inbox with smart routing and templates.'
+                }
               />
 
               <FeatureCard
                 className={'relative col-span-2 overflow-hidden lg:col-span-1'}
-                label={'Multi Tenancy'}
-                description={`Multi tenant memberships for your SaaS business.`}
+                label={'Visual workflow builder'}
+                description={
+                  'Design approval flows, escalations, and integrations with AI decisions and human-approval steps.'
+                }
               />
 
               <FeatureCard
                 className={'relative col-span-2 overflow-hidden'}
-                label={'Billing'}
-                description={`Makerkit supports multiple payment gateways to charge your customers.`}
+                label={'Multi-client, multi-tenant'}
+                description={
+                  'Purpose-built for MSPs: isolated data per organization, white-label portal, per-client access controls.'
+                }
               />
             </FeatureGrid>
           </FeatureShowcase>
+        </div>
+      </div>
+
+      <div className={'container mx-auto'}>
+        <div className={'mx-auto max-w-3xl text-center'}>
+          <h2 className={'text-3xl font-bold tracking-tight md:text-4xl'}>
+            Built for every ITSM process
+          </h2>
+          <p className={'text-muted-foreground mt-3 text-lg'}>
+            From incident response to change management — one platform, one
+            source of truth.
+          </p>
+        </div>
+
+        <div className={'mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3'}>
+          <HighlightCard
+            icon={<BotIcon className={'h-6 w-6'} />}
+            title={'AI Copilot on every ticket'}
+            description={
+              'Suggestions, summaries, auto-classification, and reply drafts powered by Claude Sonnet and RAG over your knowledge base.'
+            }
+          />
+          <HighlightCard
+            icon={<InboxIcon className={'h-6 w-6'} />}
+            title={'Tickets, problems, changes'}
+            description={
+              'Full ITIL-aligned incident, problem, and change management with SLAs, calendars, and CAB approvals.'
+            }
+          />
+          <HighlightCard
+            icon={<WorkflowIcon className={'h-6 w-6'} />}
+            title={'Automations that think'}
+            description={
+              'Rules and workflows that trigger on events, call APIs, branch on AI decisions, and pause for human approval.'
+            }
+          />
+          <HighlightCard
+            icon={<SparklesIcon className={'h-6 w-6'} />}
+            title={'Knowledge that learns'}
+            description={
+              'A knowledge base with feedback loops, versioning, and AI-authored drafts from resolved tickets.'
+            }
+          />
+          <HighlightCard
+            icon={<GaugeIcon className={'h-6 w-6'} />}
+            title={'Reports that matter'}
+            description={
+              'Pre-built dashboards for SLA compliance, first-response, resolution time, CSAT, and agent performance.'
+            }
+          />
+          <HighlightCard
+            icon={<ShieldCheckIcon className={'h-6 w-6'} />}
+            title={'Enterprise-grade security'}
+            description={
+              'Row-Level-Security multi-tenancy, MFA, audit logs, IP allowlist, and data residency options.'
+            }
+          />
+        </div>
+      </div>
+
+      <div className={'container mx-auto'}>
+        <div
+          className={
+            'from-primary/5 to-primary/10 border-primary/20 rounded-3xl border bg-gradient-to-br p-10 text-center md:p-16'
+          }
+        >
+          <h2 className={'text-3xl font-bold tracking-tight md:text-4xl'}>
+            Ready to retire your help desk?
+          </h2>
+          <p
+            className={
+              'text-muted-foreground mx-auto mt-4 max-w-2xl text-lg'
+            }
+          >
+            Start free with up to 3 agents. No credit card required. Upgrade
+            the day you outgrow it.
+          </p>
+          <div
+            className={'mt-8 flex flex-wrap justify-center gap-3'}
+          >
+            <CtaButton>
+              <Link href={'/auth/sign-up'}>
+                <span className={'flex items-center gap-2'}>
+                  <span>Start free</span>
+                  <ArrowRightIcon className={'h-4 w-4'} />
+                </span>
+              </Link>
+            </CtaButton>
+            <CtaButton variant={'outline'}>
+              <Link href={'/pricing'}>
+                <span>See pricing</span>
+              </Link>
+            </CtaButton>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-export default withI18n(Home);
+function HighlightCard({
+  icon,
+  title,
+  description,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div
+      className={
+        'bg-card rounded-2xl border p-6 transition hover:shadow-md'
+      }
+    >
+      <div
+        className={
+          'bg-primary/10 text-primary inline-flex h-10 w-10 items-center justify-center rounded-lg'
+        }
+      >
+        {icon}
+      </div>
+      <h3 className={'mt-4 text-base font-semibold'}>{title}</h3>
+      <p className={'text-muted-foreground mt-2 text-sm leading-relaxed'}>
+        {description}
+      </p>
+    </div>
+  );
+}
 
 function MainCallToActionButton() {
   return (
@@ -135,10 +262,10 @@ function MainCallToActionButton() {
       </CtaButton>
 
       <CtaButton variant={'link'}>
-        <Link href={'/contact'}>
-          <Trans i18nKey={'common:contactUs'} />
-        </Link>
+        <Link href={'/pricing'}>See pricing</Link>
       </CtaButton>
     </div>
   );
 }
+
+export default withI18n(Home);

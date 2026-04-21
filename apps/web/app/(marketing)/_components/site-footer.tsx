@@ -20,6 +20,19 @@ export function SiteFooter() {
       }
       sections={[
         {
+          heading: <Trans i18nKey="marketing:product" />,
+          links: [
+            {
+              href: '/pricing',
+              label: <Trans i18nKey="marketing:pricing" />,
+            },
+            {
+              href: '/faq',
+              label: <Trans i18nKey="marketing:faq" />,
+            },
+          ],
+        },
+        {
           heading: 'Get Started',
           links: [
             {
@@ -42,6 +55,10 @@ export function SiteFooter() {
             {
               href: '/privacy-policy',
               label: <Trans i18nKey="marketing:privacyPolicy" />,
+            },
+            {
+              href: '/refund-policy',
+              label: <Trans i18nKey="marketing:refundPolicy" />,
             },
             {
               href: '/cookie-policy',
