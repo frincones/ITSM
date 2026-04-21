@@ -142,6 +142,7 @@ export async function GET(request: NextRequest) {
         type: t.type,
         urgency: t.urgency,
         status: t.status,
+        assignedAgentId: best.id,
         agentUserId: best.user_id ?? undefined,
         agentEmail: best.email,
         agentName: best.name,

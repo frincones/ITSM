@@ -2,6 +2,8 @@ import { notFound } from 'next/navigation';
 
 import { getSupabaseServerClient } from '@kit/supabase/server-client';
 
+import { listFollowers } from '~/lib/services/ticket-followers.service';
+
 import { TicketDetailClient } from './_components/ticket-detail-client';
 
 interface TicketDetailPageProps {
@@ -40,12 +42,14 @@ export default async function TicketDetailPage({
   // ---------- Resolve current user role ----------
   const { data: { user: authUser } } = await client.auth.getUser();
   let userRole: 'admin' | 'agent' | 'client' = 'client';
+  let currentAgentId: string | null = null;
   if (authUser) {
     const { data: agentRecord } = await client
       .from('agents')
-      .select('role')
+      .select('id, role')
       .eq('user_id', authUser.id)
       .maybeSingle();
+    currentAgentId = (agentRecord as { id: string; role: string } | null)?.id ?? null;
     if (agentRecord?.role === 'admin' || agentRecord?.role === 'supervisor') {
       userRole = 'admin';
     } else if (agentRecord?.role === 'agent') {
@@ -54,6 +58,11 @@ export default async function TicketDetailPage({
       userRole = 'client'; // readonly or org_user
     }
   }
+
+  // Followers — fetched in parallel with the rest. Only TDX staff see the
+  // follower UI; for clients we just skip the fetch entirely.
+  const followers =
+    userRole === 'client' ? [] : await listFollowers(client, id);
 
   // ---------- Fetch related data ----------
   console.log('[TicketDetail] Fetching related data...');
@@ -279,6 +288,8 @@ export default async function TicketDetailPage({
       portalConversation={portalConversation}
       portalActivity={portalActivity}
       userRole={userRole}
+      followers={followers}
+      currentAgentId={currentAgentId}
     />
   );
 }

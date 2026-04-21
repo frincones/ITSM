@@ -68,6 +68,7 @@ import {
 import { ReplyComposer } from './reply-composer';
 import { PortalConversationTab } from './portal-conversation-tab';
 import { PortalActivityTab } from './portal-activity-tab';
+import { FollowersPanel, type FollowerRow } from './followers-panel';
 import { AiCopilotPanel } from './ai-copilot-panel';
 import { Bot, Sparkles, Lightbulb, MessageCircle, Activity } from 'lucide-react';
 import { getSupabaseBrowserClient } from '@kit/supabase/browser-client';
@@ -81,6 +82,7 @@ interface Agent {
   name: string;
   avatar_url?: string | null;
   email?: string;
+  role?: string | null;
 }
 
 interface Group {
@@ -150,6 +152,8 @@ interface TicketDetailClientProps {
   portalConversation?: any[];
   portalActivity?: any[];
   userRole?: 'admin' | 'agent' | 'client';
+  followers?: FollowerRow[];
+  currentAgentId?: string | null;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -212,6 +216,8 @@ export function TicketDetailClient({
   portalConversation = [],
   portalActivity = [],
   userRole = 'agent',
+  followers = [],
+  currentAgentId = null,
 }: TicketDetailClientProps) {
   const isClient = userRole === 'client';
   const isAdmin = userRole === 'admin';
@@ -856,6 +862,28 @@ export function TicketDetailClient({
               )}
             </div>
           </div>
+
+          {/* Followers — TDX-only. Keeps reassigned agents in the loop so
+              they stop losing trazabilidad once they hand the ticket off. */}
+          {!isClient && (
+            <>
+              <Separator />
+              <FollowersPanel
+                ticketId={ticket.id}
+                initialFollowers={followers}
+                currentAgentId={currentAgentId}
+                agents={agents
+                  .filter((a) => a.role !== 'readonly')
+                  .map((a) => ({
+                    id: a.id,
+                    name: a.name,
+                    email: a.email ?? null,
+                    avatar_url: a.avatar_url ?? null,
+                    role: a.role ?? null,
+                  }))}
+              />
+            </>
+          )}
 
           <Separator />
 

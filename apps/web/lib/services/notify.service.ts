@@ -164,11 +164,103 @@ interface TicketEvent {
   status: string;
   organization?: string;
   requesterEmail?: string;
+  // The agentX fields describe the "actor" of the event (whoever caused
+  // the status change / reassignment / comment). They get the confirmation
+  // email + in-app notification. Followers also get notified, except the
+  // actor themselves (to avoid notifying someone of their own action).
   agentUserId?: string;
   agentEmail?: string;
   agentName?: string;
+  // Passed through so the fan-out can include the current assignee even
+  // when there's no follower row for them yet.
+  assignedAgentId?: string;
   comment?: string;
   solution?: string;
+}
+
+// ── Follower fan-out helper ───────────────────────────────────────────────
+//
+// Every ticket event should also reach everyone "following" the ticket
+// (Zendesk/Freshdesk-style watchers). This helper computes the unique
+// list of followers + current assignee, skipping the actor so you never
+// get notified of your own action.
+
+interface FanOutRecipient {
+  userId: string | null;
+  email: string;
+  name: string | null;
+}
+
+async function getFanOutRecipients(evt: TicketEvent): Promise<FanOutRecipient[]> {
+  const svc = getSvc();
+  try {
+    const { data: rows } = await svc
+      .from('ticket_followers')
+      .select(`agent:agents(id, name, email, user_id, is_active)`)
+      .eq('ticket_id', evt.ticketId);
+
+    const recipients = new Map<string, FanOutRecipient>();
+    for (const r of (rows ?? []) as Array<{
+      agent: { id: string; name: string | null; email: string | null; user_id: string | null; is_active: boolean } | null;
+    }>) {
+      const a = r.agent;
+      if (!a || !a.email || a.is_active === false) continue;
+      if (evt.agentUserId && a.user_id === evt.agentUserId) continue;
+      recipients.set(a.email.toLowerCase(), {
+        userId: a.user_id,
+        email: a.email,
+        name: a.name,
+      });
+    }
+
+    // Ensure the current assignee is in the list even before the first
+    // auto-follow has run for this ticket.
+    if (evt.assignedAgentId) {
+      const { data: a } = await svc
+        .from('agents')
+        .select('id, name, email, user_id, is_active')
+        .eq('id', evt.assignedAgentId)
+        .maybeSingle();
+      const agent = a as { name: string | null; email: string | null; user_id: string | null; is_active: boolean } | null;
+      if (agent?.email && agent.is_active !== false) {
+        const key = agent.email.toLowerCase();
+        if (!recipients.has(key) && agent.user_id !== (evt.agentUserId ?? null)) {
+          recipients.set(key, { userId: agent.user_id, email: agent.email, name: agent.name });
+        }
+      }
+    }
+
+    // The actor already gets their own confirmation email from the
+    // existing per-event code below — skip them here too.
+    if (evt.agentEmail) recipients.delete(evt.agentEmail.toLowerCase());
+
+    return [...recipients.values()];
+  } catch (err) {
+    console.error('[Notify] fan-out lookup failed:', err);
+    return [];
+  }
+}
+
+async function fanOutToFollowers(
+  evt: TicketEvent,
+  emailSubject: string,
+  emailHtml: string,
+  inAppTitle: string,
+  inAppBody: string,
+) {
+  const recipients = await getFanOutRecipients(evt);
+  const link = `/home/tickets/${evt.ticketId}`;
+  await Promise.all(
+    recipients.map(async (r) => {
+      const jobs: Promise<unknown>[] = [notifyEmail(r.email, emailSubject, emailHtml)];
+      if (r.userId) {
+        jobs.push(
+          notifyInApp(evt.tenantId, r.userId, inAppTitle, inAppBody, 'ticket', evt.ticketId, link),
+        );
+      }
+      await Promise.all(jobs).catch(() => {});
+    }),
+  );
 }
 
 // ── Ticket Created ────────────────────────────────────────────────────────
@@ -252,6 +344,27 @@ export async function notifyTicketAssigned(evt: TicketEvent) {
         footerNote: 'Este ticket requiere tu atención. Por favor revísalo y toma acción.',
       }));
   }
+
+  // Followers — the previous assignee and anyone else watching the ticket
+  // gets a "reassigned" heads-up.
+  await fanOutToFollowers(
+    evt,
+    `🔄 Reasignado: ${evt.ticketNumber} → ${evt.agentName ?? 'nuevo agente'}`,
+    emailTemplate({
+      preheader: `${evt.ticketNumber} cambió de asignado`,
+      heading: 'Ticket Reasignado',
+      bodyRows: [
+        { label: 'Ticket', value: `<strong>${evt.ticketNumber}</strong>` },
+        { label: 'Título', value: evt.title },
+        { label: 'Nuevo asignado', value: `<strong>${evt.agentName ?? '—'}</strong>` },
+      ],
+      ctaText: 'Ver Ticket',
+      ctaUrl: `https://itsm-web.vercel.app${link}`,
+      footerNote: 'Recibes este email porque sigues este ticket. Puedes dejar de seguirlo desde la vista del ticket.',
+    }),
+    `Reasignado ${evt.ticketNumber}`,
+    `Ahora asignado a ${evt.agentName ?? 'otro agente'}`,
+  );
 }
 
 // ── Status Changed ────────────────────────────────────────────────────────
@@ -306,6 +419,29 @@ export async function notifyTicketStatusChanged(evt: TicketEvent) {
       `${evt.title} → ${evt.status}`,
       'ticket', evt.ticketId, link);
   }
+
+  // Followers (everyone else watching this ticket)
+  await fanOutToFollowers(
+    evt,
+    `📌 ${evt.ticketNumber} cambió a ${evt.status}`,
+    emailTemplate({
+      preheader: `El ticket ${evt.ticketNumber} cambió de estado`,
+      heading: 'Cambio de Estado en Ticket que Sigues',
+      badgeText: evt.status.toUpperCase().replace('_', ' '),
+      badgeColor: STATUS_COLORS[evt.status] ?? '#6366f1',
+      bodyRows: [
+        { label: 'Ticket', value: `<strong>${evt.ticketNumber}</strong>` },
+        { label: 'Título', value: evt.title },
+        { label: 'Nuevo Estado', value: `<strong>${evt.status}</strong>` },
+        { label: 'Urgencia', value: evt.urgency },
+      ],
+      ctaText: 'Abrir Ticket',
+      ctaUrl: portalUrl,
+      footerNote: 'Recibes este email porque estás siguiendo este ticket. Puedes dejar de seguirlo desde la vista del ticket.',
+    }),
+    `Estado cambiado ${evt.ticketNumber}`,
+    `${evt.title} → ${evt.status}`,
+  );
 }
 
 // ── Comment Added ─────────────────────────────────────────────────────────
@@ -358,6 +494,31 @@ export async function notifyTicketCommented(evt: TicketEvent) {
       `${evt.agentName ?? 'Agente'}: ${(evt.comment ?? '').slice(0, 100)}`,
       'ticket', evt.ticketId, link);
   }
+
+  // 4. Followers — fan out both public replies and internal notes so the
+  // team keeps context even when the ticket reassigns.
+  if (evt.comment) {
+    const isInternal = !evt.requesterEmail;
+    await fanOutToFollowers(
+      evt,
+      `💬 ${isInternal ? 'Nota interna' : 'Respuesta'} en ${evt.ticketNumber}`,
+      emailTemplate({
+        preheader: `${evt.agentName ?? 'Un agente'} comentó en ${evt.ticketNumber}`,
+        heading: isInternal ? 'Nota Interna Nueva' : 'Nueva Respuesta Pública',
+        bodyRows: [
+          { label: 'Ticket', value: `<strong>${evt.ticketNumber}</strong>` },
+          { label: 'Título', value: evt.title },
+          { label: 'Por', value: `<strong>${evt.agentName ?? 'Equipo de Soporte'}</strong>` },
+          { label: isInternal ? 'Nota' : 'Respuesta', value: `<div style="padding:12px;background:#f0f4ff;border-radius:6px;border-left:3px solid #4f46e5;font-style:italic;line-height:1.5;">${evt.comment}</div>` },
+        ],
+        ctaText: 'Abrir Ticket',
+        ctaUrl: portalUrl,
+        footerNote: 'Recibes este email porque estás siguiendo este ticket.',
+      }),
+      `Comentario en ${evt.ticketNumber}`,
+      `${evt.agentName ?? 'Agente'}: ${evt.comment.slice(0, 100)}`,
+    );
+  }
 }
 
 // ── Ticket Resolved ───────────────────────────────────────────────────────
@@ -388,4 +549,25 @@ export async function notifyTicketResolved(evt: TicketEvent) {
       `${evt.title} ha sido resuelto`,
       'ticket', evt.ticketId, link);
   }
+
+  await fanOutToFollowers(
+    evt,
+    `✅ Resuelto: ${evt.ticketNumber}`,
+    emailTemplate({
+      preheader: `${evt.ticketNumber} marcado como resuelto`,
+      heading: 'Ticket Resuelto',
+      badgeText: 'RESUELTO',
+      badgeColor: '#10b981',
+      bodyRows: [
+        { label: 'Ticket', value: `<strong>${evt.ticketNumber}</strong>` },
+        { label: 'Título', value: evt.title },
+        { label: 'Solución', value: evt.solution ?? 'Ver detalles en el portal' },
+      ],
+      ctaText: 'Ver Detalle',
+      ctaUrl: `https://itsm-web.vercel.app${link}`,
+      footerNote: 'Recibes este email porque estás siguiendo este ticket.',
+    }),
+    `Resuelto ${evt.ticketNumber}`,
+    `${evt.title} ha sido resuelto`,
+  );
 }

@@ -27,6 +27,13 @@ import {
   notifyTicketResolved,
 } from '~/lib/services/notify.service';
 
+import {
+  addFollower,
+  addFollowersBulk,
+  removeFollower,
+  type FollowerReason,
+} from '~/lib/services/ticket-followers.service';
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -159,6 +166,14 @@ async function autoAssignRoundRobin(
     })
     .eq('id', ticketId);
 
+  // Auto-follow the newly-assigned agent.
+  addFollower(client, {
+    tenantId,
+    ticketId,
+    agentId: best.id,
+    reason: 'assignment',
+  }).catch(() => {});
+
   // Notify the freshly-assigned agent
   const { notifyTicketAssigned } = await import('~/lib/services/notify.service');
   const { data: t } = await client
@@ -175,6 +190,7 @@ async function autoAssignRoundRobin(
       type: t.type,
       urgency: t.urgency,
       status: t.status,
+      assignedAgentId: best.id,
       agentUserId: best.user_id ?? undefined,
       agentEmail: best.email,
       agentName: best.name,
@@ -270,6 +286,18 @@ export async function createTicket(
       return { data: null, error: error.message };
     }
 
+    // Auto-follow: if the creator is a TDX staff agent, they become the
+    // first follower so they keep getting updates even after the round-
+    // robin reassigns the ticket to someone else.
+    if (agent && !isClient) {
+      addFollower(client, {
+        tenantId,
+        ticketId: ticket.id,
+        agentId: agent.id,
+        reason: 'creator',
+      }).catch(() => {});
+    }
+
     // Fire-and-forget notification
     notifyTicketCreated({
       tenantId,
@@ -316,10 +344,11 @@ export async function updateTicket(
       return { data: null, error: authError ?? 'Unauthorized' };
     }
 
-    // Verify the ticket belongs to the same tenant
+    // Verify the ticket belongs to the same tenant. Fetch the current
+    // assignee so we can keep them as follower if this update reassigns.
     const { data: existing } = await client
       .from('tickets')
-      .select('id, tenant_id')
+      .select('id, tenant_id, assigned_agent_id')
       .eq('id', ticketId)
       .eq('tenant_id', agent.tenant_id)
       .is('deleted_at', null)
@@ -328,6 +357,8 @@ export async function updateTicket(
     if (!existing) {
       return { data: null, error: 'Ticket not found' };
     }
+    const previousAssigneeId = (existing as { assigned_agent_id: string | null })
+      .assigned_agent_id;
 
     const { data: ticket, error } = await client
       .from('tickets')
@@ -339,6 +370,22 @@ export async function updateTicket(
 
     if (error) {
       return { data: null, error: error.message };
+    }
+
+    const newAssigneeId =
+      (validated as { assigned_agent_id?: string | null }).assigned_agent_id
+      ?? previousAssigneeId;
+    const reassigned =
+      (validated as { assigned_agent_id?: string | null }).assigned_agent_id !==
+        undefined && newAssigneeId !== previousAssigneeId;
+
+    if (reassigned || !previousAssigneeId) {
+      addFollowersBulk(client, {
+        tenantId: agent.tenant_id,
+        ticketId,
+        agentIds: [previousAssigneeId, newAssigneeId, agent.id],
+        reason: reassigned ? 'reassignment' : 'assignment',
+      }).catch(() => {});
     }
 
     revalidatePath('/home/tickets');
@@ -369,10 +416,11 @@ export async function assignTicket(
       return { data: null, error: authError ?? 'Unauthorized' };
     }
 
-    // Verify ticket belongs to tenant
+    // Verify ticket belongs to tenant. We also pull the current assignee
+    // so we can keep them as a follower after the reassignment.
     const { data: existing } = await client
       .from('tickets')
-      .select('id, tenant_id, status')
+      .select('id, tenant_id, status, assigned_agent_id')
       .eq('id', ticketId)
       .eq('tenant_id', agent.tenant_id)
       .is('deleted_at', null)
@@ -381,6 +429,9 @@ export async function assignTicket(
     if (!existing) {
       return { data: null, error: 'Ticket not found' };
     }
+
+    const previousAssigneeId = (existing as { assigned_agent_id: string | null })
+      .assigned_agent_id;
 
     const updatePayload: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
@@ -413,6 +464,16 @@ export async function assignTicket(
       return { data: null, error: error.message };
     }
 
+    // Auto-follow the previous and new assignee so the outgoing agent
+    // keeps getting updates until the ticket is closed.
+    const isReassignment = agentId && agentId !== previousAssigneeId;
+    addFollowersBulk(client, {
+      tenantId: agent.tenant_id,
+      ticketId,
+      agentIds: [previousAssigneeId, agentId ?? null, agent.id],
+      reason: isReassignment ? 'reassignment' : 'assignment',
+    }).catch(() => {});
+
     // Notify assigned agent
     if (agentId) {
       const { data: tgtAgent } = await client.from('agents').select('user_id, email, name').eq('id', agentId).single();
@@ -420,6 +481,7 @@ export async function assignTicket(
         notifyTicketAssigned({
           tenantId: agent.tenant_id, ticketNumber: ticket.ticket_number, ticketId: ticket.id,
           title: ticket.title, type: ticket.type, urgency: ticket.urgency, status: ticket.status,
+          assignedAgentId: agentId,
           agentUserId: tgtAgent.user_id, agentEmail: tgtAgent.email, agentName: tgtAgent.name,
         }).catch(() => {});
       }
@@ -563,6 +625,7 @@ export async function changeTicketStatus(
       title: ticket.title, type: ticket.type, urgency: ticket.urgency, status: newStatus,
       requesterEmail: ticket.requester_email ?? undefined,
       agentUserId: assigneeUserId, agentEmail: assigneeEmail,
+      assignedAgentId: ticket.assigned_agent_id ?? undefined,
     }).catch(() => {});
 
     revalidatePath('/home/tickets');
@@ -811,9 +874,20 @@ export async function addFollowup(
       return { data: null, error: error.message };
     }
 
+    // Auto-follow on participation — any agent who posts a followup,
+    // public or private, becomes a follower on that ticket.
+    if (!isClient) {
+      addFollower(client, {
+        tenantId: agent.tenant_id,
+        ticketId,
+        agentId: agent.id,
+        reason: 'followup',
+      }).catch(() => {});
+    }
+
     // Notify on public replies (not internal notes)
     if (!validated.is_private) {
-      const { data: tkt } = await client.from('tickets').select('ticket_number, title, type, urgency, requester_email').eq('id', ticketId).single();
+      const { data: tkt } = await client.from('tickets').select('ticket_number, title, type, urgency, requester_email, assigned_agent_id').eq('id', ticketId).single();
       if (tkt) {
         notifyTicketCommented({
           tenantId: agent.tenant_id, ticketNumber: tkt.ticket_number, ticketId,
@@ -821,6 +895,7 @@ export async function addFollowup(
           comment: validated.content, agentName: agent.name,
           requesterEmail: tkt.requester_email ?? undefined,
           agentUserId: user.id, agentEmail: agent.email,
+          assignedAgentId: tkt.assigned_agent_id ?? undefined,
         }).catch(() => {});
       }
     }
@@ -1005,6 +1080,72 @@ export async function deleteTicket(ticketId: string): Promise<ActionResult> {
 
     revalidatePath('/home/tickets');
     return { data: { id: ticketId, deleted: true }, error: null };
+  } catch (err) {
+    return { data: null, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 12. Ticket followers — manual subscribe / unsubscribe
+// ---------------------------------------------------------------------------
+
+/**
+ * Manually subscribe the current agent (or an arbitrary agent) to a ticket
+ * so they receive all email + in-app updates until they unfollow or the
+ * ticket is closed. Clients (role=readonly) cannot follow tickets.
+ */
+export async function followTicket(
+  ticketId: string,
+  agentId?: string,
+): Promise<ActionResult> {
+  try {
+    const client = getSupabaseServerClient();
+    const { agent, error: authError } = await requireAgent(client);
+    if (authError || !agent) {
+      return { data: null, error: authError ?? 'Unauthorized' };
+    }
+
+    const { data: existing } = await client
+      .from('tickets')
+      .select('id, tenant_id')
+      .eq('id', ticketId)
+      .eq('tenant_id', agent.tenant_id)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (!existing) return { data: null, error: 'Ticket not found' };
+
+    const targetAgentId = agentId ?? agent.id;
+    await addFollower(client, {
+      tenantId: agent.tenant_id,
+      ticketId,
+      agentId: targetAgentId,
+      reason: 'manual' satisfies FollowerReason,
+      isAuto: false,
+    });
+
+    revalidatePath(`/home/tickets/${ticketId}`);
+    return { data: { ticketId, agentId: targetAgentId }, error: null };
+  } catch (err) {
+    return { data: null, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+}
+
+export async function unfollowTicket(
+  ticketId: string,
+  agentId?: string,
+): Promise<ActionResult> {
+  try {
+    const client = getSupabaseServerClient();
+    const { agent, error: authError } = await requireAgent(client);
+    if (authError || !agent) {
+      return { data: null, error: authError ?? 'Unauthorized' };
+    }
+
+    const targetAgentId = agentId ?? agent.id;
+    await removeFollower(client, { ticketId, agentId: targetAgentId });
+
+    revalidatePath(`/home/tickets/${ticketId}`);
+    return { data: { ticketId, agentId: targetAgentId }, error: null };
   } catch (err) {
     return { data: null, error: err instanceof Error ? err.message : 'Unknown error' };
   }
