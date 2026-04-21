@@ -14,18 +14,28 @@
 -- 1) EXTENSIONS
 -- ═══════════════════════════════════════════════════════════════════════════
 
-CREATE EXTENSION IF NOT EXISTS unaccent;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS unaccent SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS pg_trgm  SCHEMA extensions;
+
+-- Make the rest of this script see the extension objects (unaccent,
+-- gin_trgm_ops, similarity) without forcing every caller to schema-qualify.
+SET search_path = public, extensions;
 
 -- Immutable unaccent wrapper so we can use it in generated columns /
 -- indexes. The built-in unaccent() is marked STABLE (it can in theory
 -- reload its dictionary), but in practice the unaccent dictionary is
 -- static — wrapping it lets Postgres accept the call in GENERATED
 -- ALWAYS AS STORED expressions.
-CREATE OR REPLACE FUNCTION immutable_unaccent(text)
+--
+-- SET search_path inside the function so that every call resolves
+-- `unaccent()` via the extensions schema regardless of the caller's
+-- search_path (required for Supabase, where extensions are installed
+-- outside `public`).
+CREATE OR REPLACE FUNCTION public.immutable_unaccent(text)
 RETURNS text
 LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
-AS $$ SELECT unaccent($1) $$;
+SET search_path = public, extensions
+AS $$ SELECT extensions.unaccent($1) $$;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 2) search_tsv GENERATED COLUMNS (auto-maintained, no triggers needed)
@@ -175,7 +185,7 @@ CREATE OR REPLACE FUNCTION search_global(
 LANGUAGE plpgsql
 SECURITY DEFINER
 STABLE
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   q text;
