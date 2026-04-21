@@ -81,73 +81,98 @@ async function ReportsPage({ searchParams }: PageProps) {
   const fromIso = `${reportDate}T00:00:00.000Z`;
   const toIso = `${reportDate}T23:59:59.999Z`;
 
-  const countByDate = async (filters: {
+  const TICKET_SELECT =
+    'id, ticket_number, title, status, type, urgency, created_at, closed_at, assigned_agent_id';
+
+  const listByDate = async (filters: {
     dateCol: 'created_at' | 'closed_at';
     type?: string;
-  }): Promise<number> => {
+  }): Promise<TicketSummary[]> => {
     let q = client
       .from('tickets')
-      .select('*', { count: 'exact', head: true })
+      .select(TICKET_SELECT)
       .eq('organization_id', organizationId!)
       .gte(filters.dateCol, fromIso)
-      .lte(filters.dateCol, toIso);
+      .lte(filters.dateCol, toIso)
+      .order(filters.dateCol, { ascending: true });
     if (filters.type) q = q.eq('type', filters.type);
-    const { count } = await q;
-    return count ?? 0;
+    const { data } = await q;
+    return (data ?? []) as unknown as TicketSummary[];
   };
 
-  const countSnapshot = async (filters: {
+  const listSnapshot = async (filters: {
     status?: string;
     type?: string;
     customTestingResult?: string;
-  }): Promise<number> => {
+  }): Promise<TicketSummary[]> => {
     let q = client
       .from('tickets')
-      .select('*', { count: 'exact', head: true })
-      .eq('organization_id', organizationId!);
+      .select(TICKET_SELECT)
+      .eq('organization_id', organizationId!)
+      .order('created_at', { ascending: false });
     if (filters.status) q = q.eq('status', filters.status);
     if (filters.type) q = q.eq('type', filters.type);
     if (filters.customTestingResult) {
       q = q.eq('custom_fields->>testing_result', filters.customTestingResult);
     }
-    const { count } = await q;
-    return count ?? 0;
+    const { data } = await q;
+    return (data ?? []) as unknown as TicketSummary[];
   };
 
-  const countNuevosTesting = async (type: string): Promise<number> => {
-    const { count } = await client
+  const listNuevosTesting = async (
+    type: string,
+  ): Promise<TicketSummary[]> => {
+    const { data } = await client
       .from('tickets')
-      .select('*', { count: 'exact', head: true })
+      .select(TICKET_SELECT)
       .eq('organization_id', organizationId!)
       .eq('status', 'testing')
       .eq('type', type)
       .gte('custom_fields->>testing_entered_at', fromIso)
-      .lte('custom_fields->>testing_entered_at', toIso);
-    return count ?? 0;
+      .lte('custom_fields->>testing_entered_at', toIso)
+      .order('updated_at', { ascending: false });
+    return (data ?? []) as unknown as TicketSummary[];
   };
 
-  const metrics = {
-    cerradosGarantia: await countByDate({ dateCol: 'closed_at', type: 'warranty' }),
-    cerradosSoporte: await countByDate({ dateCol: 'closed_at', type: 'support' }),
-    nuevoGarantia: await countByDate({ dateCol: 'created_at', type: 'warranty' }),
-    nuevoSoporte: await countByDate({ dateCol: 'created_at', type: 'support' }),
-    progresoGarantia: await countSnapshot({ status: 'in_progress', type: 'warranty' }),
-    progresoSoporte: await countSnapshot({ status: 'in_progress', type: 'support' }),
-    testingGarantia: await countNuevosTesting('warranty'),
-    testingSoporte: await countNuevosTesting('support'),
-    pendientesGarantia: await countSnapshot({ status: 'pending', type: 'warranty' }),
-    pendientesSoporte: await countSnapshot({ status: 'pending', type: 'support' }),
-    fracasoTesting: await countSnapshot({ customTestingResult: 'fracaso' }),
-    pendientesTesting: await countSnapshot({ customTestingResult: 'pendiente' }),
+  const lists = {
+    cerradosGarantia: await listByDate({ dateCol: 'closed_at', type: 'warranty' }),
+    cerradosSoporte: await listByDate({ dateCol: 'closed_at', type: 'support' }),
+    nuevoGarantia: await listByDate({ dateCol: 'created_at', type: 'warranty' }),
+    nuevoSoporte: await listByDate({ dateCol: 'created_at', type: 'support' }),
+    progresoGarantia: await listSnapshot({ status: 'in_progress', type: 'warranty' }),
+    progresoSoporte: await listSnapshot({ status: 'in_progress', type: 'support' }),
+    testingGarantia: await listNuevosTesting('warranty'),
+    testingSoporte: await listNuevosTesting('support'),
+    pendientesGarantia: await listSnapshot({ status: 'pending', type: 'warranty' }),
+    pendientesSoporte: await listSnapshot({ status: 'pending', type: 'support' }),
+    fracasoTesting: await listSnapshot({ customTestingResult: 'fracaso' }),
+    pendientesTesting: await listSnapshot({ customTestingResult: 'pendiente' }),
   };
+
+  const metrics = Object.fromEntries(
+    Object.entries(lists).map(([k, v]) => [k, v.length]),
+  ) as Record<keyof typeof lists, number>;
 
   return (
     <GestionSoporteClient
       reportDate={reportDate}
       organizationName={organizationName}
       metrics={metrics}
+      lists={lists}
     />
   );
+}
+
+export interface TicketSummary {
+  id: string;
+  ticket_number: string;
+  title: string;
+  status: string;
+  type: string;
+  urgency: string;
+  created_at: string;
+  closed_at: string | null;
+  assigned_agent_id: string | null;
 }
 
 export default withI18n(ReportsPage);
