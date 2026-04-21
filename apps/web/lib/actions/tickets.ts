@@ -655,7 +655,7 @@ export async function setTestingResult(
     revalidatePath(`/home/tickets/${ticketId}`);
     revalidatePath('/home/tickets');
     revalidatePath('/home/workspace');
-    revalidatePath('/home/reports/gestion-soporte');
+    revalidatePath('/home/reports');
     return { data: { testing_result: result }, error: null };
   } catch (err) {
     return {
