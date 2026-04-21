@@ -133,6 +133,7 @@ export function CreateTicketForm({
       impact: 'medium',
       organization_id: lockedOrganizationId ?? undefined,
       category_id: undefined,
+      requester_id: undefined,
       requester_email: undefined,
       tags: [],
     },
@@ -206,6 +207,9 @@ export function CreateTicketForm({
   };
 
   const handleSelectContact = (contact: Contact) => {
+    // Set both id + email so the list view (which joins on requester_id)
+    // shows the contact's name, not just the raw email.
+    form.setValue('requester_id', contact.id, { shouldValidate: true });
     form.setValue('requester_email', contact.email, { shouldValidate: true });
     setRequesterSearch(contact.email);
     setShowContactDropdown(false);
@@ -509,6 +513,9 @@ export function CreateTicketForm({
                             onChange={(e) => {
                               setRequesterSearch(e.target.value);
                               field.onChange(e.target.value || undefined);
+                              // User is editing the email manually — any
+                              // previously-selected contact no longer applies.
+                              form.setValue('requester_id', undefined);
                               setShowContactDropdown(true);
                             }}
                             onFocus={() => setShowContactDropdown(true)}

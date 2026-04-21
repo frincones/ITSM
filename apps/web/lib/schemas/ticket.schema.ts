@@ -54,6 +54,7 @@ export const createTicketSchema = z.object({
   impact: severityLevelEnum.default('medium'),
   organization_id: optionalUuid,
   category_id: optionalUuid,
+  requester_id: optionalUuid,
   requester_email: optionalEmail,
   tags: z.array(z.string().trim().min(1)).optional().default([]),
 });
