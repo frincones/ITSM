@@ -45,11 +45,40 @@ export interface Group {
   description?: string;
 }
 
+export interface WorkspaceAdvancedFilters {
+  status: string[];
+  type: string[];
+  priority: string;
+  category: string;
+  agentIds: string[];
+  from: string;
+  to: string;
+}
+
+export type SortColumn =
+  | 'urgency'
+  | 'ticket_number'
+  | 'rank'
+  | 'title'
+  | 'status'
+  | 'org'
+  | 'assignee'
+  | 'created';
+
+export interface SortOverride {
+  column: SortColumn;
+  direction: 'asc' | 'desc';
+}
+
 export interface WorkspaceFilters {
   currentAgentId: string;
   mine: boolean;
   criticalOnly: boolean;
+  advanced?: WorkspaceAdvancedFilters;
+  sort?: SortOverride | null;
 }
+
+type Comparator = (a: WorkspaceTicket, b: WorkspaceTicket) => number;
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -144,17 +173,115 @@ function orgsForAgent(
   return out;
 }
 
+function hasAdvancedFilter(f: WorkspaceAdvancedFilters | undefined): boolean {
+  if (!f) return false;
+  return (
+    f.status.length > 0 ||
+    f.type.length > 0 ||
+    f.priority !== '' ||
+    f.category !== '' ||
+    f.agentIds.length > 0 ||
+    f.from !== '' ||
+    f.to !== ''
+  );
+}
+
+function passesAdvanced(
+  t: WorkspaceTicket,
+  f: WorkspaceAdvancedFilters,
+): boolean {
+  if (f.status.length && !f.status.includes(t.status)) return false;
+  if (f.type.length && !f.type.includes(t.type)) return false;
+  if (f.priority && t.urgency !== f.priority) return false;
+  if (f.category && t.category?.id !== f.category) return false;
+  if (f.agentIds.length) {
+    const wantsUnassigned = f.agentIds.includes('unassigned');
+    const matchesAgent =
+      t.assigned_agent_id !== null &&
+      f.agentIds.includes(t.assigned_agent_id);
+    const matchesUnassigned = wantsUnassigned && t.assigned_agent_id === null;
+    if (!matchesAgent && !matchesUnassigned) return false;
+  }
+  const createdMs = new Date(t.created_at).getTime();
+  if (f.from) {
+    const fromMs = new Date(f.from).getTime();
+    if (!Number.isNaN(fromMs) && createdMs < fromMs) return false;
+  }
+  if (f.to) {
+    // Inclusive end-of-day.
+    const toMs = new Date(f.to).getTime() + 86_400_000 - 1;
+    if (!Number.isNaN(toMs) && createdMs > toMs) return false;
+  }
+  return true;
+}
+
 function applyFilters(
   tickets: WorkspaceTicket[],
   filters: WorkspaceFilters,
 ): WorkspaceTicket[] {
+  const adv = hasAdvancedFilter(filters.advanced) ? filters.advanced! : null;
   return tickets.filter((t) => {
     if (filters.mine && t.assigned_agent_id !== filters.currentAgentId) {
       return false;
     }
     if (filters.criticalOnly && !HIGH_URGENCY.has(t.urgency)) return false;
+    if (adv && !passesAdvanced(t, adv)) return false;
     return true;
   });
+}
+
+/**
+ * When the user clicks a column header we **replace** the smart comparator
+ * with a single-column sort. Falls back to compareTickets if sort is null.
+ */
+function makeSortComparator(
+  sort: SortOverride | null,
+  orgMap: Map<string, string>,
+): Comparator {
+  if (!sort) return compareTickets;
+  const dir = sort.direction === 'asc' ? 1 : -1;
+
+  return (a, b) => {
+    let cmp = 0;
+    switch (sort.column) {
+      case 'urgency':
+        cmp =
+          (URGENCY_WEIGHT[a.urgency] ?? 0) - (URGENCY_WEIGHT[b.urgency] ?? 0);
+        break;
+      case 'ticket_number':
+        cmp = a.ticket_number.localeCompare(b.ticket_number, undefined, {
+          numeric: true,
+        });
+        break;
+      case 'rank':
+        cmp = getClientRank(a) - getClientRank(b);
+        break;
+      case 'title':
+        cmp = a.title.localeCompare(b.title);
+        break;
+      case 'status':
+        cmp = (a.status ?? '').localeCompare(b.status ?? '');
+        break;
+      case 'org': {
+        const an = a.organization_id ? orgMap.get(a.organization_id) ?? '' : '';
+        const bn = b.organization_id ? orgMap.get(b.organization_id) ?? '' : '';
+        cmp = an.localeCompare(bn);
+        break;
+      }
+      case 'assignee': {
+        const an = a.assigned_agent?.name ?? '';
+        const bn = b.assigned_agent?.name ?? '';
+        cmp = an.localeCompare(bn);
+        break;
+      }
+      case 'created':
+        cmp = (a.created_at ?? '').localeCompare(b.created_at ?? '');
+        break;
+    }
+    if (cmp !== 0) return cmp * dir;
+    // Stable tiebreak by ticket_number to keep UI deterministic.
+    return a.ticket_number.localeCompare(b.ticket_number);
+  };
 }
 
 // ─── Group builders ─────────────────────────────────────────────────────────
@@ -162,6 +289,7 @@ function applyFilters(
 function buildSmartGroups(
   tickets: WorkspaceTicket[],
   filters: WorkspaceFilters,
+  sorter: Comparator,
 ): Group[] {
   const myOrgs = orgsForAgent(tickets, filters.currentAgentId);
 
@@ -280,7 +408,7 @@ function buildSmartGroups(
   }
 
   // Sort within each group
-  for (const g of groups) g.tickets.sort(compareTickets);
+  for (const g of groups) g.tickets.sort(sorter);
 
   // Drop empty groups
   return groups.filter((g) => g.tickets.length > 0);
@@ -289,6 +417,7 @@ function buildSmartGroups(
 function buildByClientGroups(
   tickets: WorkspaceTicket[],
   orgMap: Map<string, string>,
+  sorter: Comparator,
 ): Group[] {
   const bucket = new Map<string, WorkspaceTicket[]>();
   for (const t of tickets) {
@@ -305,14 +434,17 @@ function buildByClientGroups(
       title: name,
       emoji: '🏢',
       accent: 'indigo',
-      tickets: list.sort(compareTickets),
+      tickets: list.sort(sorter),
       defaultCollapsed: false,
     });
   }
   return groups.sort((a, b) => a.title.localeCompare(b.title));
 }
 
-function buildByStatusGroups(tickets: WorkspaceTicket[]): Group[] {
+function buildByStatusGroups(
+  tickets: WorkspaceTicket[],
+  sorter: Comparator,
+): Group[] {
   const bucket = new Map<string, WorkspaceTicket[]>();
   for (const t of tickets) {
     const arr = bucket.get(t.status) ?? [];
@@ -338,12 +470,15 @@ function buildByStatusGroups(tickets: WorkspaceTicket[]): Group[] {
       title: STATUS_LABEL[s] ?? s,
       emoji: STATUS_EMOJI[s] ?? '•',
       accent: TERMINAL.has(s) ? 'muted' : 'indigo',
-      tickets: (bucket.get(s) ?? []).sort(compareTickets),
+      tickets: (bucket.get(s) ?? []).sort(sorter),
       defaultCollapsed: TERMINAL.has(s),
     }));
 }
 
-function buildByPriorityGroups(tickets: WorkspaceTicket[]): Group[] {
+function buildByPriorityGroups(
+  tickets: WorkspaceTicket[],
+  sorter: Comparator,
+): Group[] {
   const bucket = new Map<string, WorkspaceTicket[]>();
   for (const t of tickets) {
     const arr = bucket.get(t.urgency) ?? [];
@@ -364,7 +499,7 @@ function buildByPriorityGroups(tickets: WorkspaceTicket[]): Group[] {
       title: URGENCY_LABEL[u] ?? u,
       emoji: u === 'critical' ? '🔴' : u === 'high' ? '🟠' : u === 'medium' ? '🟡' : '🟢',
       accent: accents[u] ?? 'indigo',
-      tickets: (bucket.get(u) ?? []).sort(compareTickets),
+      tickets: (bucket.get(u) ?? []).sort(sorter),
       defaultCollapsed: false,
     }));
 }
@@ -378,16 +513,17 @@ export function groupTickets(
   orgMap: Map<string, string>,
 ): Group[] {
   const filtered = applyFilters(tickets, filters);
+  const sorter = makeSortComparator(filters.sort ?? null, orgMap);
 
   switch (mode) {
     case 'smart':
-      return buildSmartGroups(filtered, filters);
+      return buildSmartGroups(filtered, filters, sorter);
     case 'client':
-      return buildByClientGroups(filtered, orgMap);
+      return buildByClientGroups(filtered, orgMap, sorter);
     case 'status':
-      return buildByStatusGroups(filtered);
+      return buildByStatusGroups(filtered, sorter);
     case 'priority':
-      return buildByPriorityGroups(filtered);
+      return buildByPriorityGroups(filtered, sorter);
     case 'none':
     default:
       return [
@@ -396,7 +532,7 @@ export function groupTickets(
           title: 'Todos los tickets',
           emoji: '📋',
           accent: 'indigo',
-          tickets: [...filtered].sort(compareTickets),
+          tickets: [...filtered].sort(sorter),
           defaultCollapsed: false,
         },
       ];

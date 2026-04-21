@@ -135,28 +135,37 @@ export function TicketRow({
         selected && 'bg-muted',
       )}
     >
-      {urgencyIcon}
+      <span className="flex w-5 shrink-0 items-center justify-center">
+        {urgencyIcon}
+      </span>
 
       <span className="w-[120px] shrink-0 font-mono text-[11px] text-muted-foreground">
         {ticket.ticket_number}
       </span>
 
-      {rank !== null && (
-        <Badge className="h-5 shrink-0 border-indigo-200 bg-indigo-50 px-1.5 text-[10px] text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
-          #{rank}
-        </Badge>
-      )}
+      <div className="flex w-[48px] shrink-0 items-center">
+        {rank !== null && (
+          <Badge className="h-5 border-indigo-200 bg-indigo-50 px-1.5 text-[10px] text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
+            #{rank}
+          </Badge>
+        )}
+      </div>
 
       <span className="flex-1 truncate text-sm">
         {ticket.title}
       </span>
 
-      <Badge
-        variant="outline"
-        className={cn('h-6 shrink-0 px-2 text-[10px] font-medium', statusClass)}
-      >
-        {statusLabel}
-      </Badge>
+      <div className="flex w-[110px] shrink-0 items-center">
+        <Badge
+          variant="outline"
+          className={cn(
+            'h-6 max-w-full px-2 text-[10px] font-medium',
+            statusClass,
+          )}
+        >
+          <span className="truncate">{statusLabel}</span>
+        </Badge>
+      </div>
 
       <div className="flex w-[140px] shrink-0 items-center gap-1.5">
         <span
@@ -184,14 +193,16 @@ export function TicketRow({
         {timeAgo}
       </span>
 
-      <Link
-        href={`/home/tickets/${ticket.id}`}
-        onClick={(e) => e.stopPropagation()}
-        aria-label="Abrir detalle del ticket"
-        className="ml-1 shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
-      >
-        <ExternalLink className="h-3.5 w-3.5" />
-      </Link>
+      <div className="flex w-6 shrink-0 items-center justify-end">
+        <Link
+          href={`/home/tickets/${ticket.id}`}
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Abrir detalle del ticket"
+          className="rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </Link>
+      </div>
     </button>
   );
 }
