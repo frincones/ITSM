@@ -17,6 +17,7 @@ export type TicketStatus =
   | 'detenido'
   | 'testing'
   | 'resolved'
+  | 'reopened'
   | 'closed'
   | 'cancelled';
 
@@ -67,6 +68,11 @@ const STATUS_CONFIG: Record<
     label: 'Resolved',
     color: 'text-emerald-700 dark:text-emerald-300',
     bg: 'bg-emerald-50 dark:bg-emerald-500/20',
+  },
+  reopened: {
+    label: 'Reopened',
+    color: 'text-rose-700 dark:text-rose-300',
+    bg: 'bg-rose-50 dark:bg-rose-500/20',
   },
   closed: {
     label: 'Closed',

@@ -27,6 +27,8 @@ import {
   notifyTicketResolved,
 } from '~/lib/services/notify.service';
 
+import { queueNpsForTicket } from '~/lib/services/nps.service';
+
 import {
   addFollower,
   addFollowersBulk,
@@ -207,8 +209,9 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   pending: ['backlog', 'in_progress', 'detenido', 'testing', 'resolved', 'closed', 'cancelled'],
   detenido: ['backlog', 'in_progress', 'pending', 'testing', 'resolved', 'closed', 'cancelled'],
   testing: ['backlog', 'in_progress', 'pending', 'detenido', 'resolved', 'closed', 'cancelled'],
-  resolved: ['closed', 'in_progress'],
-  closed: ['in_progress', 'backlog'],
+  resolved: ['closed', 'in_progress', 'reopened'],
+  reopened: ['assigned', 'in_progress', 'pending', 'detenido', 'testing', 'resolved', 'closed', 'cancelled'],
+  closed: ['in_progress', 'backlog', 'reopened'],
   cancelled: ['new', 'backlog'],
 };
 
@@ -513,7 +516,10 @@ export async function changeTicketStatus(
       return { data: null, error: authError ?? 'Unauthorized' };
     }
 
-    // Clients can only set the statuses exposed in their UI picker
+    // Clients can only set the statuses exposed in their UI picker.
+    // 'reopened' is intentionally included so customers can reopen a
+    // ticket they feel was closed prematurely — the common Zendesk /
+    // Freshdesk expectation.
     const CLIENT_ALLOWED_STATUSES = [
       'new',
       'backlog',
@@ -522,6 +528,7 @@ export async function changeTicketStatus(
       'detenido',
       'testing',
       'resolved',
+      'reopened',
       'closed',
     ];
     if (isClient && !CLIENT_ALLOWED_STATUSES.includes(newStatus)) {
@@ -531,7 +538,7 @@ export async function changeTicketStatus(
     // Fetch current ticket
     const { data: existing } = await client
       .from('tickets')
-      .select('id, tenant_id, status, first_response_at, custom_fields')
+      .select('id, tenant_id, status, first_response_at, custom_fields, reopened_count')
       .eq('id', ticketId)
       .eq('tenant_id', agent.tenant_id)
       .is('deleted_at', null)
@@ -563,6 +570,23 @@ export async function changeTicketStatus(
 
     if (newStatus === 'closed') {
       updatePayload.closed_at = now;
+    }
+
+    // Reopen tracking: count every transition INTO 'reopened' so metrics
+    // can surface re-aperturas as a quality KPI. We only bump the counter
+    // on explicit reopen transitions — the inbound-email auto-reopen path
+    // sets the status directly and will run through here too.
+    if (
+      newStatus === 'reopened' &&
+      existing.status !== 'reopened'
+    ) {
+      updatePayload.last_reopened_at = now;
+      updatePayload.reopened_count =
+        ((existing as { reopened_count?: number | null }).reopened_count ?? 0) + 1;
+      // Clear terminal timestamps so SLA/metrics treat the ticket as
+      // active again rather than a stale closed one.
+      updatePayload.closed_at = null;
+      updatePayload.resolved_at = null;
     }
 
     // first_response_at: set on first transition away from 'new'
@@ -627,6 +651,22 @@ export async function changeTicketStatus(
       agentUserId: assigneeUserId, agentEmail: assigneeEmail,
       assignedAgentId: ticket.assigned_agent_id ?? undefined,
     }).catch(() => {});
+
+    // Queue NPS survey on terminal transitions. The csat-dispatcher cron
+    // sends the email ~5 minutes after this row is created.
+    if (
+      (newStatus === 'resolved' || newStatus === 'closed') &&
+      existing.status !== newStatus &&
+      ticket.requester_email
+    ) {
+      queueNpsForTicket({
+        tenantId: agent.tenant_id,
+        ticketId: ticket.id,
+        recipientEmail: ticket.requester_email,
+        organizationId: ticket.organization_id,
+        agentId: ticket.assigned_agent_id,
+      }).catch(() => {});
+    }
 
     revalidatePath('/home/tickets');
     revalidatePath(`/home/tickets/${ticketId}`);

@@ -32,6 +32,7 @@ export const ticketStatusEnum = z.enum([
   'detenido',
   'testing',
   'resolved',
+  'reopened',
   'closed',
   'cancelled',
 ]);

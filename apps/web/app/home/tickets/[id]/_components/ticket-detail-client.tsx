@@ -513,6 +513,7 @@ export function TicketDetailClient({
                     <SelectItem value="pending">Pendiente</SelectItem>
                     <SelectItem value="detenido">Detenido</SelectItem>
                     <SelectItem value="testing">Listo para Testing</SelectItem>
+                    <SelectItem value="reopened">Reabierto</SelectItem>
                     <SelectItem value="closed">Cerrado</SelectItem>
                   </>
                 ) : (
@@ -525,6 +526,7 @@ export function TicketDetailClient({
                     <SelectItem value="detenido">Detenido</SelectItem>
                     <SelectItem value="testing">Testing</SelectItem>
                     <SelectItem value="resolved">Resolved</SelectItem>
+                    <SelectItem value="reopened">Reopened</SelectItem>
                     <SelectItem value="closed">Closed</SelectItem>
                     <SelectItem value="cancelled">Cancelled</SelectItem>
                   </>

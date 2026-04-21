@@ -1,16 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { Bell, Plus, ChevronDown, User, LogOut, Sparkles } from 'lucide-react';
+import { Plus, ChevronDown, User, LogOut, Sparkles } from 'lucide-react';
 
 import { useSignOut } from '@kit/supabase/hooks/use-sign-out';
 import { useUser } from '@kit/supabase/hooks/use-user';
-import { getSupabaseBrowserClient } from '@kit/supabase/browser-client';
 import { OrgSelector } from './org-selector';
+import { NotificationsPanel } from './notifications-panel';
 import { Button } from '@kit/ui/button';
-import { Badge } from '@kit/ui/badge';
 
 import { GlobalSearch } from '~/components/global-search/global-search';
 import {
@@ -55,37 +53,6 @@ export function Topbar({ aiOpen, onToggleAi, userRole = 'agent' }: TopbarProps) 
   const signOut = useSignOut();
   const user = useUser();
   const userData = user.data;
-  const [unreadCount, setUnreadCount] = useState(0);
-
-  // Fetch unread notification count
-  useEffect(() => {
-    if (!userData?.id) return;
-    const supabase = getSupabaseBrowserClient();
-
-    const fetchCount = async () => {
-      const { count } = await supabase
-        .from('notifications')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', userData.id)
-        .eq('is_read', false);
-      setUnreadCount(count ?? 0);
-    };
-
-    fetchCount();
-
-    // Realtime subscription for new notifications
-    const channel = supabase
-      .channel('notif-badge')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'notifications',
-        filter: `user_id=eq.${userData.id}`,
-      }, () => { fetchCount(); })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, [userData?.id]);
 
   const displayName =
     userData?.user_metadata?.display_name ??
@@ -120,19 +87,7 @@ export function Topbar({ aiOpen, onToggleAi, userRole = 'agent' }: TopbarProps) 
           New Ticket
         </Button>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="relative"
-          onClick={() => router.push('/home/notifications')}
-        >
-          <Bell className="h-5 w-5" />
-          {unreadCount > 0 && (
-            <Badge className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center p-0 text-xs">
-              {unreadCount > 99 ? '99+' : unreadCount}
-            </Badge>
-          )}
-        </Button>
+        {userData?.id && <NotificationsPanel userId={userData.id} />}
 
         {!isClient && (
         <Button

@@ -9,6 +9,7 @@ import { Button } from '@kit/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@kit/ui/card';
 
 import { resolveOrgByPortalToken } from '~/lib/services/portal-token.service';
+import { ReopenButton } from './reopen-button';
 
 export default async function PortalTicketDetailPage({
   params,
@@ -61,7 +62,10 @@ export default async function PortalTicketDetailPage({
     new: 'bg-blue-100 text-blue-700', assigned: 'bg-cyan-100 text-cyan-700',
     in_progress: 'bg-yellow-100 text-yellow-700', pending: 'bg-orange-100 text-orange-700',
     resolved: 'bg-green-100 text-green-700', closed: 'bg-gray-100 text-gray-600',
+    reopened: 'bg-rose-100 text-rose-700',
   };
+
+  const canReopen = ['resolved', 'closed'].includes(ticket.status);
 
   const urgencyColor: Record<string, string> = {
     low: 'bg-green-100 text-green-700', medium: 'bg-yellow-100 text-yellow-700',
@@ -93,6 +97,18 @@ export default async function PortalTicketDetailPage({
             <Clock className="h-3 w-3" />
             Creado: {new Date(ticket.created_at).toLocaleString('es')}
           </div>
+          {canReopen && (
+            <div className="mt-4 border-t pt-4">
+              <p className="mb-2 text-xs text-gray-500">
+                ¿El problema no se resolvió del todo?
+              </p>
+              <ReopenButton
+                token={token}
+                ticketId={ticket.id}
+                email={accessEmail || undefined}
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 

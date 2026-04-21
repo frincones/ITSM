@@ -602,21 +602,49 @@ export async function getAgentPerformance(
     }
   }
 
+  // NPS per agent (average 0-10 over responded surveys in window). We
+  // weight by the agent recorded on the survey at send time — not the
+  // current ticket assignee — so reassignments don't distort credit.
+  const npsByAgent = new Map<string, { total: number; count: number }>();
+  if (agentIds.length > 0) {
+    const { data: npsRows } = await client
+      .from('nps_surveys')
+      .select('agent_id, score, responded_at')
+      .eq('tenant_id', tenantId)
+      .not('responded_at', 'is', null)
+      .in('agent_id', agentIds)
+      .gte('responded_at', `${dateRange.from}T00:00:00.000Z`)
+      .lte('responded_at', `${dateRange.to}T23:59:59.999Z`);
+    for (const r of npsRows ?? []) {
+      if (!r.agent_id || r.score === null) continue;
+      const bucket = npsByAgent.get(r.agent_id) ?? { total: 0, count: 0 };
+      bucket.total += r.score as number;
+      bucket.count += 1;
+      npsByAgent.set(r.agent_id, bucket);
+    }
+  }
+
   // Build results
   const results: AgentPerformance[] = Array.from(agentMap.entries()).map(
-    ([agentId, stats]) => ({
-      agent_id: agentId,
-      agent_name: agentNameMap.get(agentId) ?? 'Unknown',
-      tickets_assigned: stats.tickets_assigned,
-      tickets_resolved: stats.tickets_resolved,
-      avg_first_response_minutes:
-        stats.fr_count > 0 ? Math.round(stats.total_fr / stats.fr_count) : null,
-      avg_resolution_minutes:
-        stats.res_count > 0 ? Math.round(stats.total_res / stats.res_count) : null,
-      sla_met_count: stats.sla_met,
-      sla_breached_count: stats.sla_breached,
-      satisfaction_avg: null, // Future: pull from satisfaction_surveys
-    }),
+    ([agentId, stats]) => {
+      const nps = npsByAgent.get(agentId);
+      return {
+        agent_id: agentId,
+        agent_name: agentNameMap.get(agentId) ?? 'Unknown',
+        tickets_assigned: stats.tickets_assigned,
+        tickets_resolved: stats.tickets_resolved,
+        avg_first_response_minutes:
+          stats.fr_count > 0 ? Math.round(stats.total_fr / stats.fr_count) : null,
+        avg_resolution_minutes:
+          stats.res_count > 0 ? Math.round(stats.total_res / stats.res_count) : null,
+        sla_met_count: stats.sla_met,
+        sla_breached_count: stats.sla_breached,
+        satisfaction_avg:
+          nps && nps.count > 0
+            ? Math.round((nps.total / nps.count) * 10) / 10
+            : null,
+      };
+    },
   );
 
   // Sort by tickets_resolved descending

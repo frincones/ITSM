@@ -206,9 +206,19 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (currentTicket && ['resolved', 'closed'].includes(currentTicket.status)) {
+      const nowIso = new Date().toISOString();
+      const { data: prev } = await svc
+        .from('tickets')
+        .select('reopened_count')
+        .eq('id', ticket.id)
+        .single();
       await svc.from('tickets').update({
-        status: 'in_progress',
-        updated_at: new Date().toISOString(),
+        status: 'reopened',
+        last_reopened_at: nowIso,
+        reopened_count: ((prev as { reopened_count?: number | null } | null)?.reopened_count ?? 0) + 1,
+        resolved_at: null,
+        closed_at: null,
+        updated_at: nowIso,
       }).eq('id', ticket.id);
       console.log('[Resend Inbound] Ticket reopened:', ticketNumber);
     } else {
@@ -302,16 +312,27 @@ async function handleNewTicketFromEmail(args: {
   const svc = getSvc();
 
   // Look up org by slug. Try both the canonical slug column and the optional
-  // inbound_email_slug column — whichever the DB has.
-  let org: { id: string; tenant_id: string; name: string } | null = null;
+  // inbound_email_slug column — whichever the DB has. Also pull the client-
+  // configured defaults so we can pre-route the incoming ticket.
+  type OrgRow = {
+    id: string;
+    tenant_id: string;
+    name: string;
+    default_group_id?: string | null;
+    default_agent_id?: string | null;
+    default_category_id?: string | null;
+  };
+  let org: OrgRow | null = null;
   try {
     const { data } = await svc
       .from('organizations')
-      .select('id, tenant_id, name')
+      .select(
+        'id, tenant_id, name, default_group_id, default_agent_id, default_category_id',
+      )
       .or(`slug.eq.${slug},inbound_email_slug.eq.${slug}`)
       .limit(1)
       .maybeSingle();
-    org = data as typeof org;
+    org = data as OrgRow | null;
   } catch {
     const { data } = await svc
       .from('organizations')
@@ -319,7 +340,7 @@ async function handleNewTicketFromEmail(args: {
       .eq('slug', slug)
       .limit(1)
       .maybeSingle();
-    org = data as typeof org;
+    org = data as OrgRow | null;
   }
 
   if (!org) {
@@ -354,6 +375,18 @@ async function handleNewTicketFromEmail(args: {
     (subject ?? '').trim().slice(0, 200) ||
     `Solicitud por email de ${senderEmail}`;
 
+  // Apply org-level defaults for routing. When a specific agent is set the
+  // ticket jumps to 'assigned'; otherwise a default group is enough for the
+  // existing round-robin to pick the right member. Category default is set
+  // too when configured so reports stay tidy.
+  const applyDefaults: Record<string, unknown> = {};
+  if (org.default_group_id) applyDefaults.assigned_group_id = org.default_group_id;
+  if (org.default_agent_id) {
+    applyDefaults.assigned_agent_id = org.default_agent_id;
+    applyDefaults.status = 'assigned';
+  }
+  if (org.default_category_id) applyDefaults.category_id = org.default_category_id;
+
   const { data: ticket, error } = await svc
     .from('tickets')
     .insert({
@@ -368,6 +401,7 @@ async function handleNewTicketFromEmail(args: {
       requester_email: senderEmail,
       source: 'email',
       custom_fields: { inbound_email_id: email_id },
+      ...applyDefaults,
     })
     .select('id, ticket_number')
     .single();

@@ -99,6 +99,20 @@ export default async function OrgDetailPage({ params }: OrgDetailPageProps) {
     .eq('is_active', true)
     .order('name');
 
+  // Groups + categories for inbound-email routing defaults
+  const { data: groups } = await client
+    .from('groups')
+    .select('id, name')
+    .eq('tenant_id', agent.tenant_id)
+    .order('name');
+
+  const { data: categories } = await client
+    .from('categories')
+    .select('id, name')
+    .eq('tenant_id', agent.tenant_id)
+    .eq('is_active', true)
+    .order('name');
+
   return (
     <OrgDetailClient
       organization={organization}
@@ -106,6 +120,8 @@ export default async function OrgDetailPage({ params }: OrgDetailPageProps) {
       assignedAgents={assignedAgents}
       allAgents={allAgents ?? []}
       slaConfigs={slaConfigs ?? []}
+      groups={groups ?? []}
+      categories={categories ?? []}
       tenantId={agent.tenant_id}
     />
   );

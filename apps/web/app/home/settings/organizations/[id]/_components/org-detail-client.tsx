@@ -105,6 +105,8 @@ interface OrgDetailClientProps {
   assignedAgents: AssignedAgent[];
   allAgents: Array<{ id: string; name: string; email: string }>;
   slaConfigs: Array<{ id: string; name: string }>;
+  groups: Array<{ id: string; name: string }>;
+  categories: Array<{ id: string; name: string }>;
   tenantId: string;
 }
 
@@ -184,6 +186,8 @@ export function OrgDetailClient({
   assignedAgents,
   allAgents,
   slaConfigs,
+  groups,
+  categories,
   tenantId,
 }: OrgDetailClientProps) {
   const router = useRouter();
@@ -223,6 +227,24 @@ export function OrgDetailClient({
   const [portalEnabled, setPortalEnabled] = useState(organization.is_active);
   const [copied, setCopied] = useState(false);
 
+  // -- Inbound email + routing tab state --
+  const [inboundSlug, setInboundSlug] = useState(
+    (organization.inbound_email_slug as string | null) ?? organization.slug ?? '',
+  );
+  const [defaultGroupId, setDefaultGroupId] = useState(
+    (organization.default_group_id as string | null) ?? '',
+  );
+  const [defaultAgentId, setDefaultAgentId] = useState(
+    (organization.default_agent_id as string | null) ?? '',
+  );
+  const [defaultCategoryId, setDefaultCategoryId] = useState(
+    (organization.default_category_id as string | null) ?? '',
+  );
+  const [emailCopied, setEmailCopied] = useState(false);
+
+  const inboundDomain = 'itsm.tdxcore.com';
+  const inboundAddress = `soporte+${inboundSlug || organization.slug}@${inboundDomain}`;
+
   // -- Invite user dialog --
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteName, setInviteName] = useState('');
@@ -256,6 +278,35 @@ export function OrgDetailClient({
       })
       .eq('id', organization.id);
     startTransition(() => router.refresh());
+  };
+
+  /* ---- Inbound email + routing save ---- */
+  const handleSaveInbound = async () => {
+    const normalizedSlug = inboundSlug
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '');
+    await supabase
+      .from('organizations')
+      .update({
+        inbound_email_slug: normalizedSlug || null,
+        default_group_id: defaultGroupId || null,
+        default_agent_id: defaultAgentId || null,
+        default_category_id: defaultCategoryId || null,
+      })
+      .eq('id', organization.id);
+    setInboundSlug(normalizedSlug);
+    startTransition(() => router.refresh());
+  };
+
+  const handleCopyInboundEmail = async () => {
+    try {
+      await navigator.clipboard.writeText(inboundAddress);
+      setEmailCopied(true);
+      setTimeout(() => setEmailCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable — no-op */
+    }
   };
 
   /* ---- Branding tab: save ---- */
@@ -417,6 +468,10 @@ export function OrgDetailClient({
           <TabsTrigger value="portal">
             <Globe className="mr-1.5 h-4 w-4" />
             Portal
+          </TabsTrigger>
+          <TabsTrigger value="inbound">
+            <Settings className="mr-1.5 h-4 w-4" />
+            Email & Routing
           </TabsTrigger>
           <TabsTrigger value="ai-context">
             <Bot className="mr-1.5 h-4 w-4" />
@@ -1066,6 +1121,135 @@ export function OrgDetailClient({
                     </div>
                   </CardContent>
                 </Card>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ============================================================== */}
+        {/*  TAB: Email & Routing                                           */}
+        {/* ============================================================== */}
+        <TabsContent value="inbound">
+          <Card>
+            <CardHeader>
+              <CardTitle>Correo de entrada y ruteo</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Este cliente puede crear tickets enviando un correo. También puedes
+                preconfigurar a qué grupo, agente y categoría se asignan automáticamente
+                los tickets que llegan por esta vía.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div>
+                <Label>Dirección de entrada</Label>
+                <div className="mt-1 flex items-center gap-2">
+                  <Input
+                    readOnly
+                    value={inboundAddress}
+                    className="font-mono text-sm"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCopyInboundEmail}
+                  >
+                    {emailCopied ? (
+                      <>
+                        <Check className="mr-1.5 h-4 w-4" /> Copiado
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="mr-1.5 h-4 w-4" /> Copiar
+                      </>
+                    )}
+                  </Button>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Los usuarios del cliente solo necesitan enviar un correo a esta
+                  dirección. Si escriben desde un correo no registrado, se crea
+                  el ticket con ese correo como solicitante.
+                </p>
+              </div>
+
+              <div>
+                <Label htmlFor="inbound-slug">Slug de entrada</Label>
+                <Input
+                  id="inbound-slug"
+                  value={inboundSlug}
+                  onChange={(e) => setInboundSlug(e.target.value)}
+                  placeholder={organization.slug}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Solo letras minúsculas, números, guión y guión bajo. Cambia la
+                  parte después del <code>+</code> en la dirección.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div>
+                  <Label htmlFor="default-group">Grupo por defecto</Label>
+                  <Select
+                    value={defaultGroupId || 'none'}
+                    onValueChange={(v) => setDefaultGroupId(v === 'none' ? '' : v)}
+                  >
+                    <SelectTrigger id="default-group">
+                      <SelectValue placeholder="Sin asignar" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin grupo</SelectItem>
+                      {groups.map((g) => (
+                        <SelectItem key={g.id} value={g.id}>
+                          {g.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="default-agent">Agente por defecto</Label>
+                  <Select
+                    value={defaultAgentId || 'none'}
+                    onValueChange={(v) => setDefaultAgentId(v === 'none' ? '' : v)}
+                  >
+                    <SelectTrigger id="default-agent">
+                      <SelectValue placeholder="Round-robin" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Round-robin (auto)</SelectItem>
+                      {allAgents.map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {a.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="default-category">Categoría por defecto</Label>
+                  <Select
+                    value={defaultCategoryId || 'none'}
+                    onValueChange={(v) => setDefaultCategoryId(v === 'none' ? '' : v)}
+                  >
+                    <SelectTrigger id="default-category">
+                      <SelectValue placeholder="Sin categoría" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin categoría</SelectItem>
+                      {categories.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <Button onClick={handleSaveInbound} disabled={isPending}>
+                  <Save className="mr-1.5 h-4 w-4" /> Guardar ruteo
+                </Button>
               </div>
             </CardContent>
           </Card>
