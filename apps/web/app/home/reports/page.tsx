@@ -75,30 +75,15 @@ async function ReportsPage({ searchParams }: PageProps) {
 
   if (!organizationId) redirect('/home');
 
-  // Find Garantía + Soporte category IDs (scoped to the org's tenant).
-  const { data: orgRow } = await client
-    .from('organizations')
-    .select('tenant_id')
-    .eq('id', organizationId)
-    .maybeSingle();
-
-  const tenantId = orgRow?.tenant_id ?? null;
-
-  const { data: cats } = await client
-    .from('categories')
-    .select('id, name')
-    .eq('tenant_id', tenantId ?? '')
-    .in('name', ['Garantía', 'Soporte']);
-
-  const garantiaId = cats?.find((c) => c.name === 'Garantía')?.id ?? null;
-  const soporteId = cats?.find((c) => c.name === 'Soporte')?.id ?? null;
-
+  // Garantía / Soporte are driven by ticket_type now — not by category_id.
+  // The redundant Garantía/Soporte categories were removed in the Apr-21
+  // cleanup so queries below filter by type.
   const fromIso = `${reportDate}T00:00:00.000Z`;
   const toIso = `${reportDate}T23:59:59.999Z`;
 
   const countByDate = async (filters: {
     dateCol: 'created_at' | 'closed_at';
-    categoryId?: string | null;
+    type?: string;
   }): Promise<number> => {
     let q = client
       .from('tickets')
@@ -106,14 +91,14 @@ async function ReportsPage({ searchParams }: PageProps) {
       .eq('organization_id', organizationId!)
       .gte(filters.dateCol, fromIso)
       .lte(filters.dateCol, toIso);
-    if (filters.categoryId) q = q.eq('category_id', filters.categoryId);
+    if (filters.type) q = q.eq('type', filters.type);
     const { count } = await q;
     return count ?? 0;
   };
 
   const countSnapshot = async (filters: {
     status?: string;
-    categoryId?: string | null;
+    type?: string;
     customTestingResult?: string;
   }): Promise<number> => {
     let q = client
@@ -121,7 +106,7 @@ async function ReportsPage({ searchParams }: PageProps) {
       .select('*', { count: 'exact', head: true })
       .eq('organization_id', organizationId!);
     if (filters.status) q = q.eq('status', filters.status);
-    if (filters.categoryId) q = q.eq('category_id', filters.categoryId);
+    if (filters.type) q = q.eq('type', filters.type);
     if (filters.customTestingResult) {
       q = q.eq('custom_fields->>testing_result', filters.customTestingResult);
     }
@@ -129,32 +114,29 @@ async function ReportsPage({ searchParams }: PageProps) {
     return count ?? 0;
   };
 
-  const countNuevosTesting = async (
-    categoryId: string | null,
-  ): Promise<number> => {
-    let q = client
+  const countNuevosTesting = async (type: string): Promise<number> => {
+    const { count } = await client
       .from('tickets')
       .select('*', { count: 'exact', head: true })
       .eq('organization_id', organizationId!)
       .eq('status', 'testing')
+      .eq('type', type)
       .gte('custom_fields->>testing_entered_at', fromIso)
       .lte('custom_fields->>testing_entered_at', toIso);
-    if (categoryId) q = q.eq('category_id', categoryId);
-    const { count } = await q;
     return count ?? 0;
   };
 
   const metrics = {
-    cerradosGarantia: await countByDate({ dateCol: 'closed_at', categoryId: garantiaId }),
-    cerradosSoporte: await countByDate({ dateCol: 'closed_at', categoryId: soporteId }),
-    nuevoGarantia: await countByDate({ dateCol: 'created_at', categoryId: garantiaId }),
-    nuevoSoporte: await countByDate({ dateCol: 'created_at', categoryId: soporteId }),
-    progresoGarantia: await countSnapshot({ status: 'in_progress', categoryId: garantiaId }),
-    progresoSoporte: await countSnapshot({ status: 'in_progress', categoryId: soporteId }),
-    testingGarantia: await countNuevosTesting(garantiaId),
-    testingSoporte: await countNuevosTesting(soporteId),
-    pendientesGarantia: await countSnapshot({ status: 'pending', categoryId: garantiaId }),
-    pendientesSoporte: await countSnapshot({ status: 'pending', categoryId: soporteId }),
+    cerradosGarantia: await countByDate({ dateCol: 'closed_at', type: 'warranty' }),
+    cerradosSoporte: await countByDate({ dateCol: 'closed_at', type: 'support' }),
+    nuevoGarantia: await countByDate({ dateCol: 'created_at', type: 'warranty' }),
+    nuevoSoporte: await countByDate({ dateCol: 'created_at', type: 'support' }),
+    progresoGarantia: await countSnapshot({ status: 'in_progress', type: 'warranty' }),
+    progresoSoporte: await countSnapshot({ status: 'in_progress', type: 'support' }),
+    testingGarantia: await countNuevosTesting('warranty'),
+    testingSoporte: await countNuevosTesting('support'),
+    pendientesGarantia: await countSnapshot({ status: 'pending', type: 'warranty' }),
+    pendientesSoporte: await countSnapshot({ status: 'pending', type: 'support' }),
     fracasoTesting: await countSnapshot({ customTestingResult: 'fracaso' }),
     pendientesTesting: await countSnapshot({ customTestingResult: 'pendiente' }),
   };
