@@ -126,7 +126,7 @@ const TICKET_COLS =
   'id, ticket_number, title, status, type, urgency, requester_email, requester_id, assigned_agent_id, organization_id, created_at, closed_at, resolved_at';
 
 export function buildAssistantTools(ctx: ToolContext) {
-  return {
+  const tools = {
     // ════════════════════════════════════════════════════════════════════
     //                         READ TOOLS
     // ════════════════════════════════════════════════════════════════════
@@ -987,4 +987,28 @@ export function buildAssistantTools(ctx: ToolContext) {
       },
     }),
   };
+
+  // Wrap every tool's execute with timing + error logging so slow or
+  // failing tools show up clearly in Vercel function logs.
+  for (const [name, t] of Object.entries(tools)) {
+    const def = t as unknown as { execute?: (input: unknown, opts: unknown) => Promise<unknown> };
+    const orig = def.execute;
+    if (!orig) continue;
+    def.execute = async (input: unknown, opts: unknown) => {
+      const t0 = Date.now();
+      try {
+        const out = await orig(input, opts);
+        console.log(`[tool] ${name} ${Date.now() - t0}ms`);
+        return out;
+      } catch (err) {
+        console.error(
+          `[tool] ${name} FAIL ${Date.now() - t0}ms:`,
+          err instanceof Error ? err.message : err,
+        );
+        throw err;
+      }
+    };
+  }
+
+  return tools;
 }

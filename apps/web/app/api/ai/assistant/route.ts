@@ -7,14 +7,13 @@ import { getSupabaseServerClient } from '@kit/supabase/server-client';
 
 import { buildAssistantTools } from '~/lib/ai/assistant-tools';
 
-// AI calls + tool round-trips can take a while. 45s is well under Vercel's
-// limit for Hobby (60s) and gives the LLM enough room to chain several
-// tool calls if the question is complex ("lista los abiertos críticos de
-// Prosuministros y cuántos tiene Daniel").
-export const maxDuration = 45;
+// AI calls + tool round-trips can take a while. 30s keeps us under Vercel's
+// Hobby limit (60s) and forces tighter loops — anything over ~15s per
+// question means a tool is mis-configured and we'd rather fail fast.
+export const maxDuration = 30;
 
-const LLM_TIMEOUT_MS = 40_000;
-const MAX_STEPS = 8;
+const LLM_TIMEOUT_MS = 25_000;
+const MAX_STEPS = 5;
 
 function getSvc() {
   return createClient(
@@ -88,6 +87,10 @@ Después de ejecutar una o más herramientas, responde con bullet points claros.
 
 Puedes encadenar varias herramientas si hace falta (hasta ${MAX_STEPS} pasos). No menciones los nombres de las herramientas al usuario — solo los resultados.`;
 
+    const t0 = Date.now();
+    const userQ = messages[messages.length - 1]?.content?.slice(0, 80) ?? '';
+    console.log(`[Assistant] Q="${userQ}" user=${user.id.slice(0, 8)} tenant=${agent.tenant_id.slice(0, 8)}`);
+
     const result = await generateText({
       model: openai('gpt-4o-mini'),
       tools,
@@ -96,11 +99,19 @@ Puedes encadenar varias herramientas si hace falta (hasta ${MAX_STEPS} pasos). N
       temperature: 0.2,
       stopWhen: stepCountIs(MAX_STEPS),
       abortSignal: AbortSignal.timeout(LLM_TIMEOUT_MS),
+      onStepFinish: (step) => {
+        const tools = step.toolCalls?.map((tc) => `${tc.toolName}(${JSON.stringify(tc.input).slice(0, 80)})`).join(', ') ?? '';
+        console.log(`[Assistant] step ${Date.now() - t0}ms tools=[${tools}] text=${(step.text ?? '').slice(0, 80)}`);
+      },
     });
+
+    const elapsed = Date.now() - t0;
+    console.log(`[Assistant] done ${elapsed}ms steps=${result.steps?.length ?? 0} textLen=${result.text?.length ?? 0}`);
 
     return Response.json({
       text: result.text,
       steps: result.steps?.length ?? 0,
+      elapsed_ms: elapsed,
     });
   } catch (err) {
     console.error('[AI Assistant] Error:', err);
