@@ -63,6 +63,7 @@ export type SortColumn =
   | 'type'
   | 'status'
   | 'org'
+  | 'requester'
   | 'assignee'
   | 'created';
 
@@ -269,6 +270,12 @@ function makeSortComparator(
       case 'org': {
         const an = a.organization_id ? orgMap.get(a.organization_id) ?? '' : '';
         const bn = b.organization_id ? orgMap.get(b.organization_id) ?? '' : '';
+        cmp = an.localeCompare(bn);
+        break;
+      }
+      case 'requester': {
+        const an = a.requester?.name ?? '';
+        const bn = b.requester?.name ?? '';
         cmp = an.localeCompare(bn);
         break;
       }

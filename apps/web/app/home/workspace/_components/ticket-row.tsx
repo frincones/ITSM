@@ -12,6 +12,7 @@ import {
 
 import { Badge } from '@kit/ui/badge';
 import { Avatar, AvatarFallback } from '@kit/ui/avatar';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@kit/ui/tooltip';
 import { cn } from '@kit/ui/utils';
 
 import type { WorkspaceTicket } from '~/lib/services/workspace-grouping';
@@ -221,12 +222,50 @@ export function TicketRow({
       </div>
 
       <div className="flex w-[40px] shrink-0 items-center justify-center">
+        {ticket.requester ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Avatar className="h-6 w-6 cursor-default">
+                <AvatarFallback className="bg-sky-100 text-[10px] text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
+                  {getInitials(ticket.requester.name)}
+                </AvatarFallback>
+              </Avatar>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <div className="flex flex-col text-xs">
+                <span className="font-medium">{ticket.requester.name}</span>
+                {ticket.requester.email && (
+                  <span className="text-muted-foreground">
+                    {ticket.requester.email}
+                  </span>
+                )}
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <UserCircle2 className="h-5 w-5 text-muted-foreground/30" />
+        )}
+      </div>
+
+      <div className="flex w-[40px] shrink-0 items-center justify-center">
         {assignee ? (
-          <Avatar className={cn('h-6 w-6', isMine && 'ring-2 ring-primary')}>
-            <AvatarFallback className="text-[10px]">
-              {getInitials(assignee.name)}
-            </AvatarFallback>
-          </Avatar>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Avatar
+                className={cn(
+                  'h-6 w-6 cursor-default',
+                  isMine && 'ring-2 ring-primary',
+                )}
+              >
+                <AvatarFallback className="text-[10px]">
+                  {getInitials(assignee.name)}
+                </AvatarFallback>
+              </Avatar>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <span className="text-xs font-medium">{assignee.name}</span>
+            </TooltipContent>
+          </Tooltip>
         ) : (
           <UserCircle2 className="h-5 w-5 text-muted-foreground/50" />
         )}

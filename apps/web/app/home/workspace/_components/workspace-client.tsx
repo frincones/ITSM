@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@kit/ui/select';
+import { TooltipProvider } from '@kit/ui/tooltip';
 import { cn } from '@kit/ui/utils';
 
 import {
@@ -180,6 +181,9 @@ function ColumnHeader({ sort, onToggle }: ColumnHeaderProps) {
       </SortButton>
       <SortButton col="org" className="w-[140px]" sort={sort} onToggle={onToggle}>
         Cliente
+      </SortButton>
+      <SortButton col="requester" className="w-[40px] justify-center" sort={sort} onToggle={onToggle}>
+        Sol.
       </SortButton>
       <SortButton col="assignee" className="w-[40px] justify-center" sort={sort} onToggle={onToggle}>
         Asig.
@@ -342,7 +346,8 @@ export function WorkspaceClient({
   const resetSort = () => setPrefs((p) => ({ ...p, sort: null }));
 
   return (
-    <div className="flex h-full flex-col">
+    <TooltipProvider delayDuration={300}>
+      <div className="flex h-full flex-col">
       {/* Header */}
       <div className="border-b border-border bg-card px-6 py-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -541,6 +546,7 @@ export function WorkspaceClient({
           onClose={() => setSelectedTicket(null)}
         />
       )}
-    </div>
+      </div>
+    </TooltipProvider>
   );
 }
