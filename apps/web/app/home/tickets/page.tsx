@@ -15,8 +15,23 @@ interface TicketsPageProps {
     org?: string;
     from?: string;
     to?: string;
+    sort?: string;
+    dir?: string;
   }>;
 }
+
+// Maps UI column keys to the actual column (plus foreignTable, when sorting
+// by a joined row like `requester` or `assigned_agent`).
+const SORT_MAP: Record<string, { col: string; foreign?: string }> = {
+  ticket_number: { col: 'ticket_number' },
+  title: { col: 'title' },
+  type: { col: 'type' },
+  status: { col: 'status' },
+  priority: { col: 'priority' },
+  created_at: { col: 'created_at' },
+  requester: { col: 'name', foreign: 'requester' },
+  assignee: { col: 'name', foreign: 'assigned_agent' },
+};
 
 export const metadata = {
   title: 'Tickets',
@@ -78,11 +93,7 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
 `,
       { count: 'exact' },
     )
-    .is('deleted_at', null)
-    // Open tickets (no closed_at) show first; then closed ordered by most
-    // recently closed. Within each bucket the newest created_at wins.
-    .order('closed_at', { ascending: false, nullsFirst: true })
-    .order('created_at', { ascending: false });
+    .is('deleted_at', null);
 
   // Filter by organization (from OrgSelector ?org= param or user context)
   // If no org param → show all (backwards compatible for TDX admin)
@@ -173,6 +184,27 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
 
   if (params.to) {
     query = query.lte('created_at', params.to);
+  }
+
+  // Sort: default is "open first (by closed_at desc nulls first), then
+  // by created_at desc" — kept as the fallback so the list behaves like
+  // before when the user hasn't chosen a column.
+  const sortCfg = params.sort ? SORT_MAP[params.sort] : undefined;
+  const ascending = params.dir !== 'desc';
+
+  if (sortCfg) {
+    if (sortCfg.foreign) {
+      query = query.order(sortCfg.col, {
+        foreignTable: sortCfg.foreign,
+        ascending,
+      });
+    } else {
+      query = query.order(sortCfg.col, { ascending });
+    }
+  } else {
+    query = query
+      .order('closed_at', { ascending: false, nullsFirst: true })
+      .order('created_at', { ascending: false });
   }
 
   // Pagination

@@ -19,6 +19,9 @@ import {
   Phone,
   Bot,
   LayoutGrid,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -339,6 +342,13 @@ export function TicketListClient({
   const [search, setSearch] = useState(searchQuery);
   const [showFilters, setShowFilters] = useState(false);
 
+  // Sort state lives in URL params (?sort=…&dir=asc|desc). Click cycles
+  // inactive → asc → desc → inactive (back to default server ordering).
+  const sortCol = searchParams.get('sort');
+  const sortDir = (searchParams.get('dir') === 'desc' ? 'desc' : 'asc') as
+    | 'asc'
+    | 'desc';
+
   // Filter tickets client-side for "mine" tab (needs currentAgentId comparison)
   const displayTickets =
     activeTab === 'mine'
@@ -373,6 +383,50 @@ export function TicketListClient({
       });
     },
     [router, buildUrl],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Sort
+  // ---------------------------------------------------------------------------
+
+  const handleSortClick = (col: string) => {
+    if (sortCol !== col) {
+      navigateTo({ sort: col, dir: 'asc', page: undefined });
+    } else if (sortDir === 'asc') {
+      navigateTo({ sort: col, dir: 'desc', page: undefined });
+    } else {
+      // Cycling out of desc clears the sort so the list returns to its
+      // default "open tickets first" ordering.
+      navigateTo({ sort: undefined, dir: undefined, page: undefined });
+    }
+  };
+
+  const renderSortIcon = (col: string) => {
+    if (sortCol !== col) {
+      return <ArrowUpDown className="h-3 w-3 opacity-30" />;
+    }
+    return sortDir === 'asc' ? (
+      <ArrowUp className="h-3 w-3" />
+    ) : (
+      <ArrowDown className="h-3 w-3" />
+    );
+  };
+
+  const SortHead = ({
+    column,
+    children,
+  }: {
+    column: string;
+    children: React.ReactNode;
+  }) => (
+    <button
+      type="button"
+      onClick={() => handleSortClick(column)}
+      className="inline-flex cursor-pointer select-none items-center gap-1 text-left font-medium hover:text-gray-900"
+    >
+      {children}
+      {renderSortIcon(column)}
+    </button>
   );
 
   // ---------------------------------------------------------------------------
@@ -573,16 +627,32 @@ export function TicketListClient({
                   onCheckedChange={toggleAll}
                 />
               </TableHead>
-              <TableHead>Ticket #</TableHead>
-              <TableHead>Title</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Priority</TableHead>
+              <TableHead>
+                <SortHead column="ticket_number">Ticket #</SortHead>
+              </TableHead>
+              <TableHead>
+                <SortHead column="title">Title</SortHead>
+              </TableHead>
+              <TableHead>
+                <SortHead column="type">Type</SortHead>
+              </TableHead>
+              <TableHead>
+                <SortHead column="status">Status</SortHead>
+              </TableHead>
+              <TableHead>
+                <SortHead column="priority">Priority</SortHead>
+              </TableHead>
               <TableHead>Orden Cliente</TableHead>
               <TableHead>Client</TableHead>
-              <TableHead>Requester</TableHead>
-              <TableHead>Assignee</TableHead>
-              <TableHead>Created</TableHead>
+              <TableHead>
+                <SortHead column="requester">Requester</SortHead>
+              </TableHead>
+              <TableHead>
+                <SortHead column="assignee">Assignee</SortHead>
+              </TableHead>
+              <TableHead>
+                <SortHead column="created_at">Created</SortHead>
+              </TableHead>
               <TableHead className="w-12"></TableHead>
             </TableRow>
           </TableHeader>
