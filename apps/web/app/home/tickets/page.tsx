@@ -129,11 +129,34 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
     query = query.gte('priority', 12);
   }
 
-  // Apply search filter
-  if (params.search) {
-    query = query.or(
-      `title.ilike.%${params.search}%,ticket_number.ilike.%${params.search}%`,
-    );
+  // Apply search filter — uses the global search RPC so it matches on
+  // title, description, ticket_number, requester_email, tags, AND inside
+  // comments/followups. The RPC returns ranked ticket ids; we restrict
+  // the main query to that set to preserve sorting/pagination.
+  if (params.search && params.search.trim().length >= 2) {
+    const { data: searchRows } = await (client as unknown as {
+      rpc: (
+        fn: string,
+        params: Record<string, unknown>,
+      ) => Promise<{ data: unknown; error: { message: string } | null }>;
+    }).rpc('search_global', {
+      p_query: params.search.trim(),
+      p_limit: 500,
+    });
+    const ticketIds = [
+      ...new Set(
+        ((searchRows ?? []) as Array<{ entity_type: string; entity_id: string }>)
+          .filter((r) => r.entity_type === 'ticket' || r.entity_type === 'ticket_comment')
+          .map((r) => r.entity_id),
+      ),
+    ];
+    if (ticketIds.length === 0) {
+      // No matches — short-circuit with an impossible filter so the UI
+      // renders the empty state instead of everything.
+      query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+    } else {
+      query = query.in('id', ticketIds);
+    }
   }
 
   // Apply dropdown filters (accept single or comma-separated multi-value)

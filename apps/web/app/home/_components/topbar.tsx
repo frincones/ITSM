@@ -3,15 +3,16 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { Search, Bell, Plus, ChevronDown, User, LogOut, Sparkles } from 'lucide-react';
+import { Bell, Plus, ChevronDown, User, LogOut, Sparkles } from 'lucide-react';
 
 import { useSignOut } from '@kit/supabase/hooks/use-sign-out';
 import { useUser } from '@kit/supabase/hooks/use-user';
 import { getSupabaseBrowserClient } from '@kit/supabase/browser-client';
 import { OrgSelector } from './org-selector';
 import { Button } from '@kit/ui/button';
-import { Input } from '@kit/ui/input';
 import { Badge } from '@kit/ui/badge';
+
+import { GlobalSearch } from '~/components/global-search/global-search';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -101,15 +102,9 @@ export function Topbar({ aiOpen, onToggleAi, userRole = 'agent' }: TopbarProps) 
 
   return (
     <header className="flex h-16 items-center gap-4 border-b border-border bg-card px-6">
-      {/* Search */}
+      {/* Global search — live dropdown + Cmd+K palette */}
       <div className="max-w-2xl flex-1">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search tickets, users, assets..."
-            className="border-border bg-muted/50 pl-10"
-          />
-        </div>
+        <GlobalSearch />
       </div>
 
       {/* Org Selector + Actions */}
