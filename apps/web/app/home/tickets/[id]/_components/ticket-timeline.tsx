@@ -14,6 +14,8 @@ import { Avatar, AvatarFallback } from '@kit/ui/avatar';
 import { Badge } from '@kit/ui/badge';
 import { Card, CardContent, CardHeader } from '@kit/ui/card';
 
+import { RichTextViewer } from './rich-text-viewer';
+
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                      */
 /* -------------------------------------------------------------------------- */
@@ -21,6 +23,7 @@ import { Card, CardContent, CardHeader } from '@kit/ui/card';
 export interface TimelineFollowup {
   id: string;
   content: string;
+  content_html?: string | null;
   is_private: boolean;
   created_at: string;
   author?: { id: string; name: string; avatar_url?: string | null } | null;
@@ -57,6 +60,7 @@ interface TimelineEntry {
   avatarUrl?: string | null;
   isPrivate?: boolean;
   content: string;
+  contentHtml?: string | null;
   attachments?: string[];
 }
 
@@ -134,6 +138,7 @@ function buildTimeline(props: TicketTimelineProps): TimelineEntry[] {
       avatarUrl: f.author?.avatar_url ?? authorInfo?.avatar_url,
       isPrivate: f.is_private,
       content: cleanContent,
+      contentHtml: f.content_html ?? null,
       attachments: relatedAttachments.length > 0 ? relatedAttachments : undefined,
     });
   }
@@ -227,9 +232,13 @@ export function TicketTimeline(props: TicketTimelineProps) {
                 </div>
               </CardHeader>
               <CardContent>
-                <p className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
-                  {entry.content}
-                </p>
+                {entry.contentHtml ? (
+                  <RichTextViewer html={entry.contentHtml} fallbackText={entry.content} />
+                ) : (
+                  <p className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
+                    {entry.content}
+                  </p>
+                )}
                 {entry.attachments && entry.attachments.length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {entry.attachments.map((file, idx) => (

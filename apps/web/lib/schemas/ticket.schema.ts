@@ -109,8 +109,11 @@ export type FilterTicketsInput = z.infer<typeof filterTicketsSchema>;
 // Add Follow-up
 // ---------------------------------------------------------------------------
 export const addFollowupSchema = z.object({
-  content: requiredString.max(10_000, 'Content must be 10 000 characters or fewer'),
+  content: requiredString.max(50_000, 'Content must be 50 000 characters or fewer'),
+  content_html: z.string().max(200_000, 'Content HTML too large').optional(),
   is_private: z.boolean().default(false),
+  mentioned_agent_ids: z.array(uuidSchema).optional().default([]),
+  mentioned_contact_ids: z.array(uuidSchema).optional().default([]),
 });
 
 export type AddFollowupInput = z.infer<typeof addFollowupSchema>;

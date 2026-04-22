@@ -128,26 +128,60 @@ export async function notifyInApp(
 //  Email via Resend (HTML)
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function notifyEmail(to: string, subject: string, html: string, replyTo?: string) {
+export interface EmailOptions {
+  to: string;
+  subject: string;
+  html: string;
+  replyTo?: string;
+  cc?: string[];
+  /**
+   * Custom RFC 5322 headers — we use these to implement thread-aware
+   * notifications (Message-ID / In-Reply-To / References) so that Gmail,
+   * Outlook and Apple Mail collapse every email about a given ticket into
+   * a single conversation.
+   */
+  headers?: Record<string, string>;
+}
+
+export async function notifyEmail(
+  toOrOptions: string | EmailOptions,
+  subject?: string,
+  html?: string,
+  replyTo?: string,
+) {
   const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) { console.warn('[Notify] RESEND_API_KEY not set'); return; }
+  if (!apiKey) {
+    console.warn('[Notify] RESEND_API_KEY not set');
+    return;
+  }
+
+  const opts: EmailOptions = typeof toOrOptions === 'string'
+    ? { to: toOrOptions, subject: subject ?? '', html: html ?? '', replyTo }
+    : toOrOptions;
 
   try {
     const payload: Record<string, unknown> = {
       from: 'NovaDesk ITSM <notifications@itsm.tdxcore.com>',
-      to: [to], subject, html,
+      to: [opts.to],
+      subject: opts.subject,
+      html: opts.html,
     };
-    // Add reply_to so email replies route back to Resend inbound → our webhook
-    // Default: all emails reply to support@itsm.tdxcore.com (Resend inbound)
-    payload.reply_to = [replyTo ?? 'support@itsm.tdxcore.com'];
+    payload.reply_to = [opts.replyTo ?? 'support@itsm.tdxcore.com'];
+    if (opts.cc && opts.cc.length) payload.cc = opts.cc;
+    if (opts.headers && Object.keys(opts.headers).length) payload.headers = opts.headers;
 
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(payload),
     });
     if (!res.ok) console.error('[Notify] Email failed:', res.status, await res.text());
-  } catch (err) { console.error('[Notify] Email error:', err); }
+  } catch (err) {
+    console.error('[Notify] Email error:', err);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -175,7 +209,20 @@ interface TicketEvent {
   // when there's no follower row for them yet.
   assignedAgentId?: string;
   comment?: string;
+  /** HTML version of the comment (from Tiptap). When present we prefer it over the plain-text comment. */
+  commentHtml?: string | null;
   solution?: string;
+  /** RFC 5322 Message-ID for this event — enables email threading. */
+  emailMessageId?: string;
+  /** Contact IDs to CC on public replies (visible to requester). */
+  ccContactIds?: string[];
+  /** Agent IDs that were mentioned — notify.service derives which of
+   *  them are readonly (portal users) and CCs their emails too. */
+  mentionedAgentIds?: string[];
+  /** DB id of the ticket_followups row, used to pull threading history. */
+  followupId?: string;
+  /** True for internal notes (no requester/contact traffic). */
+  isInternal?: boolean;
 }
 
 // ── Follower fan-out helper ───────────────────────────────────────────────
@@ -247,12 +294,20 @@ async function fanOutToFollowers(
   emailHtml: string,
   inAppTitle: string,
   inAppBody: string,
+  emailHeaders?: Record<string, string>,
 ) {
   const recipients = await getFanOutRecipients(evt);
   const link = `/home/tickets/${evt.ticketId}`;
   await Promise.all(
     recipients.map(async (r) => {
-      const jobs: Promise<unknown>[] = [notifyEmail(r.email, emailSubject, emailHtml)];
+      const jobs: Promise<unknown>[] = [
+        notifyEmail({
+          to: r.email,
+          subject: emailSubject,
+          html: emailHtml,
+          headers: emailHeaders,
+        }),
+      ];
       if (r.userId) {
         jobs.push(
           notifyInApp(evt.tenantId, r.userId, inAppTitle, inAppBody, 'ticket', evt.ticketId, link),
@@ -446,77 +501,276 @@ export async function notifyTicketStatusChanged(evt: TicketEvent) {
 
 // ── Comment Added ─────────────────────────────────────────────────────────
 
+/**
+ * Builds the RFC 5322 threading headers for a ticket email.
+ *
+ * Strategy:
+ *   - Every followup gets its own Message-ID (passed in as emailMessageId).
+ *   - In-Reply-To points to the previous followup's Message-ID, or to a
+ *     synthetic ticket-root Message-ID if this is the first followup.
+ *   - References walks the full chain so that even clients that only
+ *     honor References (Apple Mail) still collapse the thread.
+ *
+ * The synthetic ticket root Message-ID is deterministic per ticket so
+ * inbound replies from the requester (who never saw the first outbound
+ * email's Message-ID because the ticket was created via portal/UI) still
+ * land on the correct ticket.
+ */
+async function buildThreadingHeaders(
+  ticketId: string,
+  currentMessageId: string | undefined,
+): Promise<Record<string, string>> {
+  const rootId = `<ticket-${ticketId}-root@itsm.tdxcore.com>`;
+  const headers: Record<string, string> = {};
+
+  if (currentMessageId) {
+    headers['Message-ID'] = `<${currentMessageId}>`;
+  }
+
+  try {
+    const svc = getSvc();
+    const { data: prior } = await svc
+      .from('ticket_followups')
+      .select('email_message_id, created_at')
+      .eq('ticket_id', ticketId)
+      .not('email_message_id', 'is', null)
+      .order('created_at', { ascending: true });
+
+    const priorIds = (prior ?? [])
+      .map((r) => (r.email_message_id as string | null))
+      .filter((v): v is string => Boolean(v))
+      .filter((v) => v !== currentMessageId)
+      .map((v) => `<${v}>`);
+
+    const chain = [rootId, ...priorIds];
+    if (chain.length > 0) {
+      headers['References'] = chain.join(' ');
+      headers['In-Reply-To'] = chain[chain.length - 1]!;
+    } else {
+      headers['In-Reply-To'] = rootId;
+      headers['References'] = rootId;
+    }
+  } catch {
+    // If the lookup fails, still provide a minimal thread root so replies
+    // can attach to *some* parent. Worse case, the first email in the thread
+    // starts a new Gmail conversation — harmless.
+    headers['In-Reply-To'] = rootId;
+    headers['References'] = rootId;
+  }
+
+  return headers;
+}
+
+/**
+ * Pulls the last N followups for the ticket (public only) and renders a
+ * Gmail-style quote block. We limit to the immediately previous followup
+ * because the threading headers already let clients collapse the full
+ * history — duplicating more than one quote in every outbound email
+ * balloons message size without helping the reader.
+ */
+async function buildQuoteFromLastFollowup(
+  ticketId: string,
+  currentFollowupId: string | undefined,
+): Promise<string> {
+  try {
+    const svc = getSvc();
+    let qb = svc
+      .from('ticket_followups')
+      .select('content, content_html, is_private, created_at, author_id')
+      .eq('ticket_id', ticketId)
+      .eq('is_private', false)
+      .order('created_at', { ascending: false })
+      .limit(2);
+    const { data } = await qb;
+    const rows = (data ?? []) as Array<{
+      content: string;
+      content_html: string | null;
+      created_at: string;
+      author_id: string;
+    }>;
+    // Skip the row that matches the current followup we're about to send.
+    const prior = rows.find((r, idx) => idx > 0 || !currentFollowupId);
+    if (!prior) return '';
+
+    const when = new Date(prior.created_at).toLocaleString('es-ES', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
+    const body = prior.content_html ?? escapeHtml(prior.content).replace(/\n/g, '<br>');
+
+    return `
+      <div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;">
+        <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">
+          El ${when} en el ticket escribieron:
+        </div>
+        <blockquote style="margin:0;padding:0 0 0 12px;border-left:3px solid #d1d5db;color:#4b5563;font-size:13px;line-height:1.55;">
+          ${body}
+        </blockquote>
+      </div>
+    `;
+  } catch {
+    return '';
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+/**
+ * Resolves emails for the principals we want to CC on a public reply.
+ *
+ * Two sources:
+ *   - contact IDs  → `contacts.email`
+ *   - agent IDs    → `agents.email` BUT only when role='readonly' (portal
+ *                    users of the client). Staff agents are never CC'd on
+ *                    the customer-visible email; they're silent followers.
+ */
+async function resolveCcEmails(
+  tenantId: string,
+  contactIds: string[],
+  agentIds: string[],
+): Promise<string[]> {
+  const emails = new Set<string>();
+  try {
+    const svc = getSvc();
+
+    if (contactIds.length) {
+      const { data } = await svc
+        .from('contacts')
+        .select('email')
+        .eq('tenant_id', tenantId)
+        .in('id', contactIds);
+      for (const r of (data ?? []) as Array<{ email: string | null }>) {
+        if (r.email) emails.add(r.email.toLowerCase());
+      }
+    }
+
+    if (agentIds.length) {
+      const { data } = await svc
+        .from('agents')
+        .select('email, role')
+        .eq('tenant_id', tenantId)
+        .eq('role', 'readonly')
+        .in('id', agentIds);
+      for (const r of (data ?? []) as Array<{ email: string | null; role: string | null }>) {
+        if (r.email && r.role === 'readonly') emails.add(r.email.toLowerCase());
+      }
+    }
+  } catch {
+    /* non-fatal */
+  }
+  return Array.from(emails);
+}
+
 export async function notifyTicketCommented(evt: TicketEvent) {
   const link = `/home/tickets/${evt.ticketId}`;
   const portalUrl = `https://itsm-web.vercel.app${link}`;
 
-  // 1. Email to requester (Public Reply only — internal notes don't reach here)
-  if (evt.requesterEmail && evt.comment) {
-    await notifyEmail(evt.requesterEmail,
-      `💬 RE: ${evt.ticketNumber} — ${evt.title}`,
-      emailTemplate({
+  const subject = `[#${evt.ticketNumber}] ${evt.title}`;
+  const headers = await buildThreadingHeaders(evt.ticketId, evt.emailMessageId);
+  const quote = evt.isInternal
+    ? ''
+    : await buildQuoteFromLastFollowup(evt.ticketId, evt.followupId);
+  const ccEmails = evt.isInternal
+    ? []
+    : await resolveCcEmails(
+        evt.tenantId,
+        evt.ccContactIds ?? [],
+        evt.mentionedAgentIds ?? [],
+      );
+
+  // Render the comment body: prefer the sanitized HTML from Tiptap,
+  // fall back to plain text with newline → <br>.
+  const commentBody = evt.commentHtml
+    ? evt.commentHtml
+    : `<div style="white-space:pre-wrap;line-height:1.5;">${escapeHtml(evt.comment ?? '')}</div>`;
+
+  // 1. Email to requester (public reply only).
+  if (!evt.isInternal && evt.requesterEmail && evt.comment) {
+    await notifyEmail({
+      to: evt.requesterEmail,
+      cc: ccEmails,
+      subject,
+      headers,
+      html: emailTemplate({
         preheader: `${evt.agentName ?? 'Soporte'} respondió a tu ticket ${evt.ticketNumber}`,
-        heading: 'Nueva Respuesta en Tu Ticket',
+        heading: 'Nueva respuesta en tu ticket',
         bodyRows: [
-          { label: 'Ticket', value: `<strong>${evt.ticketNumber}</strong>` },
-          { label: 'Título', value: evt.title },
+          { label: 'Ticket', value: `<strong>#${evt.ticketNumber}</strong>` },
           { label: 'Respondido por', value: `<strong>${evt.agentName ?? 'Equipo de Soporte'}</strong>` },
-          { label: 'Respuesta', value: `<div style="padding:12px;background:#f0f4ff;border-radius:6px;border-left:3px solid #4f46e5;font-style:italic;line-height:1.5;">${evt.comment}</div>` },
+          { label: 'Mensaje', value: `<div style="padding:12px;background:#f0f4ff;border-radius:6px;border-left:3px solid #4f46e5;line-height:1.55;">${commentBody}</div>` },
         ],
-        ctaText: 'Ver Ticket en Portal',
+        ctaText: 'Ver historial completo',
         ctaUrl: portalUrl,
-        footerNote: 'Si necesitas responder, puedes hacerlo directamente desde el portal de soporte haciendo click en el botón de arriba.',
-      }));
+        footerNote: `${quote}<div style="margin-top:12px;">Puedes responder a este email — tu respuesta quedará registrada automáticamente en el ticket.</div>`,
+      }),
+    });
   }
 
-  // 2. Confirmation email to agent (copy of their own reply)
-  if (evt.agentEmail && evt.comment) {
-    await notifyEmail(evt.agentEmail,
-      `✅ Respuesta registrada: ${evt.ticketNumber}`,
-      emailTemplate({
+  // 2. Confirmation email to the actor (only for public replies — internal
+  // notes already appear in the agent's own UI, no need for a copy email).
+  if (!evt.isInternal && evt.agentEmail && evt.comment) {
+    await notifyEmail({
+      to: evt.agentEmail,
+      subject,
+      headers,
+      html: emailTemplate({
         preheader: `Tu respuesta en ${evt.ticketNumber} fue enviada al requester`,
-        heading: 'Respuesta Registrada',
+        heading: 'Respuesta registrada',
         bodyRows: [
-          { label: 'Ticket', value: `<strong>${evt.ticketNumber}</strong>` },
-          { label: 'Título', value: evt.title },
-          { label: 'Enviado a', value: evt.requesterEmail ?? 'Requester' },
-          { label: 'Tu respuesta', value: `<div style="padding:12px;background:#f0fdf4;border-radius:6px;border-left:3px solid #10b981;line-height:1.5;">${evt.comment}</div>` },
+          { label: 'Ticket', value: `<strong>#${evt.ticketNumber}</strong>` },
+          { label: 'Enviado a', value: `${evt.requesterEmail ?? 'Requester'}${ccEmails.length ? ` (+ CC: ${ccEmails.join(', ')})` : ''}` },
+          { label: 'Tu respuesta', value: `<div style="padding:12px;background:#f0fdf4;border-radius:6px;border-left:3px solid #10b981;line-height:1.55;">${commentBody}</div>` },
         ],
-        ctaText: 'Ver Ticket',
+        ctaText: 'Abrir ticket',
         ctaUrl: portalUrl,
-      }));
+      }),
+    });
   }
 
-  // 3. In-app notification to agent
+  // 3. In-app notification to the actor.
   if (evt.agentUserId) {
-    await notifyInApp(evt.tenantId, evt.agentUserId,
+    await notifyInApp(
+      evt.tenantId,
+      evt.agentUserId,
       `Comentario en ${evt.ticketNumber}`,
       `${evt.agentName ?? 'Agente'}: ${(evt.comment ?? '').slice(0, 100)}`,
-      'ticket', evt.ticketId, link);
+      'ticket',
+      evt.ticketId,
+      link,
+    );
   }
 
-  // 4. Followers — fan out both public replies and internal notes so the
-  // team keeps context even when the ticket reassigns.
+  // 4. Follower fan-out — stays internal. We use the same subject/headers
+  // so everyone sees the same thread, but we never CC the requester's
+  // contacts on follower copies.
   if (evt.comment) {
-    const isInternal = !evt.requesterEmail;
     await fanOutToFollowers(
       evt,
-      `💬 ${isInternal ? 'Nota interna' : 'Respuesta'} en ${evt.ticketNumber}`,
+      subject,
       emailTemplate({
         preheader: `${evt.agentName ?? 'Un agente'} comentó en ${evt.ticketNumber}`,
-        heading: isInternal ? 'Nota Interna Nueva' : 'Nueva Respuesta Pública',
+        heading: evt.isInternal ? 'Nota interna nueva' : 'Nueva respuesta pública',
+        badgeText: evt.isInternal ? 'INTERNA' : undefined,
+        badgeColor: evt.isInternal ? '#f59e0b' : undefined,
         bodyRows: [
-          { label: 'Ticket', value: `<strong>${evt.ticketNumber}</strong>` },
-          { label: 'Título', value: evt.title },
-          { label: 'Por', value: `<strong>${evt.agentName ?? 'Equipo de Soporte'}</strong>` },
-          { label: isInternal ? 'Nota' : 'Respuesta', value: `<div style="padding:12px;background:#f0f4ff;border-radius:6px;border-left:3px solid #4f46e5;font-style:italic;line-height:1.5;">${evt.comment}</div>` },
+          { label: 'Ticket', value: `<strong>#${evt.ticketNumber}</strong>` },
+          { label: 'Por', value: `<strong>${evt.agentName ?? 'Equipo'}</strong>` },
+          { label: evt.isInternal ? 'Nota' : 'Respuesta', value: `<div style="padding:12px;background:#f0f4ff;border-radius:6px;border-left:3px solid #4f46e5;line-height:1.55;">${commentBody}</div>` },
         ],
-        ctaText: 'Abrir Ticket',
+        ctaText: 'Abrir ticket',
         ctaUrl: portalUrl,
-        footerNote: 'Recibes este email porque estás siguiendo este ticket.',
+        footerNote: `${quote}<div style="margin-top:12px;">Recibes este email porque estás siguiendo este ticket.</div>`,
       }),
       `Comentario en ${evt.ticketNumber}`,
       `${evt.agentName ?? 'Agente'}: ${evt.comment.slice(0, 100)}`,
+      headers,
     );
   }
 }

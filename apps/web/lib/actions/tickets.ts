@@ -999,6 +999,7 @@ export async function addFollowup(
           assignedAgentId: tkt.assigned_agent_id ?? undefined,
           emailMessageId,
           ccContactIds: mentionedContactIds,
+          mentionedAgentIds,
           followupId: followup.id as string,
         }).catch(() => {});
       }
