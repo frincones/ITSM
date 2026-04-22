@@ -29,7 +29,10 @@ interface Notification {
   resource_type: string | null;
   resource_id: string | null;
   created_at: string;
+  client_name?: string | null;
 }
+
+type GroupingMode = 'none' | 'client';
 
 interface NotificationsPanelProps {
   userId: string | undefined;
@@ -119,9 +122,43 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Notification[]>([]);
   const [activeTab, setActiveTab] = useState<TabValue>('all');
+  const [grouping, setGrouping] = useState<GroupingMode>('none');
   const [loaded, setLoaded] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+
+  // Enrich notifications with the client name of their linked ticket.
+  // resource_type='ticket' → tickets.organization_id → organizations.name.
+  // Separate query because notifications.resource_id is a generic uuid
+  // without a PostgREST relationship to tickets.
+  const enrichWithClient = useCallback(
+    async (rows: Notification[]) => {
+      const ticketIds = Array.from(
+        new Set(
+          rows
+            .filter((r) => r.resource_type === 'ticket' && r.resource_id)
+            .map((r) => r.resource_id as string),
+        ),
+      );
+      if (ticketIds.length === 0) return rows;
+      const supabase = getSupabaseBrowserClient();
+      const { data: tickets } = await supabase
+        .from('tickets')
+        .select('id, organization:organizations(name)')
+        .in('id', ticketIds);
+      const nameById = new Map<string, string | null>();
+      (tickets ?? []).forEach((t: { id: string; organization: { name: string } | { name: string }[] | null }) => {
+        const org = Array.isArray(t.organization) ? t.organization[0] : t.organization;
+        nameById.set(t.id, org?.name ?? null);
+      });
+      return rows.map((r) =>
+        r.resource_id && nameById.has(r.resource_id)
+          ? { ...r, client_name: nameById.get(r.resource_id) ?? null }
+          : r,
+      );
+    },
+    [],
+  );
 
   const unreadCount = useMemo(
     () => items.filter((n) => !n.is_read).length,
@@ -137,9 +174,11 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(50);
-    setItems((data as Notification[] | null) ?? []);
+    const rows = (data as Notification[] | null) ?? [];
+    const enriched = await enrichWithClient(rows);
+    setItems(enriched);
     setLoaded(true);
-  }, [userId]);
+  }, [userId, enrichWithClient]);
 
   useEffect(() => {
     if (!userId) return;
@@ -156,9 +195,11 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
           table: 'notifications',
           filter: `user_id=eq.${userId}`,
         },
-        (payload) => {
+        async (payload) => {
           const n = payload.new as Notification;
-          setItems((prev) => (prev.some((p) => p.id === n.id) ? prev : [n, ...prev]));
+          const [enriched] = await enrichWithClient([n]);
+          const toInsert = enriched ?? n;
+          setItems((prev) => (prev.some((p) => p.id === toInsert.id) ? prev : [toInsert, ...prev]));
           playNotificationSound();
           toast(n.title, {
             description: n.body ?? undefined,
@@ -208,7 +249,7 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [userId, fetchNotifications, router]);
+  }, [userId, fetchNotifications, router, enrichWithClient]);
 
   // Close on Escape + click outside
   useEffect(() => {
@@ -274,6 +315,92 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
 
   const filtered = items.filter((n) => matchesTab(n, activeTab));
 
+  const renderRow = useCallback(
+    (n: Notification) => {
+      const cfg = getVisualConfig(n);
+      const Icon = cfg.icon;
+      return (
+        <div
+          key={n.id}
+          onClick={() => handleItemClick(n)}
+          className={`group relative flex cursor-pointer items-start gap-2.5 border-b border-border/60 px-2 py-2.5 transition-colors last:border-b-0 hover:bg-muted/50 ${
+            !n.is_read ? '' : 'opacity-70'
+          }`}
+        >
+          <div
+            className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md ${cfg.bgColor}`}
+          >
+            <Icon className={`h-3 w-3 ${cfg.iconColor}`} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline gap-2">
+              <h3 className="truncate text-[13px] font-medium leading-tight text-foreground">
+                {n.title}
+              </h3>
+              <span className="ml-auto flex-shrink-0 text-[11px] text-muted-foreground">
+                {timeAgo(n.created_at)}
+              </span>
+            </div>
+            {n.body && (
+              <p className="mt-0.5 truncate text-[12px] leading-snug text-muted-foreground">
+                {n.body}
+              </p>
+            )}
+          </div>
+          {!n.is_read && (
+            <span className="absolute left-0 top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-full bg-indigo-600" />
+          )}
+          <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-background/95 p-0.5 opacity-0 shadow-sm ring-1 ring-border transition-opacity group-hover:opacity-100">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5"
+              title={n.is_read ? 'Marcar sin leer' : 'Marcar leída'}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (n.is_read) markAsUnread(n.id);
+                else markAsRead(n.id);
+              }}
+            >
+              {n.is_read ? <Bell className="h-3 w-3" /> : <Check className="h-3 w-3" />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5"
+              title="Descartar"
+              onClick={(e) => {
+                e.stopPropagation();
+                dismiss(n.id);
+              }}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+        </div>
+      );
+    },
+    [handleItemClick, markAsRead, markAsUnread, dismiss],
+  );
+
+  // Group filtered items by client when grouping = 'client'
+  const groups = useMemo(() => {
+    if (grouping !== 'client') return null;
+    const byClient = new Map<string, Notification[]>();
+    filtered.forEach((n) => {
+      const key = n.client_name ?? 'Sin cliente';
+      if (!byClient.has(key)) byClient.set(key, []);
+      byClient.get(key)!.push(n);
+    });
+    // Stable sort: clients with unread first, then alphabetical
+    return Array.from(byClient.entries()).sort((a, b) => {
+      const aUnread = a[1].some((n) => !n.is_read);
+      const bUnread = b[1].some((n) => !n.is_read);
+      if (aUnread !== bUnread) return aUnread ? -1 : 1;
+      return a[0].localeCompare(b[0]);
+    });
+  }, [filtered, grouping]);
+
   return (
     <>
       <Button
@@ -327,29 +454,42 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
         </div>
 
         <div className="border-b border-border px-6 py-3">
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8"
-              onClick={markAllAsRead}
-              disabled={unreadCount === 0}
-            >
-              <CheckCheck className="mr-1.5 h-4 w-4" />
-              Marcar todas
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8"
-              onClick={() => {
-                setOpen(false);
-                router.push('/home/notifications');
-              }}
-            >
-              <Settings className="mr-1.5 h-4 w-4" />
-              Ajustes
-            </Button>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={markAllAsRead}
+                disabled={unreadCount === 0}
+              >
+                <CheckCheck className="mr-1.5 h-4 w-4" />
+                Marcar todas
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8"
+                onClick={() => {
+                  setOpen(false);
+                  router.push('/home/notifications');
+                }}
+              >
+                <Settings className="mr-1.5 h-4 w-4" />
+                Ajustes
+              </Button>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <label className="text-[11px] text-muted-foreground">Agrupar:</label>
+              <select
+                value={grouping}
+                onChange={(e) => setGrouping(e.target.value as GroupingMode)}
+                className="h-8 rounded-md border border-border bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="none">Sin agrupar</option>
+                <option value="client">Por cliente</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -399,77 +539,36 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
                 No hay notificaciones
               </p>
             </div>
-          ) : (
+          ) : groups ? (
             <div className="flex flex-col">
-              {filtered.map((n) => {
-                const cfg = getVisualConfig(n);
-                const Icon = cfg.icon;
+              {groups.map(([clientName, rows]) => {
+                const unreadInGroup = rows.filter((n) => !n.is_read).length;
                 return (
-                  <div
-                    key={n.id}
-                    onClick={() => handleItemClick(n)}
-                    className={`group relative flex cursor-pointer items-start gap-2.5 border-b border-border/60 px-2 py-2.5 transition-colors last:border-b-0 hover:bg-muted/50 ${
-                      !n.is_read ? '' : 'opacity-70'
-                    }`}
-                  >
-                    <div
-                      className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md ${cfg.bgColor}`}
-                    >
-                      <Icon className={`h-3 w-3 ${cfg.iconColor}`} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline gap-2">
-                        <h3 className="truncate text-[13px] font-medium leading-tight text-foreground">
-                          {n.title}
-                        </h3>
-                        <span className="ml-auto flex-shrink-0 text-[11px] text-muted-foreground">
-                          {timeAgo(n.created_at)}
+                  <section key={clientName} className="mb-1">
+                    <header className="sticky top-0 z-10 flex items-center justify-between border-b border-border/60 bg-card/95 px-2 py-1.5 backdrop-blur">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          {clientName}
+                        </span>
+                        <span className="rounded-full bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">
+                          {rows.length}
                         </span>
                       </div>
-                      {n.body && (
-                        <p className="mt-0.5 truncate text-[12px] leading-snug text-muted-foreground">
-                          {n.body}
-                        </p>
+                      {unreadInGroup > 0 && (
+                        <span className="rounded-full bg-indigo-600 px-1.5 text-[10px] font-semibold text-white">
+                          {unreadInGroup}
+                        </span>
                       )}
+                    </header>
+                    <div className="flex flex-col">
+                      {rows.map((n) => renderRow(n))}
                     </div>
-                    {!n.is_read && (
-                      <span className="absolute left-0 top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-full bg-indigo-600" />
-                    )}
-                    <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-background/95 p-0.5 opacity-0 shadow-sm ring-1 ring-border transition-opacity group-hover:opacity-100">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-5 w-5"
-                        title={n.is_read ? 'Marcar sin leer' : 'Marcar leída'}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (n.is_read) markAsUnread(n.id);
-                          else markAsRead(n.id);
-                        }}
-                      >
-                        {n.is_read ? (
-                          <Bell className="h-3 w-3" />
-                        ) : (
-                          <Check className="h-3 w-3" />
-                        )}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-5 w-5"
-                        title="Descartar"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          dismiss(n.id);
-                        }}
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
+                  </section>
                 );
               })}
             </div>
+          ) : (
+            <div className="flex flex-col">{filtered.map((n) => renderRow(n))}</div>
           )}
         </div>
       </div>
