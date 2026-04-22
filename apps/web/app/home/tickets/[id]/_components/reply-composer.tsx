@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { ReactRenderer, useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Mention from '@tiptap/extension-mention';
@@ -399,10 +399,24 @@ export function ReplyComposer({ ticketId, hideInternalNote = false }: ReplyCompo
     });
   }
 
-  const isEmpty = useMemo(() => {
-    if (!editor) return true;
-    return editor.isEmpty && pendingFiles.length === 0;
-  }, [editor, editor?.state, pendingFiles]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Tiptap mutates its internal state without swapping the `editor` object
+  // reference, so a useMemo on `editor.isEmpty` never re-runs on keystrokes.
+  // Subscribe to the `update` event explicitly and mirror the empty flag
+  // into React state so the Send button enables as soon as you type.
+  const [editorEmpty, setEditorEmpty] = useState(true);
+  useEffect(() => {
+    if (!editor) return;
+    const sync = () => setEditorEmpty(editor.isEmpty);
+    sync();
+    editor.on('update', sync);
+    editor.on('transaction', sync);
+    return () => {
+      editor.off('update', sync);
+      editor.off('transaction', sync);
+    };
+  }, [editor]);
+
+  const isEmpty = editorEmpty && pendingFiles.length === 0;
 
   return (
     <div className="border-t border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-950">
