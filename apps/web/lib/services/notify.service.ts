@@ -357,6 +357,39 @@ export async function notifyTicketCreated(evt: TicketEvent) {
       'ticket', evt.ticketId, link);
   }
 
+  // Broadcast to the TDX staff team (admin / agent / supervisor roles). Portal
+  // users ('readonly') are excluded — they should never see other clients'
+  // tickets. The actor is also skipped because they already got the line above.
+  try {
+    const svc = getSvc();
+    const { data: staff } = await svc
+      .from('agents')
+      .select('user_id')
+      .eq('tenant_id', evt.tenantId)
+      .eq('is_active', true)
+      .in('role', ['admin', 'agent', 'supervisor'])
+      .not('user_id', 'is', null);
+    const broadcastBody = `${evt.title} — ${evt.type} / ${evt.urgency}`;
+    await Promise.all(
+      (staff ?? [])
+        .map((a) => a.user_id as string)
+        .filter((uid) => uid && uid !== evt.agentUserId)
+        .map((uid) =>
+          notifyInApp(
+            evt.tenantId,
+            uid,
+            `Nuevo ticket ${evt.ticketNumber}`,
+            broadcastBody,
+            'ticket',
+            evt.ticketId,
+            link,
+          ),
+        ),
+    );
+  } catch (err) {
+    console.error('[Notify] staff broadcast on create failed:', err);
+  }
+
   if (evt.agentEmail) {
     await notifyEmail(evt.agentEmail,
       `🔔 Nuevo ticket: ${evt.ticketNumber}`,
