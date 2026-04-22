@@ -45,6 +45,16 @@ import {
   TableHeader,
   TableRow,
 } from '@kit/ui/table';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@kit/ui/select';
+import { toast } from 'sonner';
+
+import { setClientPriorityRank } from '~/lib/actions/tickets';
 
 import { TicketFilters } from './ticket-filters';
 
@@ -733,31 +743,16 @@ export function TicketListClient({
                     </Badge>
                   </TableCell>
 
-                  {/* Client priority rank (manual order set by the customer) */}
-                  <TableCell>
-                    {(() => {
-                      const raw = (ticket.custom_fields ?? {})[
+                  {/* Client priority rank — inline editable for client users,
+                      read-only badge for TDX agents. */}
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <ClientRankCell
+                      ticketId={ticket.id}
+                      rawRank={(ticket.custom_fields ?? {})[
                         'client_rank' as keyof typeof ticket.custom_fields
-                      ];
-                      const rank =
-                        typeof raw === 'number'
-                          ? raw
-                          : typeof raw === 'string' && raw !== ''
-                            ? Number(raw)
-                            : null;
-                      if (rank === null || Number.isNaN(rank)) {
-                        return (
-                          <span className="text-xs text-muted-foreground">
-                            --
-                          </span>
-                        );
-                      }
-                      return (
-                        <Badge className="border border-indigo-200 bg-indigo-50 text-indigo-700">
-                          #{rank}
-                        </Badge>
-                      );
-                    })()}
+                      ]}
+                      editable={isClient}
+                    />
                   </TableCell>
 
                   {/* Client (Organization) */}
@@ -957,4 +952,88 @@ function exportTicketsCsv(rows: TicketRow[]): void {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+// ---------------------------------------------------------------------------
+// Inline-editable "Orden Cliente" cell
+// ---------------------------------------------------------------------------
+
+interface ClientRankCellProps {
+  ticketId: string;
+  /** Raw value as stored in custom_fields — can be number, string, or undefined. */
+  rawRank: unknown;
+  /** Only clients can edit; TDX agents see the badge read-only. */
+  editable: boolean;
+}
+
+function ClientRankCell({ ticketId, rawRank, editable }: ClientRankCellProps) {
+  const initial =
+    typeof rawRank === 'number'
+      ? rawRank
+      : typeof rawRank === 'string' && rawRank !== ''
+        ? Number(rawRank)
+        : null;
+  const safeInitial = initial === null || Number.isNaN(initial) ? null : initial;
+
+  const [rank, setRank] = useState<number | null>(safeInitial);
+  const [isPending, startTransition] = useTransition();
+
+  // Read-only badge for TDX agents (the old behavior).
+  if (!editable) {
+    if (rank === null) {
+      return <span className="text-xs text-muted-foreground">--</span>;
+    }
+    return (
+      <Badge className="border border-indigo-200 bg-indigo-50 text-indigo-700">
+        #{rank}
+      </Badge>
+    );
+  }
+
+  const handleChange = (value: string) => {
+    const next = value === 'none' ? null : Number(value);
+    if (next !== null && Number.isNaN(next)) return;
+    const previous = rank;
+    setRank(next); // optimistic
+    startTransition(async () => {
+      const result = await setClientPriorityRank(ticketId, next);
+      if (result.error) {
+        setRank(previous); // rollback
+        toast.error(result.error);
+      } else {
+        toast.success(
+          next === null ? 'Orden eliminado' : `Orden #${next} asignado`,
+        );
+      }
+    });
+  };
+
+  return (
+    <Select
+      value={rank === null ? 'none' : String(rank)}
+      onValueChange={handleChange}
+      disabled={isPending}
+    >
+      <SelectTrigger
+        className={`h-7 w-[84px] px-2 text-xs ${
+          rank === null
+            ? 'border-dashed border-gray-200 text-muted-foreground'
+            : 'border-indigo-200 bg-indigo-50 text-indigo-700'
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <SelectValue placeholder="--">
+          {rank === null ? '--' : `#${rank}`}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent className="max-h-72">
+        <SelectItem value="none">Sin orden</SelectItem>
+        {Array.from({ length: 50 }, (_, i) => i + 1).map((n) => (
+          <SelectItem key={n} value={String(n)}>
+            #{n}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
