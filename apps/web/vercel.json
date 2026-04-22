@@ -4,14 +4,6 @@
     {
       "path": "/api/cron/ticket-auto-assign",
       "schedule": "0 7 * * *"
-    },
-    {
-      "path": "/api/cron/testing-strike-check",
-      "schedule": "0 * * * *"
-    },
-    {
-      "path": "/api/cron/csat-dispatcher",
-      "schedule": "*/5 * * * *"
     }
   ]
 }
