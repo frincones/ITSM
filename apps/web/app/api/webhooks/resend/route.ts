@@ -366,16 +366,32 @@ async function handleNewTicketFromEmail(args: {
     (subject ?? '').trim().slice(0, 200) ||
     `Solicitud por email de ${senderEmail}`;
 
-  // Org-level default routing is TODO — columns organizations.default_group_id /
-  // default_agent_id / default_category_id aren't in the live schema yet, so
-  // we leave the new ticket unassigned and let the round-robin auto-assign
-  // pick an agent the same way portal-created tickets do.
-  const applyDefaults: Record<string, unknown> = {};
+  // ── DB-level dedup ─────────────────────────────────────────────────
+  // Resend occasionally retries a delivered inbound email (or the same
+  // handler invocation hits two Vercel serverless instances in parallel)
+  // which used to create duplicate tickets. The in-memory `processing`
+  // Set only catches the concurrent case on the same instance, so we
+  // also check the DB for any existing ticket tagged with the same
+  // `custom_fields.inbound_email_id`.
+  const { data: existingTicket } = await svc
+    .from('tickets')
+    .select('id, ticket_number')
+    .eq('tenant_id', org.tenant_id)
+    .eq('custom_fields->>inbound_email_id', email_id)
+    .limit(1)
+    .maybeSingle();
+  if (existingTicket) {
+    console.log(
+      '[Resend Inbound] Email already processed into ticket:',
+      (existingTicket as { ticket_number: string }).ticket_number,
+    );
+    return {
+      ok: true,
+      duplicate: true,
+      ticket: (existingTicket as { ticket_number: string }).ticket_number,
+    };
+  }
 
-  // `channel` tracks how the ticket arrived (same column the portal UI
-  // filters on). `source` was legacy and isn't in the schema. `source_ref`
-  // is optional — only written if the column exists — and is used by
-  // DB-level dedup earlier in this handler.
   const ticketPayload: Record<string, unknown> = {
     tenant_id: org.tenant_id,
     organization_id: org.id,
@@ -388,7 +404,6 @@ async function handleNewTicketFromEmail(args: {
     channel: 'email',
     requester_email: senderEmail,
     custom_fields: { inbound_email_id: email_id, source_ref: sourceRef },
-    ...applyDefaults,
   };
   const { data: ticket, error } = await svc
     .from('tickets')
@@ -400,6 +415,14 @@ async function handleNewTicketFromEmail(args: {
     console.error('[Resend Inbound] Failed to create ticket from email:', error.message);
     return { ok: false, error: error.message };
   }
+
+  // ── Round-robin assignment (same logic portal tickets use) ─────────
+  // Rotates through eligible TDX agents via the per-tenant cursor in
+  // tenants.settings.round_robin_last_agent_id. Fire-and-forget so a
+  // failure doesn't block the ticket creation response.
+  assignViaRoundRobin(svc, ticket.id, org.tenant_id).catch((err) =>
+    console.error('[Resend Inbound] round-robin failed:', err),
+  );
 
   console.log(
     '[Resend Inbound] Created ticket',
@@ -454,4 +477,86 @@ function cleanEmailReply(body: string): string {
   cleaned = cleaned.replace(/\s+$/, '').trim();
 
   return cleaned || body.trim();
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Round-robin assignment for new inbound-email tickets
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Mirror of autoAssignRoundRobin() in lib/actions/tickets.ts. We replicate
+// the logic here instead of importing to avoid the server-action runtime
+// overhead and to keep the webhook handler dependency-free from the
+// Supabase SSR client type.
+// svc is typed as `any` because the service-role client returns Supabase
+// Database typing that conflicts with the locally-generated Database type;
+// we only write well-known columns, so skipping the strictness is safe.
+async function assignViaRoundRobin(
+  svc: any, // eslint-disable-line @typescript-eslint/no-explicit-any
+  ticketId: string,
+  tenantId: string,
+): Promise<void> {
+  const EXCLUDED_EMAILS = ['admin@novadesk.com'];
+
+  const { data: allAgents } = await svc
+    .from('agents')
+    .select('id, user_id, email, name, role')
+    .eq('tenant_id', tenantId)
+    .eq('is_active', true)
+    .in('role', ['admin', 'supervisor', 'agent'])
+    .order('name', { ascending: true });
+
+  const agents = ((allAgents ?? []) as Array<{ id: string; email: string; user_id: string | null; name: string }>).filter(
+    (a) => !EXCLUDED_EMAILS.includes(a.email.toLowerCase()),
+  );
+  if (agents.length === 0) return;
+
+  const { data: tenant } = await svc
+    .from('tenants')
+    .select('settings')
+    .eq('id', tenantId)
+    .maybeSingle();
+  const settings =
+    ((tenant as { settings: Record<string, unknown> } | null)?.settings as
+      | Record<string, unknown>
+      | null) ?? {};
+  const lastAgentId =
+    typeof settings.round_robin_last_agent_id === 'string'
+      ? settings.round_robin_last_agent_id
+      : null;
+
+  const lastIdx = agents.findIndex((a) => a.id === lastAgentId);
+  const nextIdx = lastIdx === -1 ? 0 : (lastIdx + 1) % agents.length;
+  const best = agents[nextIdx];
+  if (!best) return;
+
+  await svc
+    .from('tenants')
+    .update({
+      settings: { ...settings, round_robin_last_agent_id: best.id },
+    })
+    .eq('id', tenantId);
+
+  await svc
+    .from('tickets')
+    .update({
+      assigned_agent_id: best.id,
+      status: 'assigned',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', ticketId);
+
+  // Add assignee as follower so they stay subscribed to the ticket.
+  await svc
+    .from('ticket_followers')
+    .upsert(
+      {
+        tenant_id: tenantId,
+        ticket_id: ticketId,
+        agent_id: best.id,
+        added_reason: 'assignment',
+        is_auto: true,
+      },
+      { onConflict: 'ticket_id,agent_id', ignoreDuplicates: true },
+    );
 }
