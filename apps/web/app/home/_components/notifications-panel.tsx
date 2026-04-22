@@ -163,6 +163,7 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
           toast(n.title, {
             description: n.body ?? undefined,
             duration: 6000,
+            position: 'bottom-right',
             action: n.link
               ? {
                   label: 'Ver',
