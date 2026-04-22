@@ -75,6 +75,23 @@ BEGIN
     $f$,
     schema_name, schema_name || '.unaccent'
   );
+
+  -- The generated `search_tsv` columns below are re-evaluated on every
+  -- INSERT/UPDATE, so the app's `authenticated` role must be able to
+  -- execute the wrapper AND the wrapped `kit.unaccent()`. Without these
+  -- GRANTs, any client-side write to tickets / ticket_followups / etc.
+  -- fails with "permission denied for function immutable_unaccent".
+  GRANT EXECUTE ON FUNCTION public.immutable_unaccent(text)
+    TO authenticated, anon, service_role;
+
+  EXECUTE format(
+    'GRANT EXECUTE ON FUNCTION %I.unaccent(regdictionary, text) TO authenticated, anon, service_role',
+    schema_name
+  );
+  EXECUTE format(
+    'GRANT USAGE ON SCHEMA %I TO authenticated, anon, service_role',
+    schema_name
+  );
 END
 $unaccent_wrapper$;
 
