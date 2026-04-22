@@ -311,37 +311,27 @@ async function handleNewTicketFromEmail(args: {
   const { email_id, from, subject, slug } = args;
   const svc = getSvc();
 
-  // Look up org by slug. Try both the canonical slug column and the optional
-  // inbound_email_slug column — whichever the DB has. Also pull the client-
-  // configured defaults so we can pre-route the incoming ticket.
+  // Look up org by slug — matches either the canonical `slug` column or
+  // the optional `inbound_email_slug` alias. The handler used to also
+  // pull default_group_id/default_agent_id/default_category_id for
+  // pre-routing, but those columns were never migrated to the live DB;
+  // including them in the SELECT made PostgREST return a silent 42703
+  // error and the org lookup always failed (bug found 2026-04-22).
   type OrgRow = {
     id: string;
     tenant_id: string;
     name: string;
-    default_group_id?: string | null;
-    default_agent_id?: string | null;
-    default_category_id?: string | null;
   };
-  let org: OrgRow | null = null;
-  try {
-    const { data } = await svc
-      .from('organizations')
-      .select(
-        'id, tenant_id, name, default_group_id, default_agent_id, default_category_id',
-      )
-      .or(`slug.eq.${slug},inbound_email_slug.eq.${slug}`)
-      .limit(1)
-      .maybeSingle();
-    org = data as OrgRow | null;
-  } catch {
-    const { data } = await svc
-      .from('organizations')
-      .select('id, tenant_id, name')
-      .eq('slug', slug)
-      .limit(1)
-      .maybeSingle();
-    org = data as OrgRow | null;
+  const orgLookup = await svc
+    .from('organizations')
+    .select('id, tenant_id, name')
+    .or(`slug.eq.${slug},inbound_email_slug.eq.${slug}`)
+    .limit(1)
+    .maybeSingle();
+  if (orgLookup.error) {
+    console.error('[Resend Inbound] org lookup error:', orgLookup.error.message);
   }
+  const org: OrgRow | null = (orgLookup.data as OrgRow | null) ?? null;
 
   if (!org) {
     console.log('[Resend Inbound] Slug not mapped to any org:', slug);
@@ -375,17 +365,11 @@ async function handleNewTicketFromEmail(args: {
     (subject ?? '').trim().slice(0, 200) ||
     `Solicitud por email de ${senderEmail}`;
 
-  // Apply org-level defaults for routing. When a specific agent is set the
-  // ticket jumps to 'assigned'; otherwise a default group is enough for the
-  // existing round-robin to pick the right member. Category default is set
-  // too when configured so reports stay tidy.
+  // Org-level default routing is TODO — columns organizations.default_group_id /
+  // default_agent_id / default_category_id aren't in the live schema yet, so
+  // we leave the new ticket unassigned and let the round-robin auto-assign
+  // pick an agent the same way portal-created tickets do.
   const applyDefaults: Record<string, unknown> = {};
-  if (org.default_group_id) applyDefaults.assigned_group_id = org.default_group_id;
-  if (org.default_agent_id) {
-    applyDefaults.assigned_agent_id = org.default_agent_id;
-    applyDefaults.status = 'assigned';
-  }
-  if (org.default_category_id) applyDefaults.category_id = org.default_category_id;
 
   const { data: ticket, error } = await svc
     .from('tickets')
