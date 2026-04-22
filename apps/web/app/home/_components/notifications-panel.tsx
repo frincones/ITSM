@@ -67,6 +67,42 @@ function matchesTab(n: Notification, tab: TabValue): boolean {
   return false;
 }
 
+function playNotificationSound() {
+  try {
+    const AC: typeof AudioContext | undefined =
+      typeof window !== 'undefined'
+        ? window.AudioContext ||
+          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+        : undefined;
+    if (!AC) return;
+    const ctx = new AC();
+    if (ctx.state === 'suspended') void ctx.resume();
+
+    const now = ctx.currentTime;
+    const master = ctx.createGain();
+    master.gain.value = 0.15;
+    master.connect(ctx.destination);
+
+    // Two-note ding: C6 (1046.5) → E6 (1318.5), soft exponential decay
+    [{ f: 1046.5, t: now }, { f: 1318.5, t: now + 0.12 }].forEach(({ f, t }) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(1, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+      osc.connect(g).connect(master);
+      osc.start(t);
+      osc.stop(t + 0.4);
+    });
+
+    setTimeout(() => ctx.close().catch(() => {}), 600);
+  } catch {
+    // autoplay policy or unsupported — silently ignore
+  }
+}
+
 function timeAgo(dateStr: string) {
   const diffMs = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diffMs / 60000);
@@ -124,6 +160,7 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
         (payload) => {
           const n = payload.new as Notification;
           setItems((prev) => (prev.some((p) => p.id === n.id) ? prev : [n, ...prev]));
+          playNotificationSound();
           toast(n.title, {
             description: n.body ?? undefined,
             duration: 6000,
