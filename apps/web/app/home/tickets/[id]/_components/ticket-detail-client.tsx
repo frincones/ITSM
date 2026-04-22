@@ -896,8 +896,8 @@ export function TicketDetailClient({
             </h3>
             <p className="mb-3 text-xs text-muted-foreground">
               {isClient
-                ? 'Número único (1-50) para priorizar tus tickets. 1 = el más urgente.'
-                : 'Orden manual asignado por el cliente (1 = el más urgente).'}
+                ? 'Número (1-50) para priorizar tus tickets por tipo. 1 = el más urgente. El orden es independiente por cada tipo de ticket.'
+                : 'Orden manual asignado por el cliente (1 = el más urgente, por tipo de ticket).'}
             </p>
             {isClient ? (
               <Select

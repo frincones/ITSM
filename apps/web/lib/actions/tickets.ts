@@ -794,10 +794,12 @@ export async function setClientPriorityRank(
     } = await client.auth.getUser();
     if (!user) return { data: null, error: 'Unauthorized' };
 
-    // Fetch ticket with tenant + org scope
+    // Fetch ticket with tenant + org + type scope. `type` is part of the
+    // uniqueness key now: a client can have rank 1 in warranty AND rank 1
+    // in support concurrently — they're independent prioritizations.
     const { data: ticket, error: tErr } = await client
       .from('tickets')
-      .select('id, tenant_id, organization_id, custom_fields')
+      .select('id, tenant_id, organization_id, type, custom_fields')
       .eq('id', ticketId)
       .is('deleted_at', null)
       .maybeSingle();
@@ -810,12 +812,14 @@ export async function setClientPriorityRank(
       };
     }
 
-    // Uniqueness check (only when setting a value)
+    // Uniqueness check (only when setting a value) — scoped by type so
+    // each ticket type has its own independent 1..50 ordering.
     if (rank !== null) {
       const { data: clashes } = await client
         .from('tickets')
         .select('id, ticket_number, title')
         .eq('organization_id', ticket.organization_id)
+        .eq('type', ticket.type)
         .neq('id', ticketId)
         .is('deleted_at', null)
         .not('status', 'in', '(closed,cancelled,resolved)')
@@ -826,7 +830,7 @@ export async function setClientPriorityRank(
         const clash = clashes[0];
         return {
           data: null,
-          error: `El orden ${rank} ya está asignado al ticket ${clash?.ticket_number ?? ''}. Escoge otro número.`,
+          error: `El orden ${rank} ya está asignado a otro ticket del mismo tipo (${clash?.ticket_number ?? ''}). Escoge otro número.`,
         };
       }
     }
@@ -884,10 +888,17 @@ export async function addFollowup(
       return { data: null, error: 'Clients cannot add internal notes' };
     }
 
+    // Product rule: internal notes must never reach contacts. Strip contact
+    // mentions defensively even if the UI already filtered them out.
+    const mentionedAgentIds = validated.mentioned_agent_ids ?? [];
+    const mentionedContactIds = validated.is_private
+      ? []
+      : (validated.mentioned_contact_ids ?? []);
+
     // Verify ticket belongs to tenant
     const { data: existing } = await client
       .from('tickets')
-      .select('id, tenant_id')
+      .select('id, tenant_id, organization_id')
       .eq('id', ticketId)
       .eq('tenant_id', agent.tenant_id)
       .is('deleted_at', null)
@@ -897,15 +908,24 @@ export async function addFollowup(
       return { data: null, error: 'Ticket not found' };
     }
 
+    // Compute the email Message-ID up front so we can persist it alongside
+    // the row. The domain must match the `from` domain Resend is configured
+    // with so receiving MTAs don't reject it as forged.
+    const emailMessageId = `ticket-${ticketId}-${crypto.randomUUID()}@itsm.tdxcore.com`;
+
     const { data: followup, error } = await client
       .from('ticket_followups')
       .insert({
         ticket_id: ticketId,
         tenant_id: agent.tenant_id,
         content: validated.content,
+        content_html: validated.content_html ?? null,
         is_private: validated.is_private,
         author_id: user.id,
         author_type: 'agent',
+        email_message_id: emailMessageId,
+        mentioned_agent_ids: mentionedAgentIds,
+        mentioned_contact_ids: mentionedContactIds,
       })
       .select()
       .single();
@@ -925,17 +945,92 @@ export async function addFollowup(
       }).catch(() => {});
     }
 
+    // Auto-follow every mentioned agent and contact (public replies only
+    // for contacts — per the internal-note policy above, contact lists are
+    // already empty for private notes).
+    for (const mentionedAgentId of mentionedAgentIds) {
+      addFollower(client, {
+        tenantId: agent.tenant_id,
+        ticketId,
+        agentId: mentionedAgentId,
+        reason: 'mention',
+        isAuto: false,
+      }).catch(() => {});
+    }
+    for (const mentionedContactId of mentionedContactIds) {
+      // The generic helper expects agent_id; for contacts we go direct.
+      client
+        .from('ticket_followers')
+        .upsert(
+          {
+            tenant_id: agent.tenant_id,
+            ticket_id: ticketId,
+            contact_id: mentionedContactId,
+            added_reason: 'mention',
+            is_auto: false,
+          },
+          { onConflict: 'ticket_id,contact_id', ignoreDuplicates: true },
+        )
+        .then(() => {});
+    }
+
     // Notify on public replies (not internal notes)
     if (!validated.is_private) {
-      const { data: tkt } = await client.from('tickets').select('ticket_number, title, type, urgency, requester_email, assigned_agent_id').eq('id', ticketId).single();
+      const { data: tkt } = await client
+        .from('tickets')
+        .select('ticket_number, title, type, urgency, requester_email, assigned_agent_id')
+        .eq('id', ticketId)
+        .single();
       if (tkt) {
         notifyTicketCommented({
-          tenantId: agent.tenant_id, ticketNumber: tkt.ticket_number, ticketId,
-          title: tkt.title, type: tkt.type, urgency: tkt.urgency, status: '',
-          comment: validated.content, agentName: agent.name,
+          tenantId: agent.tenant_id,
+          ticketNumber: tkt.ticket_number,
+          ticketId,
+          title: tkt.title,
+          type: tkt.type,
+          urgency: tkt.urgency,
+          status: '',
+          comment: validated.content,
+          commentHtml: validated.content_html ?? null,
+          agentName: agent.name,
           requesterEmail: tkt.requester_email ?? undefined,
-          agentUserId: user.id, agentEmail: agent.email,
+          agentUserId: user.id,
+          agentEmail: agent.email,
           assignedAgentId: tkt.assigned_agent_id ?? undefined,
+          emailMessageId,
+          ccContactIds: mentionedContactIds,
+          followupId: followup.id as string,
+        }).catch(() => {});
+      }
+    } else {
+      // Internal note: fan out only to agent followers (no requester, no
+      // contacts). notifyTicketCommented already filters by requesterEmail
+      // presence, but we pass undefined explicitly to make the intent clear.
+      const { data: tkt } = await client
+        .from('tickets')
+        .select('ticket_number, title, type, urgency, assigned_agent_id')
+        .eq('id', ticketId)
+        .single();
+      if (tkt) {
+        notifyTicketCommented({
+          tenantId: agent.tenant_id,
+          ticketNumber: tkt.ticket_number,
+          ticketId,
+          title: tkt.title,
+          type: tkt.type,
+          urgency: tkt.urgency,
+          status: '',
+          comment: validated.content,
+          commentHtml: validated.content_html ?? null,
+          agentName: agent.name,
+          requesterEmail: undefined,
+          agentUserId: user.id,
+          agentEmail: agent.email,
+          assignedAgentId: tkt.assigned_agent_id ?? undefined,
+          emailMessageId,
+          ccContactIds: [],
+          followupId: followup.id as string,
+          isInternal: true,
         }).catch(() => {});
       }
     }
