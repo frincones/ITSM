@@ -339,6 +339,7 @@ async function handleNewTicketFromEmail(args: {
   }
 
   const senderEmail = extractEmail(from);
+  const sourceRef = `resend:${email_id}`;
 
   // Fetch email body
   let emailBody = '';
@@ -371,22 +372,27 @@ async function handleNewTicketFromEmail(args: {
   // pick an agent the same way portal-created tickets do.
   const applyDefaults: Record<string, unknown> = {};
 
+  // `channel` tracks how the ticket arrived (same column the portal UI
+  // filters on). `source` was legacy and isn't in the schema. `source_ref`
+  // is optional — only written if the column exists — and is used by
+  // DB-level dedup earlier in this handler.
+  const ticketPayload: Record<string, unknown> = {
+    tenant_id: org.tenant_id,
+    organization_id: org.id,
+    title,
+    description: emailBody,
+    type: 'support',
+    status: 'new',
+    urgency: 'medium',
+    impact: 'medium',
+    channel: 'email',
+    requester_email: senderEmail,
+    custom_fields: { inbound_email_id: email_id, source_ref: sourceRef },
+    ...applyDefaults,
+  };
   const { data: ticket, error } = await svc
     .from('tickets')
-    .insert({
-      tenant_id: org.tenant_id,
-      organization_id: org.id,
-      title,
-      description: emailBody,
-      type: 'support',
-      status: 'new',
-      urgency: 'medium',
-      impact: 'medium',
-      requester_email: senderEmail,
-      source: 'email',
-      custom_fields: { inbound_email_id: email_id },
-      ...applyDefaults,
-    })
+    .insert(ticketPayload)
     .select('id, ticket_number')
     .single();
 
