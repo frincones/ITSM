@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+import {
+  createTicketFromInboundEmail,
+  extractOrgSlug as extractOrgSlugService,
+} from '~/lib/services/inbound-email.service';
+
 /* -------------------------------------------------------------------------- */
 /*  POST /api/webhooks/resend — Handle inbound email replies from Resend       */
 /* -------------------------------------------------------------------------- */
@@ -44,23 +49,23 @@ export async function POST(req: NextRequest) {
     // ── Extract ticket number from subject ────────────────────────────
     const ticketMatch = subject.match(/(TKT-\d{4}-\d{5}|PDZ-\d{4}-\d{5})/i);
 
-    // If there's no ticket number, try to treat this as a NEW ticket for an
-    // organization identified by a +slug in the To address.
+    // If there's no ticket number, delegate to the shared service that
+    // also powers the reconciler cron. Dedup + routing + round-robin
+    // all live there, so the webhook and the cron always agree.
     if (!ticketMatch) {
-      const slug = extractOrgSlug(to);
-      if (!slug) {
+      const slugPreview = extractOrgSlugService(to);
+      if (!slugPreview) {
         processing.delete(email_id);
         console.log('[Resend Inbound] No ticket number and no org slug:', { subject, to });
         return NextResponse.json({ ok: true, skipped: 'no ticket number and no org slug' });
       }
 
-      const result = await handleNewTicketFromEmail({
-        email_id,
-        from: from ?? '',
-        to: Array.isArray(to) ? to.join(', ') : String(to ?? ''),
-        subject,
-        slug,
-      });
+      const svcCli = getSvc();
+      const result = await createTicketFromInboundEmail(
+        svcCli,
+        { email_id, from: from ?? '', to, subject },
+        { resendApiKey: process.env.RESEND_API_KEY ?? undefined },
+      );
       processing.delete(email_id);
       return NextResponse.json(result);
     }
@@ -275,176 +280,9 @@ function extractEmail(from: string): string {
   return from;
 }
 
-/**
- * Extract the +slug from a Resend "To" header.
- * Example: "soporte+podenza@itsm.tdxcore.com" → "podenza"
- * Works against a string or an array of recipients.
- */
-function extractOrgSlug(to: unknown): string | null {
-  const candidates: string[] = Array.isArray(to)
-    ? (to as unknown[]).map((x) => String(x))
-    : to
-      ? [String(to)]
-      : [];
+// extractOrgSlug moved to ~/lib/services/inbound-email.service so it can
+// be shared with the reconciler cron (imported as extractOrgSlugService).
 
-  for (const entry of candidates) {
-    // strip any display name wrapper: "Foo <soporte+podenza@...>" → email
-    const addr = extractEmail(entry);
-    const m = addr.match(/^[^+@\s]+\+([a-z0-9._-]+)@/i);
-    if (m) return m[1]!.toLowerCase();
-  }
-  return null;
-}
-
-/**
- * Create a new ticket from an inbound email addressed to soporte+<slug>@...
- * Looks up the organization by slug (and falls back to inbound_email_slug
- * when that column exists) and creates a ticket owned by that org.
- */
-async function handleNewTicketFromEmail(args: {
-  email_id: string;
-  from: string;
-  to: string;
-  subject: string;
-  slug: string;
-}) {
-  const { email_id, from, subject, slug } = args;
-  const svc = getSvc();
-
-  // Look up org by slug — matches either the canonical `slug` column or
-  // the optional `inbound_email_slug` alias. The handler used to also
-  // pull default_group_id/default_agent_id/default_category_id for
-  // pre-routing, but those columns were never migrated to the live DB;
-  // including them in the SELECT made PostgREST return a silent 42703
-  // error and the org lookup always failed (bug found 2026-04-22).
-  type OrgRow = {
-    id: string;
-    tenant_id: string;
-    name: string;
-  };
-  const orgLookup = await svc
-    .from('organizations')
-    .select('id, tenant_id, name')
-    .or(`slug.eq.${slug},inbound_email_slug.eq.${slug}`)
-    .limit(1)
-    .maybeSingle();
-  if (orgLookup.error) {
-    console.error('[Resend Inbound] org lookup error:', orgLookup.error.message);
-  }
-  const org: OrgRow | null = (orgLookup.data as OrgRow | null) ?? null;
-
-  if (!org) {
-    console.log('[Resend Inbound] Slug not mapped to any org:', slug);
-    return { ok: true, skipped: 'unknown org slug', slug };
-  }
-
-  const senderEmail = extractEmail(from);
-  const sourceRef = `resend:${email_id}`;
-
-  // Fetch email body
-  let emailBody = '';
-  const resendKey = process.env.RESEND_API_KEY;
-  if (resendKey) {
-    try {
-      const r = await fetch(
-        `https://api.resend.com/emails/receiving/${email_id}`,
-        { headers: { Authorization: `Bearer ${resendKey}` } },
-      );
-      if (r.ok) {
-        const d = await r.json();
-        emailBody = cleanEmailReply(d.text ?? d.html ?? '');
-      }
-    } catch {
-      // swallow — will use fallback below
-    }
-  }
-  if (!emailBody.trim()) {
-    emailBody = `[Solicitud recibida por email de ${senderEmail}]`;
-  }
-
-  const title =
-    (subject ?? '').trim().slice(0, 200) ||
-    `Solicitud por email de ${senderEmail}`;
-
-  // ── DB-level dedup ─────────────────────────────────────────────────
-  // Resend occasionally retries a delivered inbound email (or the same
-  // handler invocation hits two Vercel serverless instances in parallel)
-  // which used to create duplicate tickets. The in-memory `processing`
-  // Set only catches the concurrent case on the same instance, so we
-  // also check the DB for any existing ticket tagged with the same
-  // `custom_fields.inbound_email_id`.
-  const { data: existingTicket } = await svc
-    .from('tickets')
-    .select('id, ticket_number')
-    .eq('tenant_id', org.tenant_id)
-    .eq('custom_fields->>inbound_email_id', email_id)
-    .limit(1)
-    .maybeSingle();
-  if (existingTicket) {
-    console.log(
-      '[Resend Inbound] Email already processed into ticket:',
-      (existingTicket as { ticket_number: string }).ticket_number,
-    );
-    return {
-      ok: true,
-      duplicate: true,
-      ticket: (existingTicket as { ticket_number: string }).ticket_number,
-    };
-  }
-
-  const ticketPayload: Record<string, unknown> = {
-    tenant_id: org.tenant_id,
-    organization_id: org.id,
-    title,
-    description: emailBody,
-    type: 'support',
-    status: 'new',
-    urgency: 'medium',
-    impact: 'medium',
-    channel: 'email',
-    requester_email: senderEmail,
-    custom_fields: { inbound_email_id: email_id, source_ref: sourceRef },
-  };
-  const { data: ticket, error } = await svc
-    .from('tickets')
-    .insert(ticketPayload)
-    .select('id, ticket_number')
-    .single();
-
-  if (error) {
-    console.error('[Resend Inbound] Failed to create ticket from email:', error.message);
-    return { ok: false, error: error.message };
-  }
-
-  // ── Round-robin assignment (same logic portal tickets use) ─────────
-  // Rotates through eligible TDX agents via the per-tenant cursor in
-  // tenants.settings.round_robin_last_agent_id. We AWAIT this instead
-  // of fire-and-forget because Vercel serverless terminates the function
-  // right after the response, killing unawaited background tasks. Any
-  // failure is logged but doesn't fail the webhook — the ticket stays
-  // as 'new' and a human can assign it.
-  try {
-    await assignViaRoundRobin(svc, ticket.id, org.tenant_id);
-  } catch (err) {
-    console.error('[Resend Inbound] round-robin failed:', err);
-  }
-
-  console.log(
-    '[Resend Inbound] Created ticket',
-    ticket?.ticket_number,
-    'for org',
-    org.name,
-    'from',
-    senderEmail,
-  );
-  return {
-    ok: true,
-    created: true,
-    ticket: ticket?.ticket_number,
-    organization: org.name,
-    from: senderEmail,
-  };
-}
 
 function cleanEmailReply(body: string): string {
   let cleaned = body;
@@ -484,84 +322,3 @@ function cleanEmailReply(body: string): string {
   return cleaned || body.trim();
 }
 
-
-// ════════════════════════════════════════════════════════════════════════════
-//  Round-robin assignment for new inbound-email tickets
-// ════════════════════════════════════════════════════════════════════════════
-//
-// Mirror of autoAssignRoundRobin() in lib/actions/tickets.ts. We replicate
-// the logic here instead of importing to avoid the server-action runtime
-// overhead and to keep the webhook handler dependency-free from the
-// Supabase SSR client type.
-// svc is typed as `any` because the service-role client returns Supabase
-// Database typing that conflicts with the locally-generated Database type;
-// we only write well-known columns, so skipping the strictness is safe.
-async function assignViaRoundRobin(
-  svc: any, // eslint-disable-line @typescript-eslint/no-explicit-any
-  ticketId: string,
-  tenantId: string,
-): Promise<void> {
-  const EXCLUDED_EMAILS = ['admin@novadesk.com'];
-
-  const { data: allAgents } = await svc
-    .from('agents')
-    .select('id, user_id, email, name, role')
-    .eq('tenant_id', tenantId)
-    .eq('is_active', true)
-    .in('role', ['admin', 'supervisor', 'agent'])
-    .order('name', { ascending: true });
-
-  const agents = ((allAgents ?? []) as Array<{ id: string; email: string; user_id: string | null; name: string }>).filter(
-    (a) => !EXCLUDED_EMAILS.includes(a.email.toLowerCase()),
-  );
-  if (agents.length === 0) return;
-
-  const { data: tenant } = await svc
-    .from('tenants')
-    .select('settings')
-    .eq('id', tenantId)
-    .maybeSingle();
-  const settings =
-    ((tenant as { settings: Record<string, unknown> } | null)?.settings as
-      | Record<string, unknown>
-      | null) ?? {};
-  const lastAgentId =
-    typeof settings.round_robin_last_agent_id === 'string'
-      ? settings.round_robin_last_agent_id
-      : null;
-
-  const lastIdx = agents.findIndex((a) => a.id === lastAgentId);
-  const nextIdx = lastIdx === -1 ? 0 : (lastIdx + 1) % agents.length;
-  const best = agents[nextIdx];
-  if (!best) return;
-
-  await svc
-    .from('tenants')
-    .update({
-      settings: { ...settings, round_robin_last_agent_id: best.id },
-    })
-    .eq('id', tenantId);
-
-  await svc
-    .from('tickets')
-    .update({
-      assigned_agent_id: best.id,
-      status: 'assigned',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', ticketId);
-
-  // Add assignee as follower so they stay subscribed to the ticket.
-  await svc
-    .from('ticket_followers')
-    .upsert(
-      {
-        tenant_id: tenantId,
-        ticket_id: ticketId,
-        agent_id: best.id,
-        added_reason: 'assignment',
-        is_auto: true,
-      },
-      { onConflict: 'ticket_id,agent_id', ignoreDuplicates: true },
-    );
-}
