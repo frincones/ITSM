@@ -743,15 +743,16 @@ export function TicketListClient({
                     </Badge>
                   </TableCell>
 
-                  {/* Client priority rank — inline editable for client users,
-                      read-only badge for TDX agents. */}
+                  {/* Client priority rank — inline editable for everyone
+                      (clients AND TDX agents can set/update it from the
+                      list). The server action enforces per-type uniqueness. */}
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <ClientRankCell
                       ticketId={ticket.id}
                       rawRank={(ticket.custom_fields ?? {})[
                         'client_rank' as keyof typeof ticket.custom_fields
                       ]}
-                      editable={isClient}
+                      editable={true}
                     />
                   </TableCell>
 
