@@ -345,6 +345,49 @@ async function fanOutToFollowers(
   );
 }
 
+/**
+ * Fan-out in-app only (no email). Used for "ambient" events where followers
+ * don't need their inbox pinged — comments/replies (the requester already
+ * got the email, agents can see it in the UI) and rapid reassignments
+ * (the previous "assigned" email just went out).
+ */
+async function fanOutToFollowersInAppOnly(
+  evt: TicketEvent,
+  inAppTitle: string,
+  inAppBody: string,
+) {
+  const recipients = await getFanOutRecipients(evt);
+  const link = `/home/tickets/${evt.ticketId}`;
+  await Promise.all(
+    recipients
+      .filter((r) => r.userId)
+      .map((r) =>
+        notifyInApp(evt.tenantId, r.userId as string, inAppTitle, inAppBody, 'ticket', evt.ticketId, link)
+          .catch(() => {}),
+      ),
+  );
+}
+
+/**
+ * Returns true if this ticket was just assigned (< 60s ago). Detected by
+ * the in-app notification trail we write for every assignment. If the
+ * previous "Ticket asignado / Reasignado" notification is recent, a
+ * re-assignment email to followers would be a duplicate — they still
+ * get the in-app update, they just don't get a second inbox hit.
+ */
+async function wasRecentlyAssigned(ticketId: string): Promise<boolean> {
+  const svc = getSvc();
+  const sixtySecAgo = new Date(Date.now() - 60_000).toISOString();
+  const { count } = await svc
+    .from('notifications')
+    .select('id', { head: true, count: 'exact' })
+    .eq('resource_type', 'ticket')
+    .eq('resource_id', ticketId)
+    .or('title.ilike.Ticket asignado%,title.ilike.Reasignado%')
+    .gte('created_at', sixtySecAgo);
+  return (count ?? 0) > 0;
+}
+
 // ── Ticket Created ────────────────────────────────────────────────────────
 
 export async function notifyTicketCreated(evt: TicketEvent) {
@@ -390,26 +433,10 @@ export async function notifyTicketCreated(evt: TicketEvent) {
     console.error('[Notify] staff broadcast on create failed:', err);
   }
 
-  if (evt.agentEmail) {
-    await notifyEmail(evt.agentEmail,
-      `🔔 Nuevo ticket: ${evt.ticketNumber}`,
-      emailTemplate({
-        preheader: `Nuevo ticket de soporte: ${evt.title}`,
-        heading: 'Nuevo Ticket Creado',
-        badgeText: evt.urgency.toUpperCase(),
-        badgeColor: URGENCY_COLORS[evt.urgency] ?? '#6366f1',
-        bodyRows: [
-          { label: 'Ticket', value: `<strong>${evt.ticketNumber}</strong>` },
-          { label: 'Título', value: evt.title },
-          { label: 'Tipo', value: evt.type },
-          { label: 'Urgencia', value: evt.urgency },
-          { label: 'Cliente', value: evt.organization ?? 'N/A' },
-        ],
-        ctaText: 'Ver Ticket',
-        ctaUrl: `https://itsm-web.vercel.app${link}`,
-        footerNote: 'Por favor revisa este ticket y toma acción lo antes posible.',
-      }));
-  }
+  // No actor confirmation email on creation. The in-app notification above
+  // and the "Nuevo ticket" broadcast (also in-app) cover staff awareness;
+  // the actor is staring at the ticket they just created, so an email is
+  // pure noise against the Resend daily cap.
 
   if (evt.requesterEmail) {
     await notifyEmail(evt.requesterEmail,
@@ -461,25 +488,37 @@ export async function notifyTicketAssigned(evt: TicketEvent) {
   }
 
   // Followers — the previous assignee and anyone else watching the ticket
-  // gets a "reassigned" heads-up.
-  await fanOutToFollowers(
-    evt,
-    `🔄 Reasignado: ${evt.ticketNumber} → ${evt.agentName ?? 'nuevo agente'}`,
-    emailTemplate({
-      preheader: `${evt.ticketNumber} cambió de asignado`,
-      heading: 'Ticket Reasignado',
-      bodyRows: [
-        { label: 'Ticket', value: `<strong>${evt.ticketNumber}</strong>` },
-        { label: 'Título', value: evt.title },
-        { label: 'Nuevo asignado', value: `<strong>${evt.agentName ?? '—'}</strong>` },
-      ],
-      ctaText: 'Ver Ticket',
-      ctaUrl: `https://itsm-web.vercel.app${link}`,
-      footerNote: 'Recibes este email porque sigues este ticket. Puedes dejar de seguirlo desde la vista del ticket.',
-    }),
-    `Reasignado ${evt.ticketNumber}`,
-    `Ahora asignado a ${evt.agentName ?? 'otro agente'}`,
-  );
+  // gets a "reassigned" heads-up. If the ticket was assigned again within
+  // the last 60s (e.g. create → auto-assign → manual reassign), the prior
+  // email already went out, so we drop this one to in-app-only rather than
+  // double-pinging watchers.
+  const recentlyAssigned = await wasRecentlyAssigned(evt.ticketId);
+  if (recentlyAssigned) {
+    await fanOutToFollowersInAppOnly(
+      evt,
+      `Reasignado ${evt.ticketNumber}`,
+      `Ahora asignado a ${evt.agentName ?? 'otro agente'}`,
+    );
+  } else {
+    await fanOutToFollowers(
+      evt,
+      `🔄 Reasignado: ${evt.ticketNumber} → ${evt.agentName ?? 'nuevo agente'}`,
+      emailTemplate({
+        preheader: `${evt.ticketNumber} cambió de asignado`,
+        heading: 'Ticket Reasignado',
+        bodyRows: [
+          { label: 'Ticket', value: `<strong>${evt.ticketNumber}</strong>` },
+          { label: 'Título', value: evt.title },
+          { label: 'Nuevo asignado', value: `<strong>${evt.agentName ?? '—'}</strong>` },
+        ],
+        ctaText: 'Ver Ticket',
+        ctaUrl: `https://itsm-web.vercel.app${link}`,
+        footerNote: 'Recibes este email porque sigues este ticket. Puedes dejar de seguirlo desde la vista del ticket.',
+      }),
+      `Reasignado ${evt.ticketNumber}`,
+      `Ahora asignado a ${evt.agentName ?? 'otro agente'}`,
+    );
+  }
 }
 
 // ── Status Changed ────────────────────────────────────────────────────────
@@ -988,25 +1027,15 @@ export async function notifyTicketCommented(evt: TicketEvent) {
     );
   }
 
-  // 3. Follower fan-out — stays internal. Same subject/headers so everyone
-  //    sees the same thread; contacts are never CC'd on follower copies.
+  // 3. Follower fan-out — in-app only. The requester already got the email
+  //    above (public replies) and agents see the full thread in the UI, so
+  //    the follower email was pure duplication against the Resend cap.
+  //    Internal notes stay internal because there's no requester email path.
   if (evt.comment) {
-    const { html, attachments } = await assemble({
-      heading: evt.isInternal ? 'Nota interna nueva' : 'Nueva respuesta pública',
-      preheader: `${evt.agentName ?? 'Un agente'} comentó en ${evt.ticketNumber}`,
-      badgeText: evt.isInternal ? 'INTERNA' : undefined,
-      badgeColor: evt.isInternal ? '#f59e0b' : undefined,
-      messageLabel: evt.isInternal ? 'Nota' : 'Respuesta',
-      footerNote: 'Recibes este email porque estás siguiendo este ticket.',
-    });
-    await fanOutToFollowers(
+    await fanOutToFollowersInAppOnly(
       evt,
-      subject,
-      html,
-      `Comentario en ${evt.ticketNumber}`,
+      evt.isInternal ? `Nota interna en ${evt.ticketNumber}` : `Comentario en ${evt.ticketNumber}`,
       `${evt.agentName ?? 'Agente'}: ${evt.comment.slice(0, 100)}`,
-      headers,
-      attachments,
     );
   }
 }
