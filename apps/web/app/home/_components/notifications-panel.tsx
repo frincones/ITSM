@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
@@ -19,7 +19,6 @@ import { getSupabaseBrowserClient } from '@kit/supabase/browser-client';
 import { Badge } from '@kit/ui/badge';
 import { Button } from '@kit/ui/button';
 import { Card, CardContent } from '@kit/ui/card';
-import { Sheet, SheetContent } from '@kit/ui/sheet';
 import { Tabs, TabsList, TabsTrigger } from '@kit/ui/tabs';
 
 interface Notification {
@@ -86,6 +85,8 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
   const [items, setItems] = useState<Notification[]>([]);
   const [activeTab, setActiveTab] = useState<TabValue>('all');
   const [loaded, setLoaded] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const unreadCount = useMemo(
     () => items.filter((n) => !n.is_read).length,
@@ -172,6 +173,31 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
     };
   }, [userId, fetchNotifications, router]);
 
+  // Close on Escape + click outside
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        panelRef.current &&
+        !panelRef.current.contains(target) &&
+        triggerRef.current &&
+        !triggerRef.current.contains(target)
+      ) {
+        setOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('mousedown', onClick);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('mousedown', onClick);
+    };
+  }, [open]);
+
   const markAsRead = useCallback(async (id: string) => {
     const supabase = getSupabaseBrowserClient();
     setItems((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
@@ -214,11 +240,12 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
   return (
     <>
       <Button
+        ref={triggerRef}
         variant="ghost"
         size="icon"
         className="relative"
         title="Notificaciones"
-        onClick={() => setOpen(true)}
+        onClick={() => setOpen((v) => !v)}
       >
         <Bell className="h-5 w-5" />
         {unreadCount > 0 && (
@@ -228,182 +255,195 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
         )}
       </Button>
 
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent
-          side="right"
-          className="flex w-full flex-col gap-0 p-0 sm:max-w-md"
-        >
-          <div className="border-b border-border px-6 py-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100 dark:bg-indigo-950/40">
-                <Bell className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">
-                  Notificaciones
-                </h2>
-                <p className="text-xs text-muted-foreground">
-                  {unreadCount === 0
-                    ? 'Todo al día'
-                    : `${unreadCount} sin leer`}
-                </p>
-              </div>
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-label="Panel de notificaciones"
+        aria-hidden={!open}
+        className={`fixed right-0 top-0 z-50 flex h-screen w-full max-w-md flex-col border-l border-border bg-card shadow-2xl transition-transform duration-300 ease-out ${
+          open ? 'translate-x-0' : 'pointer-events-none translate-x-full'
+        }`}
+      >
+        <div className="flex items-start justify-between border-b border-border px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100 dark:bg-indigo-950/40">
+              <Bell className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
             </div>
-            <div className="mt-3 flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8"
-                onClick={markAllAsRead}
-                disabled={unreadCount === 0}
-              >
-                <CheckCheck className="mr-1.5 h-4 w-4" />
-                Marcar todas
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8"
-                onClick={() => {
-                  setOpen(false);
-                  router.push('/home/notifications');
-                }}
-              >
-                <Settings className="mr-1.5 h-4 w-4" />
-                Ajustes
-              </Button>
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">
+                Notificaciones
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                {unreadCount === 0 ? 'Todo al día' : `${unreadCount} sin leer`}
+              </p>
             </div>
           </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setOpen(false)}
+            title="Cerrar"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
 
-          <div className="border-b border-border px-6 pt-3 pb-2">
-            <Tabs
-              value={activeTab}
-              onValueChange={(v) => setActiveTab(v as TabValue)}
+        <div className="border-b border-border px-6 py-3">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8"
+              onClick={markAllAsRead}
+              disabled={unreadCount === 0}
             >
-              <TabsList className="w-full justify-start overflow-x-auto">
-                <TabsTrigger value="all">
-                  Todas
-                  {items.length > 0 && (
-                    <Badge variant="secondary" className="ml-2">
-                      {items.length}
-                    </Badge>
-                  )}
-                </TabsTrigger>
-                <TabsTrigger value="unread">
-                  Sin leer
-                  {unreadCount > 0 && (
-                    <Badge className="ml-2 bg-indigo-600 text-white hover:bg-indigo-600">
-                      {unreadCount}
-                    </Badge>
-                  )}
-                </TabsTrigger>
-                <TabsTrigger value="tickets">Tickets</TabsTrigger>
-                <TabsTrigger value="changes">Cambios</TabsTrigger>
-                <TabsTrigger value="sla">SLA</TabsTrigger>
-              </TabsList>
-            </Tabs>
+              <CheckCheck className="mr-1.5 h-4 w-4" />
+              Marcar todas
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8"
+              onClick={() => {
+                setOpen(false);
+                router.push('/home/notifications');
+              }}
+            >
+              <Settings className="mr-1.5 h-4 w-4" />
+              Ajustes
+            </Button>
           </div>
+        </div>
 
-          <div className="flex-1 overflow-y-auto px-4 py-3">
-            {!loaded ? (
-              <div className="space-y-2">
-                {[0, 1, 2].map((i) => (
-                  <div
-                    key={i}
-                    className="h-20 animate-pulse rounded-lg bg-muted"
-                  />
-                ))}
-              </div>
-            ) : filtered.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-center">
-                <Bell className="mb-3 h-10 w-10 text-muted-foreground/40" />
-                <p className="text-sm text-muted-foreground">
-                  No hay notificaciones
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {filtered.map((n) => {
-                  const cfg = getVisualConfig(n);
-                  const Icon = cfg.icon;
-                  return (
-                    <Card
-                      key={n.id}
-                      onClick={() => handleItemClick(n)}
-                      className={`cursor-pointer border transition-all hover:shadow-sm ${
-                        !n.is_read
-                          ? 'border-indigo-200 bg-indigo-50/40 dark:border-indigo-900 dark:bg-indigo-950/20'
-                          : ''
-                      }`}
-                    >
-                      <CardContent className="p-3">
-                        <div className="flex items-start gap-3">
-                          <div
-                            className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg ${cfg.bgColor}`}
-                          >
-                            <Icon className={`h-4 w-4 ${cfg.iconColor}`} />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="mb-1 flex items-start justify-between gap-2">
-                              <h3 className="line-clamp-2 text-sm font-medium text-foreground">
-                                {n.title}
-                              </h3>
-                              {!n.is_read && (
-                                <span className="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-indigo-600" />
-                              )}
-                            </div>
-                            {n.body && (
-                              <p className="mb-1.5 line-clamp-2 text-xs text-muted-foreground">
-                                {n.body}
-                              </p>
+        <div className="border-b border-border px-6 pt-3 pb-2">
+          <Tabs
+            value={activeTab}
+            onValueChange={(v) => setActiveTab(v as TabValue)}
+          >
+            <TabsList className="w-full justify-start overflow-x-auto">
+              <TabsTrigger value="all">
+                Todas
+                {items.length > 0 && (
+                  <Badge variant="secondary" className="ml-2">
+                    {items.length}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="unread">
+                Sin leer
+                {unreadCount > 0 && (
+                  <Badge className="ml-2 bg-indigo-600 text-white hover:bg-indigo-600">
+                    {unreadCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="tickets">Tickets</TabsTrigger>
+              <TabsTrigger value="changes">Cambios</TabsTrigger>
+              <TabsTrigger value="sla">SLA</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-3">
+          {!loaded ? (
+            <div className="space-y-2">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="h-20 animate-pulse rounded-lg bg-muted"
+                />
+              ))}
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <Bell className="mb-3 h-10 w-10 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">
+                No hay notificaciones
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filtered.map((n) => {
+                const cfg = getVisualConfig(n);
+                const Icon = cfg.icon;
+                return (
+                  <Card
+                    key={n.id}
+                    onClick={() => handleItemClick(n)}
+                    className={`cursor-pointer border transition-all hover:shadow-sm ${
+                      !n.is_read
+                        ? 'border-indigo-200 bg-indigo-50/40 dark:border-indigo-900 dark:bg-indigo-950/20'
+                        : ''
+                    }`}
+                  >
+                    <CardContent className="p-3">
+                      <div className="flex items-start gap-3">
+                        <div
+                          className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg ${cfg.bgColor}`}
+                        >
+                          <Icon className={`h-4 w-4 ${cfg.iconColor}`} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="mb-1 flex items-start justify-between gap-2">
+                            <h3 className="line-clamp-2 text-sm font-medium text-foreground">
+                              {n.title}
+                            </h3>
+                            {!n.is_read && (
+                              <span className="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-indigo-600" />
                             )}
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs text-muted-foreground">
-                                {timeAgo(n.created_at)}
-                              </span>
-                              <div className="flex items-center gap-0.5">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6"
-                                  title={n.is_read ? 'Marcar sin leer' : 'Marcar leída'}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (n.is_read) markAsUnread(n.id);
-                                    else markAsRead(n.id);
-                                  }}
-                                >
-                                  {n.is_read ? (
-                                    <Bell className="h-3.5 w-3.5" />
-                                  ) : (
-                                    <Check className="h-3.5 w-3.5" />
-                                  )}
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6"
-                                  title="Descartar"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    dismiss(n.id);
-                                  }}
-                                >
-                                  <X className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
+                          </div>
+                          {n.body && (
+                            <p className="mb-1.5 line-clamp-2 text-xs text-muted-foreground">
+                              {n.body}
+                            </p>
+                          )}
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-muted-foreground">
+                              {timeAgo(n.created_at)}
+                            </span>
+                            <div className="flex items-center gap-0.5">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                title={n.is_read ? 'Marcar sin leer' : 'Marcar leída'}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (n.is_read) markAsUnread(n.id);
+                                  else markAsRead(n.id);
+                                }}
+                              >
+                                {n.is_read ? (
+                                  <Bell className="h-3.5 w-3.5" />
+                                ) : (
+                                  <Check className="h-3.5 w-3.5" />
+                                )}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                title="Descartar"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  dismiss(n.id);
+                                }}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </Button>
                             </div>
                           </div>
                         </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
     </>
   );
 }
