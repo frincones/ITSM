@@ -69,39 +69,90 @@ function matchesTab(n: Notification, tab: TabValue): boolean {
   return false;
 }
 
+// Shared AudioContext — created lazily and unlocked on first user gesture
+// so subsequent realtime events can play sound without a fresh interaction.
+let sharedAudioCtx: AudioContext | null = null;
+
+function getOrCreateAudioCtx(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  if (sharedAudioCtx) return sharedAudioCtx;
+  const AC =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AC) return null;
+  try {
+    sharedAudioCtx = new AC();
+    return sharedAudioCtx;
+  } catch {
+    return null;
+  }
+}
+
+function unlockAudio() {
+  const ctx = getOrCreateAudioCtx();
+  if (ctx && ctx.state === 'suspended') void ctx.resume();
+}
+
 function playNotificationSound() {
   try {
-    const AC: typeof AudioContext | undefined =
-      typeof window !== 'undefined'
-        ? window.AudioContext ||
-          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-        : undefined;
-    if (!AC) return;
-    const ctx = new AC();
+    const ctx = getOrCreateAudioCtx();
+    if (!ctx) return;
     if (ctx.state === 'suspended') void ctx.resume();
 
     const now = ctx.currentTime;
     const master = ctx.createGain();
-    master.gain.value = 0.15;
+    master.gain.value = 0.45; // louder than the original 0.15
     master.connect(ctx.destination);
 
-    // Two-note ding: C6 (1046.5) → E6 (1318.5), soft exponential decay
-    [{ f: 1046.5, t: now }, { f: 1318.5, t: now + 0.12 }].forEach(({ f, t }) => {
+    // Three-note arpeggio C6 → E6 → G6 with triangle oscillator (more present
+    // than a pure sine), each note 160ms with overlapping decay for a clearer
+    // 'ding-ding' that cuts through OS audio.
+    [
+      { f: 1046.5, t: now },
+      { f: 1318.5, t: now + 0.09 },
+      { f: 1567.98, t: now + 0.18 },
+    ].forEach(({ f, t }) => {
       const osc = ctx.createOscillator();
       const g = ctx.createGain();
-      osc.type = 'sine';
+      osc.type = 'triangle';
       osc.frequency.value = f;
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(1, t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+      g.gain.exponentialRampToValueAtTime(1, t + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
       osc.connect(g).connect(master);
       osc.start(t);
-      osc.stop(t + 0.4);
+      osc.stop(t + 0.5);
     });
-
-    setTimeout(() => ctx.close().catch(() => {}), 600);
   } catch {
-    // autoplay policy or unsupported — silently ignore
+    // Unsupported — silently ignore
+  }
+}
+
+function showBrowserNotification(
+  title: string,
+  body: string | null,
+  link: string | null,
+  tag: string,
+) {
+  if (typeof window === 'undefined' || !('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  // Skip duplicate desktop alert when the tab is actually in focus —
+  // the in-app toast + sound are enough there.
+  if (document.visibilityState === 'visible' && document.hasFocus()) return;
+  try {
+    const n = new Notification(title, {
+      body: body ?? undefined,
+      icon: '/favicon.ico',
+      tag,
+      requireInteraction: false,
+    });
+    n.onclick = () => {
+      window.focus();
+      if (link) window.location.href = link;
+      n.close();
+    };
+  } catch {
+    /* ignore */
   }
 }
 
@@ -201,6 +252,7 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
           const toInsert = enriched ?? n;
           setItems((prev) => (prev.some((p) => p.id === toInsert.id) ? prev : [toInsert, ...prev]));
           playNotificationSound();
+          showBrowserNotification(toInsert.title, toInsert.body, toInsert.link, toInsert.id);
           const cfg = getVisualConfig(toInsert);
           const ToastIcon = cfg.icon;
           toast.custom(
@@ -294,6 +346,31 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
       supabase.removeChannel(channel);
     };
   }, [userId, fetchNotifications, router, enrichWithClient]);
+
+  // One-time audio unlock on first user gesture + ask for Notification permission
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    // Request desktop notification permission (default prompt once)
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+
+    const handler = () => {
+      unlockAudio();
+      window.removeEventListener('click', handler);
+      window.removeEventListener('keydown', handler);
+      window.removeEventListener('touchstart', handler);
+    };
+    window.addEventListener('click', handler, { once: true });
+    window.addEventListener('keydown', handler, { once: true });
+    window.addEventListener('touchstart', handler, { once: true });
+    return () => {
+      window.removeEventListener('click', handler);
+      window.removeEventListener('keydown', handler);
+      window.removeEventListener('touchstart', handler);
+    };
+  }, []);
 
   // Close on Escape + click outside
   useEffect(() => {
