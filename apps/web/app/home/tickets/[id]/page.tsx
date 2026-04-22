@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 
 import { getSupabaseServerClient } from '@kit/supabase/server-client';
 
-import { listFollowers } from '~/lib/services/ticket-followers.service';
+import { addFollower, listFollowers } from '~/lib/services/ticket-followers.service';
 
 import { TicketDetailClient } from './_components/ticket-detail-client';
 
@@ -46,16 +46,29 @@ export default async function TicketDetailPage({
   if (authUser) {
     const { data: agentRecord } = await client
       .from('agents')
-      .select('id, role')
+      .select('id, role, tenant_id')
       .eq('user_id', authUser.id)
       .maybeSingle();
-    currentAgentId = (agentRecord as { id: string; role: string } | null)?.id ?? null;
+    currentAgentId = (agentRecord as { id: string; role: string; tenant_id: string } | null)?.id ?? null;
     if (agentRecord?.role === 'admin' || agentRecord?.role === 'supervisor') {
       userRole = 'admin';
     } else if (agentRecord?.role === 'agent') {
       userRole = 'agent';
     } else {
       userRole = 'client'; // readonly or org_user
+    }
+
+    // Auto-follow on view: any agent who opens a ticket becomes a follower
+    // so future updates reach them via notifyTicketCommented / notifyTicketStatusChanged.
+    // Idempotent — if they're already following for another reason (creator,
+    // followup, mention) the first reason wins thanks to onConflict.
+    if (currentAgentId && userRole !== 'client' && agentRecord?.tenant_id) {
+      addFollower(client, {
+        tenantId: agentRecord.tenant_id as string,
+        ticketId: id,
+        agentId: currentAgentId,
+        reason: 'view',
+      }).catch(() => {});
     }
   }
 

@@ -18,7 +18,8 @@ export type FollowerReason =
   | 'reassignment'
   | 'followup'
   | 'mention'
-  | 'manual';
+  | 'manual'
+  | 'view';
 
 /**
  * Idempotent add. If the (ticket, agent) pair already exists, no-op (we
