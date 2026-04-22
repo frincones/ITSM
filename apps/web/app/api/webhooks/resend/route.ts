@@ -418,11 +418,16 @@ async function handleNewTicketFromEmail(args: {
 
   // ── Round-robin assignment (same logic portal tickets use) ─────────
   // Rotates through eligible TDX agents via the per-tenant cursor in
-  // tenants.settings.round_robin_last_agent_id. Fire-and-forget so a
-  // failure doesn't block the ticket creation response.
-  assignViaRoundRobin(svc, ticket.id, org.tenant_id).catch((err) =>
-    console.error('[Resend Inbound] round-robin failed:', err),
-  );
+  // tenants.settings.round_robin_last_agent_id. We AWAIT this instead
+  // of fire-and-forget because Vercel serverless terminates the function
+  // right after the response, killing unawaited background tasks. Any
+  // failure is logged but doesn't fail the webhook — the ticket stays
+  // as 'new' and a human can assign it.
+  try {
+    await assignViaRoundRobin(svc, ticket.id, org.tenant_id);
+  } catch (err) {
+    console.error('[Resend Inbound] round-robin failed:', err);
+  }
 
   console.log(
     '[Resend Inbound] Created ticket',
