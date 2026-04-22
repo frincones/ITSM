@@ -19,14 +19,8 @@ import { getSupabaseBrowserClient } from '@kit/supabase/browser-client';
 import { Badge } from '@kit/ui/badge';
 import { Button } from '@kit/ui/button';
 import { Card, CardContent } from '@kit/ui/card';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from '@kit/ui/sheet';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@kit/ui/tabs';
+import { Sheet, SheetContent } from '@kit/ui/sheet';
+import { Tabs, TabsList, TabsTrigger } from '@kit/ui/tabs';
 
 interface Notification {
   id: string;
@@ -40,7 +34,7 @@ interface Notification {
 }
 
 interface NotificationsPanelProps {
-  userId: string;
+  userId: string | undefined;
 }
 
 type TabValue = 'all' | 'unread' | 'tickets' | 'changes' | 'sla';
@@ -99,6 +93,7 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
   );
 
   const fetchNotifications = useCallback(async () => {
+    if (!userId) return;
     const supabase = getSupabaseBrowserClient();
     const { data } = await supabase
       .from('notifications')
@@ -217,29 +212,36 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
   const filtered = items.filter((n) => matchesTab(n, activeTab));
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative" title="Notificaciones">
-          <Bell className="h-5 w-5" />
-          {unreadCount > 0 && (
-            <Badge className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center p-0 text-xs">
-              {unreadCount > 99 ? '99+' : unreadCount}
-            </Badge>
-          )}
-        </Button>
-      </SheetTrigger>
-      <SheetContent
-        side="right"
-        className="flex w-full flex-col gap-0 p-0 sm:max-w-md"
+    <>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="relative"
+        title="Notificaciones"
+        onClick={() => setOpen(true)}
       >
-        <SheetHeader className="border-b border-border px-6 py-4">
-          <div className="flex items-center justify-between">
+        <Bell className="h-5 w-5" />
+        {unreadCount > 0 && (
+          <Badge className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center p-0 text-xs">
+            {unreadCount > 99 ? '99+' : unreadCount}
+          </Badge>
+        )}
+      </Button>
+
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetContent
+          side="right"
+          className="flex w-full flex-col gap-0 p-0 sm:max-w-md"
+        >
+          <div className="border-b border-border px-6 py-4">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100 dark:bg-indigo-950/40">
                 <Bell className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
               </div>
               <div>
-                <SheetTitle>Notificaciones</SheetTitle>
+                <h2 className="text-lg font-semibold text-foreground">
+                  Notificaciones
+                </h2>
                 <p className="text-xs text-muted-foreground">
                   {unreadCount === 0
                     ? 'Todo al día'
@@ -247,66 +249,62 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
                 </p>
               </div>
             </div>
+            <div className="mt-3 flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={markAllAsRead}
+                disabled={unreadCount === 0}
+              >
+                <CheckCheck className="mr-1.5 h-4 w-4" />
+                Marcar todas
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8"
+                onClick={() => {
+                  setOpen(false);
+                  router.push('/home/notifications');
+                }}
+              >
+                <Settings className="mr-1.5 h-4 w-4" />
+                Ajustes
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-2 pt-1">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8"
-              onClick={markAllAsRead}
-              disabled={unreadCount === 0}
-            >
-              <CheckCheck className="mr-1.5 h-4 w-4" />
-              Marcar todas
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8"
-              onClick={() => {
-                setOpen(false);
-                router.push('/home/notifications');
-              }}
-            >
-              <Settings className="mr-1.5 h-4 w-4" />
-              Ajustes
-            </Button>
-          </div>
-        </SheetHeader>
 
-        <Tabs
-          value={activeTab}
-          onValueChange={(v) => setActiveTab(v as TabValue)}
-          className="flex min-h-0 flex-1 flex-col"
-        >
           <div className="border-b border-border px-6 pt-3 pb-2">
-            <TabsList className="w-full justify-start overflow-x-auto">
-              <TabsTrigger value="all">
-                Todas
-                {items.length > 0 && (
-                  <Badge variant="secondary" className="ml-2">
-                    {items.length}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="unread">
-                Sin leer
-                {unreadCount > 0 && (
-                  <Badge className="ml-2 bg-indigo-600 text-white hover:bg-indigo-600">
-                    {unreadCount}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="tickets">Tickets</TabsTrigger>
-              <TabsTrigger value="changes">Cambios</TabsTrigger>
-              <TabsTrigger value="sla">SLA</TabsTrigger>
-            </TabsList>
+            <Tabs
+              value={activeTab}
+              onValueChange={(v) => setActiveTab(v as TabValue)}
+            >
+              <TabsList className="w-full justify-start overflow-x-auto">
+                <TabsTrigger value="all">
+                  Todas
+                  {items.length > 0 && (
+                    <Badge variant="secondary" className="ml-2">
+                      {items.length}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="unread">
+                  Sin leer
+                  {unreadCount > 0 && (
+                    <Badge className="ml-2 bg-indigo-600 text-white hover:bg-indigo-600">
+                      {unreadCount}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="tickets">Tickets</TabsTrigger>
+                <TabsTrigger value="changes">Cambios</TabsTrigger>
+                <TabsTrigger value="sla">SLA</TabsTrigger>
+              </TabsList>
+            </Tabs>
           </div>
 
-          <TabsContent
-            value={activeTab}
-            className="mt-0 flex-1 overflow-y-auto px-4 py-3"
-          >
+          <div className="flex-1 overflow-y-auto px-4 py-3">
             {!loaded ? (
               <div className="space-y-2">
                 {[0, 1, 2].map((i) => (
@@ -403,9 +401,9 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
                 })}
               </div>
             )}
-          </TabsContent>
-        </Tabs>
-      </SheetContent>
-    </Sheet>
+          </div>
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }
