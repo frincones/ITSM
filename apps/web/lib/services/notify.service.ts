@@ -128,6 +128,20 @@ export async function notifyInApp(
 //  Email via Resend (HTML)
 // ═══════════════════════════════════════════════════════════════════════════
 
+export interface EmailAttachment {
+  filename: string;
+  /** Base64-encoded payload. */
+  content: string;
+  /** Optional MIME type; Resend infers from the filename otherwise. */
+  contentType?: string;
+  /**
+   * Content-ID for inline embedding. Reference it from the HTML as
+   * `<img src="cid:your-id">`. Without this the file shows as a
+   * regular attachment at the bottom of the email.
+   */
+  contentId?: string;
+}
+
 export interface EmailOptions {
   to: string;
   subject: string;
@@ -141,6 +155,8 @@ export interface EmailOptions {
    * a single conversation.
    */
   headers?: Record<string, string>;
+  /** Inline (CID) or regular attachments. */
+  attachments?: EmailAttachment[];
 }
 
 export async function notifyEmail(
@@ -169,6 +185,15 @@ export async function notifyEmail(
     payload.reply_to = [opts.replyTo ?? 'support@itsm.tdxcore.com'];
     if (opts.cc && opts.cc.length) payload.cc = opts.cc;
     if (opts.headers && Object.keys(opts.headers).length) payload.headers = opts.headers;
+    if (opts.attachments && opts.attachments.length) {
+      // Resend attachment schema: { filename, content (base64), content_type?, content_id? }
+      payload.attachments = opts.attachments.map((a) => ({
+        filename: a.filename,
+        content: a.content,
+        content_type: a.contentType,
+        content_id: a.contentId,
+      }));
+    }
 
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -295,6 +320,7 @@ async function fanOutToFollowers(
   inAppTitle: string,
   inAppBody: string,
   emailHeaders?: Record<string, string>,
+  emailAttachments?: EmailAttachment[],
 ) {
   const recipients = await getFanOutRecipients(evt);
   const link = `/home/tickets/${evt.ticketId}`;
@@ -306,6 +332,7 @@ async function fanOutToFollowers(
           subject: emailSubject,
           html: emailHtml,
           headers: emailHeaders,
+          attachments: emailAttachments,
         }),
       ];
       if (r.userId) {
@@ -568,49 +595,202 @@ async function buildThreadingHeaders(
  * history — duplicating more than one quote in every outbound email
  * balloons message size without helping the reader.
  */
-async function buildQuoteFromLastFollowup(
+/**
+ * Builds the "conversation history" block appended to every outbound email.
+ *
+ * Strategy:
+ *   - Fetch up to the last N public followups for the ticket (excluding
+ *     the current one we're about to send).
+ *   - Resolve author names in bulk so we don't do N+1 queries.
+ *   - Render each as a styled block (Gmail-quote style) in chronological
+ *     order, oldest at the top.
+ *
+ * Why include history when RFC threading already groups messages? Because
+ * Outlook (unlike Gmail) doesn't collapse thread participants inline —
+ * each reply is a separate scroll. Having the history embedded means a
+ * recipient can understand the state of the ticket from a single email
+ * without hunting through prior ones.
+ */
+async function buildConversationHistoryHtml(
   ticketId: string,
   currentFollowupId: string | undefined,
 ): Promise<string> {
   try {
     const svc = getSvc();
-    let qb = svc
+    const { data } = await svc
       .from('ticket_followups')
-      .select('content, content_html, is_private, created_at, author_id')
+      .select('id, content, content_html, is_private, created_at, author_id, author_type')
       .eq('ticket_id', ticketId)
       .eq('is_private', false)
       .order('created_at', { ascending: false })
-      .limit(2);
-    const { data } = await qb;
-    const rows = (data ?? []) as Array<{
+      .limit(20);
+
+    const rows = ((data ?? []) as Array<{
+      id: string;
       content: string;
       content_html: string | null;
       created_at: string;
       author_id: string;
-    }>;
-    // Skip the row that matches the current followup we're about to send.
-    const prior = rows.find((r, idx) => idx > 0 || !currentFollowupId);
-    if (!prior) return '';
+      author_type: string | null;
+    }>).filter((r) => r.id !== currentFollowupId);
 
-    const when = new Date(prior.created_at).toLocaleString('es-ES', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    });
-    const body = prior.content_html ?? escapeHtml(prior.content).replace(/\n/g, '<br>');
+    if (rows.length === 0) return '';
+
+    // Bulk lookup of author names (agents table keyed by user_id; contacts
+    // when author_type='contact').
+    const agentUserIds = Array.from(
+      new Set(
+        rows.filter((r) => r.author_type !== 'contact').map((r) => r.author_id),
+      ),
+    );
+    const contactIds = Array.from(
+      new Set(
+        rows.filter((r) => r.author_type === 'contact').map((r) => r.author_id),
+      ),
+    );
+
+    const agentMap = new Map<string, string>();
+    if (agentUserIds.length) {
+      const { data: agents } = await svc
+        .from('agents')
+        .select('user_id, name')
+        .in('user_id', agentUserIds);
+      for (const a of (agents ?? []) as Array<{ user_id: string | null; name: string | null }>) {
+        if (a.user_id) agentMap.set(a.user_id, a.name ?? 'Agente');
+      }
+    }
+    const contactMap = new Map<string, string>();
+    if (contactIds.length) {
+      const { data: contacts } = await svc
+        .from('contacts')
+        .select('id, name')
+        .in('id', contactIds);
+      for (const c of (contacts ?? []) as Array<{ id: string; name: string | null }>) {
+        contactMap.set(c.id, c.name ?? 'Cliente');
+      }
+    }
+
+    const chronological = rows.slice().reverse();
+    const items = chronological
+      .map((r) => {
+        const when = new Date(r.created_at).toLocaleString('es-ES', {
+          dateStyle: 'medium',
+          timeStyle: 'short',
+        });
+        const name =
+          r.author_type === 'contact'
+            ? contactMap.get(r.author_id) ?? 'Cliente'
+            : agentMap.get(r.author_id) ?? 'Agente';
+        const body =
+          r.content_html ?? escapeHtml(r.content).replace(/\n/g, '<br>');
+        return `
+          <div style="margin:10px 0;padding:10px 12px;border-left:3px solid #d1d5db;background:#f9fafb;border-radius:0 6px 6px 0;">
+            <div style="font-size:11px;color:#6b7280;margin-bottom:6px;">
+              <strong style="color:#374151;">${escapeHtml(name)}</strong>
+              <span style="margin:0 6px;">·</span>
+              ${when}
+            </div>
+            <div style="font-size:13px;color:#374151;line-height:1.55;">
+              ${body}
+            </div>
+          </div>
+        `;
+      })
+      .join('');
 
     return `
-      <div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;">
-        <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">
-          El ${when} en el ticket escribieron:
+      <div style="margin-top:28px;padding-top:18px;border-top:1px solid #e5e7eb;">
+        <div style="font-size:11px;font-weight:700;color:#6b7280;letter-spacing:0.6px;text-transform:uppercase;margin-bottom:10px;">
+          Historial de la conversación (${chronological.length})
         </div>
-        <blockquote style="margin:0;padding:0 0 0 12px;border-left:3px solid #d1d5db;color:#4b5563;font-size:13px;line-height:1.55;">
-          ${body}
-        </blockquote>
+        ${items}
       </div>
     `;
   } catch {
     return '';
   }
+}
+
+/**
+ * Pull images referenced by the email HTML out of Supabase Storage and
+ * embed them as CID attachments. Returns a rewritten HTML that points at
+ * `cid:<id>` URLs instead of external signed URLs, plus the attachment
+ * list for Resend.
+ *
+ * Why: Outlook (and most corporate mail filters) block external images by
+ * default — "Some content in this message has been blocked because the
+ * sender isn't in your Safe senders list." CID attachments ship the image
+ * inside the MIME part, so nothing is ever fetched from a third party and
+ * the image renders immediately.
+ *
+ * Only URLs that look like our Supabase Storage (hostname match) are
+ * embedded; other images stay untouched so an image that points at, say,
+ * an external avatar doesn't get bundled.
+ */
+async function prepareEmailAssets(
+  html: string,
+): Promise<{ html: string; attachments: EmailAttachment[] }> {
+  const supaBaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
+  const supaHost = supaBaseUrl ? new URL(supaBaseUrl).host : '';
+  if (!supaHost) return { html, attachments: [] };
+
+  // Collect every img src in the HTML that points at our Supabase host.
+  const imgRe = /<img\b[^>]*\bsrc\s*=\s*"([^"]+)"[^>]*>/gi;
+  const seen = new Map<string, { cid: string; filename: string }>();
+  const matches: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = imgRe.exec(html)) !== null) {
+    const src = m[1]!;
+    if (!src.includes(supaHost)) continue;
+    if (seen.has(src)) continue;
+    matches.push(src);
+    const parsed = (() => {
+      try {
+        return new URL(src);
+      } catch {
+        return null;
+      }
+    })();
+    const rawName = parsed ? parsed.pathname.split('/').pop() ?? 'image' : 'image';
+    const filename = rawName.split('?')[0]?.replace(/[^a-zA-Z0-9._-]/g, '_') ?? 'image.png';
+    const cid = `img-${crypto.randomUUID()}`;
+    seen.set(src, { cid, filename });
+  }
+
+  if (matches.length === 0) return { html, attachments: [] };
+
+  // Download each image via service-role from Storage and encode as base64.
+  // Signed URLs work for this too — we just fetch and buffer the bytes.
+  const attachments: EmailAttachment[] = [];
+  for (const src of matches) {
+    try {
+      const res = await fetch(src);
+      if (!res.ok) continue;
+      const contentType = res.headers.get('content-type') ?? 'image/png';
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length === 0) continue;
+      const { cid, filename } = seen.get(src)!;
+      attachments.push({
+        filename,
+        content: buf.toString('base64'),
+        contentType,
+        contentId: cid,
+      });
+    } catch {
+      /* skip failed fetches — the original URL stays as fallback */
+    }
+  }
+
+  // Rewrite src="url" → src="cid:xxx" for successfully downloaded images.
+  let rewritten = html;
+  for (const [src, { cid }] of seen.entries()) {
+    if (!attachments.find((a) => a.contentId === cid)) continue;
+    // Use a regex that matches both single and escaped quote variants.
+    rewritten = rewritten.split(`"${src}"`).join(`"cid:${cid}"`);
+    rewritten = rewritten.split(`'${src}'`).join(`'cid:${cid}'`);
+  }
+
+  return { html: rewritten, attachments };
 }
 
 function escapeHtml(s: string): string {
@@ -635,8 +815,17 @@ async function resolveCcEmails(
   tenantId: string,
   contactIds: string[],
   agentIds: string[],
+  /** Emails already present in the To: header — typically the requester.
+   *  We drop any match (case-insensitive) so the same address never
+   *  appears twice, and so Gmail's "to me + 1 more" label doesn't lie. */
+  excludeEmails: Array<string | null | undefined> = [],
 ): Promise<string[]> {
   const emails = new Set<string>();
+  const exclude = new Set(
+    excludeEmails
+      .filter((e): e is string => Boolean(e))
+      .map((e) => e.toLowerCase()),
+  );
   try {
     const svc = getSvc();
 
@@ -647,7 +836,10 @@ async function resolveCcEmails(
         .eq('tenant_id', tenantId)
         .in('id', contactIds);
       for (const r of (data ?? []) as Array<{ email: string | null }>) {
-        if (r.email) emails.add(r.email.toLowerCase());
+        if (!r.email) continue;
+        const e = r.email.toLowerCase();
+        if (exclude.has(e)) continue;
+        emails.add(e);
       }
     }
 
@@ -659,7 +851,10 @@ async function resolveCcEmails(
         .eq('role', 'readonly')
         .in('id', agentIds);
       for (const r of (data ?? []) as Array<{ email: string | null; role: string | null }>) {
-        if (r.email && r.role === 'readonly') emails.add(r.email.toLowerCase());
+        if (!r.email || r.role !== 'readonly') continue;
+        const e = r.email.toLowerCase();
+        if (exclude.has(e)) continue;
+        emails.add(e);
       }
     }
   } catch {
@@ -674,15 +869,14 @@ export async function notifyTicketCommented(evt: TicketEvent) {
 
   const subject = `[#${evt.ticketNumber}] ${evt.title}`;
   const headers = await buildThreadingHeaders(evt.ticketId, evt.emailMessageId);
-  const quote = evt.isInternal
-    ? ''
-    : await buildQuoteFromLastFollowup(evt.ticketId, evt.followupId);
+  const history = await buildConversationHistoryHtml(evt.ticketId, evt.followupId);
   const ccEmails = evt.isInternal
     ? []
     : await resolveCcEmails(
         evt.tenantId,
         evt.ccContactIds ?? [],
         evt.mentionedAgentIds ?? [],
+        [evt.requesterEmail, evt.agentEmail],
       );
 
   // Render the comment body: prefer the sanitized HTML from Tiptap,
@@ -691,50 +885,64 @@ export async function notifyTicketCommented(evt: TicketEvent) {
     ? evt.commentHtml
     : `<div style="white-space:pre-wrap;line-height:1.5;">${escapeHtml(evt.comment ?? '')}</div>`;
 
-  // 1. Email to requester (public reply only).
+  // Build the email body once — same layout for requester and followers,
+  // only the header/footer note change. The last step runs the HTML
+  // through prepareEmailAssets which rewrites image URLs to CID refs and
+  // returns the matching attachment list.
+  async function assemble(params: {
+    heading: string;
+    preheader: string;
+    footerNote: string;
+    badgeText?: string;
+    badgeColor?: string;
+    messageLabel: string;
+  }): Promise<{ html: string; attachments: EmailAttachment[] }> {
+    const rawHtml = emailTemplate({
+      preheader: params.preheader,
+      heading: params.heading,
+      badgeText: params.badgeText,
+      badgeColor: params.badgeColor,
+      bodyRows: [
+        { label: 'Ticket', value: `<strong>#${evt.ticketNumber}</strong>` },
+        { label: 'Por', value: `<strong>${evt.agentName ?? 'Equipo de Soporte'}</strong>` },
+        {
+          label: params.messageLabel,
+          value: `<div style="padding:12px;background:#f0f4ff;border-radius:6px;border-left:3px solid #4f46e5;line-height:1.55;">${commentBody}</div>${history}`,
+        },
+      ],
+      ctaText: 'Abrir ticket',
+      ctaUrl: portalUrl,
+      footerNote: params.footerNote,
+    });
+    return prepareEmailAssets(rawHtml);
+  }
+
+  // 1. Email to requester (public reply only). CCs visible contacts + portal users.
   if (!evt.isInternal && evt.requesterEmail && evt.comment) {
+    const { html, attachments } = await assemble({
+      heading: 'Nueva respuesta en tu ticket',
+      preheader: `${evt.agentName ?? 'Soporte'} respondió a tu ticket ${evt.ticketNumber}`,
+      messageLabel: 'Mensaje',
+      footerNote:
+        'Puedes responder a este email — tu respuesta quedará registrada automáticamente en el ticket.',
+    });
     await notifyEmail({
       to: evt.requesterEmail,
       cc: ccEmails,
       subject,
       headers,
-      html: emailTemplate({
-        preheader: `${evt.agentName ?? 'Soporte'} respondió a tu ticket ${evt.ticketNumber}`,
-        heading: 'Nueva respuesta en tu ticket',
-        bodyRows: [
-          { label: 'Ticket', value: `<strong>#${evt.ticketNumber}</strong>` },
-          { label: 'Respondido por', value: `<strong>${evt.agentName ?? 'Equipo de Soporte'}</strong>` },
-          { label: 'Mensaje', value: `<div style="padding:12px;background:#f0f4ff;border-radius:6px;border-left:3px solid #4f46e5;line-height:1.55;">${commentBody}</div>` },
-        ],
-        ctaText: 'Ver historial completo',
-        ctaUrl: portalUrl,
-        footerNote: `${quote}<div style="margin-top:12px;">Puedes responder a este email — tu respuesta quedará registrada automáticamente en el ticket.</div>`,
-      }),
+      html,
+      attachments,
     });
   }
 
-  // 2. Confirmation email to the actor (only for public replies — internal
-  // notes already appear in the agent's own UI, no need for a copy email).
-  if (!evt.isInternal && evt.agentEmail && evt.comment) {
-    await notifyEmail({
-      to: evt.agentEmail,
-      subject,
-      headers,
-      html: emailTemplate({
-        preheader: `Tu respuesta en ${evt.ticketNumber} fue enviada al requester`,
-        heading: 'Respuesta registrada',
-        bodyRows: [
-          { label: 'Ticket', value: `<strong>#${evt.ticketNumber}</strong>` },
-          { label: 'Enviado a', value: `${evt.requesterEmail ?? 'Requester'}${ccEmails.length ? ` (+ CC: ${ccEmails.join(', ')})` : ''}` },
-          { label: 'Tu respuesta', value: `<div style="padding:12px;background:#f0fdf4;border-radius:6px;border-left:3px solid #10b981;line-height:1.55;">${commentBody}</div>` },
-        ],
-        ctaText: 'Abrir ticket',
-        ctaUrl: portalUrl,
-      }),
-    });
-  }
-
-  // 3. In-app notification to the actor.
+  // 2. In-app notification to the actor. We intentionally DO NOT send a
+  //    confirmation email to the actor — the reply is already visible in
+  //    their UI and an in-app toast fires. Historically this dropped a
+  //    "Respuesta registrada" email into the author's inbox for every
+  //    single reply, which turned into noise (multiple copies per ticket
+  //    thanks to RFC threading). The in-app notification carries the same
+  //    information.
   if (evt.agentUserId) {
     await notifyInApp(
       evt.tenantId,
@@ -747,30 +955,25 @@ export async function notifyTicketCommented(evt: TicketEvent) {
     );
   }
 
-  // 4. Follower fan-out — stays internal. We use the same subject/headers
-  // so everyone sees the same thread, but we never CC the requester's
-  // contacts on follower copies.
+  // 3. Follower fan-out — stays internal. Same subject/headers so everyone
+  //    sees the same thread; contacts are never CC'd on follower copies.
   if (evt.comment) {
+    const { html, attachments } = await assemble({
+      heading: evt.isInternal ? 'Nota interna nueva' : 'Nueva respuesta pública',
+      preheader: `${evt.agentName ?? 'Un agente'} comentó en ${evt.ticketNumber}`,
+      badgeText: evt.isInternal ? 'INTERNA' : undefined,
+      badgeColor: evt.isInternal ? '#f59e0b' : undefined,
+      messageLabel: evt.isInternal ? 'Nota' : 'Respuesta',
+      footerNote: 'Recibes este email porque estás siguiendo este ticket.',
+    });
     await fanOutToFollowers(
       evt,
       subject,
-      emailTemplate({
-        preheader: `${evt.agentName ?? 'Un agente'} comentó en ${evt.ticketNumber}`,
-        heading: evt.isInternal ? 'Nota interna nueva' : 'Nueva respuesta pública',
-        badgeText: evt.isInternal ? 'INTERNA' : undefined,
-        badgeColor: evt.isInternal ? '#f59e0b' : undefined,
-        bodyRows: [
-          { label: 'Ticket', value: `<strong>#${evt.ticketNumber}</strong>` },
-          { label: 'Por', value: `<strong>${evt.agentName ?? 'Equipo'}</strong>` },
-          { label: evt.isInternal ? 'Nota' : 'Respuesta', value: `<div style="padding:12px;background:#f0f4ff;border-radius:6px;border-left:3px solid #4f46e5;line-height:1.55;">${commentBody}</div>` },
-        ],
-        ctaText: 'Abrir ticket',
-        ctaUrl: portalUrl,
-        footerNote: `${quote}<div style="margin-top:12px;">Recibes este email porque estás siguiendo este ticket.</div>`,
-      }),
+      html,
       `Comentario en ${evt.ticketNumber}`,
       `${evt.agentName ?? 'Agente'}: ${evt.comment.slice(0, 100)}`,
       headers,
+      attachments,
     );
   }
 }
