@@ -1,8 +1,13 @@
 'use client';
 
-import { useState, useCallback, useTransition } from 'react';
+import { useState, useCallback, useEffect, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+
+import {
+  useTicketRealtime,
+  type RealtimeTicketRow,
+} from '../_hooks/use-ticket-realtime';
 import {
   Filter,
   Download,
@@ -352,6 +357,21 @@ export function TicketListClient({
   const [search, setSearch] = useState(searchQuery);
   const [showFilters, setShowFilters] = useState(false);
 
+  // ── Realtime state ────────────────────────────────────────────────────
+  // Shadow the server-provided list with local state so realtime events
+  // can merge in without waiting for a revalidate. The list resets every
+  // time the server re-fetches (filters, sort, page changes).
+  const [liveTickets, setLiveTickets] = useState<TicketRow[]>(tickets);
+  // New tickets that arrived while we're NOT on page 1 — surfaced as a
+  // "Hay N tickets nuevos" banner so the user can click through instead
+  // of us silently mutating a page that's sorted/paginated by the server.
+  const [pendingInsertCount, setPendingInsertCount] = useState(0);
+
+  useEffect(() => {
+    setLiveTickets(tickets);
+    setPendingInsertCount(0);
+  }, [tickets]);
+
   // Sort state lives in URL params (?sort=…&dir=asc|desc). Click cycles
   // inactive → asc → desc → inactive (back to default server ordering).
   const sortCol = searchParams.get('sort');
@@ -362,8 +382,138 @@ export function TicketListClient({
   // Filter tickets client-side for "mine" tab (needs currentAgentId comparison)
   const displayTickets =
     activeTab === 'mine'
-      ? tickets.filter((t) => t.assigned_agent !== null)
-      : tickets;
+      ? liveTickets.filter((t) => t.assigned_agent !== null)
+      : liveTickets;
+
+  // ── Realtime match + resolve helpers ─────────────────────────────────
+  // `matchesFilters` re-checks every incoming realtime event against the
+  // current filter state — needed because an UPDATE might move a ticket
+  // out of the user's current filter (e.g. status=new → in_progress).
+  // If it no longer matches, we remove it from the visible list.
+  const matchesFilters = useCallback(
+    (t: RealtimeTicketRow): boolean => {
+      if (t.deleted_at !== null) return false;
+
+      const splitCsv = (v: string) =>
+        v.split(',').map((s) => s.trim()).filter(Boolean);
+
+      const wantedStatus = splitCsv(filters.status);
+      if (wantedStatus.length && !wantedStatus.includes(t.status)) return false;
+
+      const wantedType = splitCsv(filters.type);
+      if (wantedType.length && !wantedType.includes(t.type)) return false;
+
+      if (filters.priority && String(t.priority ?? '') !== filters.priority) {
+        return false;
+      }
+
+      if (filters.category && t.category_id !== filters.category) return false;
+
+      const wantedAgents = splitCsv(filters.agent);
+      if (wantedAgents.length) {
+        const hasUnassigned = wantedAgents.includes('unassigned');
+        const matchesSpecific =
+          t.assigned_agent_id !== null &&
+          wantedAgents.includes(t.assigned_agent_id);
+        const matchesUnassigned =
+          hasUnassigned && t.assigned_agent_id === null;
+        if (!matchesSpecific && !matchesUnassigned) return false;
+      }
+
+      if (filters.from && new Date(t.created_at) < new Date(filters.from)) {
+        return false;
+      }
+      if (filters.to && new Date(t.created_at) > new Date(filters.to)) {
+        return false;
+      }
+
+      // Tab filters (mirrored from page.tsx query builder)
+      if (activeTab === 'mine' && t.assigned_agent_id !== currentAgentId) {
+        return false;
+      }
+      if (activeTab === 'unassigned' && t.assigned_agent_id !== null) {
+        return false;
+      }
+      if (activeTab === 'overdue' && !t.sla_breached) return false;
+      if (activeTab === 'critical' && Number(t.priority ?? 0) < 12) return false;
+
+      return true;
+    },
+    [filters, activeTab, currentAgentId],
+  );
+
+  // `resolveTicket` maps a raw realtime row → the nested TicketRow shape
+  // the table renders. For UPDATE events we keep the previous row's
+  // nested joins (requester/category) when the FK hasn't changed —
+  // otherwise a field the user can see (e.g. "Requester: Juan") would
+  // flicker to blank until the next server revalidation fills it in.
+  const resolveTicket = useCallback(
+    (raw: RealtimeTicketRow, prev?: TicketRow): TicketRow => {
+      const agentMatch = raw.assigned_agent_id
+        ? agents.find((a) => a.id === raw.assigned_agent_id)
+        : null;
+      const assigned_agent = agentMatch
+        ? { name: agentMatch.name, avatar_url: agentMatch.avatar_url }
+        : prev?.assigned_agent ?? null;
+
+      return {
+        id: raw.id,
+        ticket_number: raw.ticket_number,
+        title: raw.title,
+        status: raw.status,
+        type: raw.type,
+        urgency: raw.urgency,
+        priority: String(raw.priority ?? ''),
+        channel: raw.channel ?? '',
+        sla_due_date: raw.sla_due_date,
+        sla_breached: Boolean(raw.sla_breached),
+        created_at: raw.created_at,
+        organization_id: raw.organization_id,
+        assigned_agent,
+        // Keep the previous requester/category — we don't have access to
+        // those tables client-side from the raw payload. On INSERT they
+        // stay null until the next revalidation refills from the server.
+        requester: prev?.requester ?? null,
+        category: prev?.category ?? null,
+        custom_fields: raw.custom_fields,
+      };
+    },
+    [agents],
+  );
+
+  const isFirstPage = currentPage <= 1;
+
+  useTicketRealtime({
+    channelKey: 'tickets-list',
+    onInsert: (raw) => {
+      if (!matchesFilters(raw)) return;
+      if (!isFirstPage) {
+        setPendingInsertCount((c) => c + 1);
+        return;
+      }
+      setLiveTickets((prev) => {
+        if (prev.some((t) => t.id === raw.id)) return prev;
+        return [resolveTicket(raw), ...prev];
+      });
+    },
+    onUpdate: (raw) => {
+      setLiveTickets((prev) => {
+        const idx = prev.findIndex((t) => t.id === raw.id);
+        if (!matchesFilters(raw)) {
+          return idx >= 0 ? prev.filter((t) => t.id !== raw.id) : prev;
+        }
+        if (idx === -1) {
+          // A ticket that now matches the filter but wasn't on this page
+          // before — only surface if we're on page 1 to avoid confusing
+          // the server-ordered pagination.
+          return isFirstPage ? [resolveTicket(raw), ...prev] : prev;
+        }
+        const next = [...prev];
+        next[idx] = resolveTicket(raw, prev[idx]);
+        return next;
+      });
+    },
+  });
 
   // ---------------------------------------------------------------------------
   // Navigation helpers
@@ -548,6 +698,23 @@ export function TicketListClient({
             <TabsTrigger value="critical">Critical</TabsTrigger>
           </TabsList>
         </Tabs>
+
+        {pendingInsertCount > 0 && (
+          <button
+            type="button"
+            onClick={() => navigateTo({ page: undefined })}
+            className="mt-3 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-1.5 text-sm font-medium text-blue-700 shadow-sm transition hover:bg-blue-100"
+          >
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500" />
+            </span>
+            {pendingInsertCount === 1
+              ? 'Hay 1 ticket nuevo'
+              : `Hay ${pendingInsertCount} tickets nuevos`}
+            <span className="text-blue-500">· Ver</span>
+          </button>
+        )}
       </div>
 
       {/* Advanced Filters Panel */}

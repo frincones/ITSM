@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowDown,
@@ -12,6 +12,11 @@ import {
   Plus,
   RotateCcw,
 } from 'lucide-react';
+
+import {
+  useTicketRealtime,
+  type RealtimeTicketRow,
+} from '../../tickets/_hooks/use-ticket-realtime';
 
 import { Button } from '@kit/ui/button';
 import {
@@ -259,6 +264,15 @@ export function WorkspaceClient({
   );
   const [showFilters, setShowFilters] = useState(false);
 
+  // Shadow the server-provided ticket list with local state so realtime
+  // events can update it in place. Resets whenever the server re-fetches
+  // (grouping / filter / sort changes don't hit the server, but navigating
+  // back to workspace or refreshing does).
+  const [liveTickets, setLiveTickets] = useState<WorkspaceTicket[]>(tickets);
+  useEffect(() => {
+    setLiveTickets(tickets);
+  }, [tickets]);
+
   // Load saved prefs after mount (avoids SSR hydration mismatch)
   useEffect(() => {
     setPrefs(loadPrefs());
@@ -274,12 +288,90 @@ export function WorkspaceClient({
     [organizations],
   );
 
+  const agentMap = useMemo(
+    () => new Map(agents.map((a) => [a.id, a])),
+    [agents],
+  );
+
+  // Map a raw realtime row → WorkspaceTicket. Keeps the previous row's
+  // `requester` / `category` objects when the FK hasn't changed, so a
+  // re-render doesn't briefly show "no requester" until revalidation.
+  const resolveWorkspaceTicket = useCallback(
+    (raw: RealtimeTicketRow, prev?: WorkspaceTicket): WorkspaceTicket => {
+      const agentMatch = raw.assigned_agent_id
+        ? agentMap.get(raw.assigned_agent_id)
+        : null;
+      const assigned_agent = agentMatch
+        ? {
+            id: agentMatch.id,
+            name: agentMatch.name,
+            avatar_url: agentMatch.avatar_url,
+          }
+        : prev?.assigned_agent ?? null;
+
+      return {
+        id: raw.id,
+        ticket_number: raw.ticket_number,
+        title: raw.title,
+        status: raw.status,
+        type: raw.type,
+        urgency: raw.urgency,
+        priority:
+          typeof raw.priority === 'number'
+            ? raw.priority
+            : raw.priority === null || raw.priority === undefined
+              ? null
+              : Number(raw.priority),
+        created_at: raw.created_at,
+        closed_at: raw.closed_at,
+        organization_id: raw.organization_id,
+        assigned_agent_id: raw.assigned_agent_id,
+        requester_email: raw.requester_email,
+        custom_fields: raw.custom_fields,
+        requester: prev?.requester ?? null,
+        assigned_agent,
+        category: prev?.category ?? null,
+      };
+    },
+    [agentMap],
+  );
+
+  useTicketRealtime({
+    // Different channel key than the list so the two views don't dedupe
+    // into each other if a user opens both in separate tabs.
+    channelKey: 'tickets-workspace',
+    onInsert: (raw) => {
+      // Skip soft-deleted rows (shouldn't arrive via INSERT but be safe).
+      if (raw.deleted_at !== null) return;
+      setLiveTickets((prev) => {
+        if (prev.some((t) => t.id === raw.id)) return prev;
+        return [resolveWorkspaceTicket(raw), ...prev];
+      });
+    },
+    onUpdate: (raw) => {
+      setLiveTickets((prev) => {
+        const idx = prev.findIndex((t) => t.id === raw.id);
+        if (raw.deleted_at !== null) {
+          return idx >= 0 ? prev.filter((t) => t.id !== raw.id) : prev;
+        }
+        if (idx === -1) {
+          // First time we see this ticket (wasn't in the initial 500/50
+          // window). Let it in — grouping will place it correctly.
+          return [resolveWorkspaceTicket(raw), ...prev];
+        }
+        const next = [...prev];
+        next[idx] = resolveWorkspaceTicket(raw, prev[idx]);
+        return next;
+      });
+    },
+  });
+
   const advancedCount = countActiveAdvanced(prefs.advancedFilters);
 
   const groups = useMemo(
     () =>
       groupTickets(
-        tickets,
+        liveTickets,
         prefs.groupingMode,
         {
           currentAgentId,
@@ -291,7 +383,7 @@ export function WorkspaceClient({
         orgMap,
       ),
     [
-      tickets,
+      liveTickets,
       prefs.groupingMode,
       prefs.filterMine,
       prefs.filterCritical,
