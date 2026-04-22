@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { ReactRenderer, useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Mention from '@tiptap/extension-mention';
-import Image from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
 import Link from '@tiptap/extension-link';
 import tippy, { Instance } from 'tippy.js';
@@ -93,12 +92,11 @@ export function ReplyComposer({ ticketId, hideInternalNote = false }: ReplyCompo
         placeholder: ({ editor }) => {
           const mode = editor.view.dom.getAttribute('data-mode');
           return mode === 'internal'
-            ? 'Nota interna (no visible para el requester). Usa @ para mencionar agentes.'
-            : 'Escribe una respuesta al requester. Usa @ para mencionar agentes o contactos. Pega una imagen con Ctrl+V.';
+            ? 'Nota interna (no visible para el requester). Usa @ para mencionar agentes. Pega imágenes con Ctrl+V (se adjuntan como archivo).'
+            : 'Escribe una respuesta al requester. Usa @ para mencionar agentes o contactos. Pega imágenes con Ctrl+V (se adjuntan como archivo).';
         },
       }),
       Link.configure({ openOnClick: false, autolink: true }),
-      Image.configure({ inline: false, allowBase64: false }),
       Mention.configure({
         HTMLAttributes: { class: 'tiptap-mention' },
         renderHTML({ options, node }) {
@@ -237,9 +235,13 @@ export function ReplyComposer({ ticketId, hideInternalNote = false }: ReplyCompo
     editor.view.dispatch(editor.view.state.tr); // re-run placeholder decoration
   }, [replyMode, editor]);
 
+  // Images pasted/dropped into the editor don't render inline (they would
+  // blow up the layout and push Send out of view). Instead we upload them
+  // and surface them as attachment chips below the editor — same UX as the
+  // Attach Files button. The outbound email and the timeline DO embed them
+  // as <img> so the requester actually sees the screenshot.
   const uploadPastedImage = useCallback(
     async (file: File) => {
-      if (!editor) return;
       if (file.size > 10 * 1024 * 1024) {
         toast.error('Imagen demasiado grande (máx 10MB)');
         return;
@@ -258,14 +260,22 @@ export function ReplyComposer({ ticketId, hideInternalNote = false }: ReplyCompo
           throw new Error(err.error ?? 'Upload failed');
         }
         const data = (await res.json()) as { url: string | null; path: string };
-        if (data.url) {
-          editor.chain().focus().setImage({ src: data.url, alt: file.name }).run();
-        }
+        setPendingFiles((prev) => [
+          ...prev,
+          {
+            path: data.path,
+            url: data.url,
+            fileName: file.name || `screenshot-${Date.now()}.png`,
+            fileSize: file.size,
+            fileType: file.type || 'image/png',
+          },
+        ]);
+        toast.success('Imagen adjuntada');
       } finally {
         setUploading(false);
       }
     },
-    [editor, ticketId],
+    [ticketId],
   );
 
   // Fetch macros on first open
@@ -352,8 +362,18 @@ export function ReplyComposer({ ticketId, hideInternalNote = false }: ReplyCompo
     // manual paste of raw HTML cannot leak an internal note to a client.
     const mentionedContactIds = replyMode === 'internal' ? [] : contacts;
 
+    // Render images inline in the outbound HTML (email + timeline), but
+    // list non-image attachments as simple links — matches how Gmail and
+    // Freshdesk handle rich replies.
     const attachmentsHtml = pendingFiles.length
-      ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;">📎 Adjuntos: ${pendingFiles.map(f => `<a href="${f.url ?? '#'}">${f.fileName}</a>`).join(', ')}</div>`
+      ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb;">${pendingFiles
+          .map((f) => {
+            if (f.fileType.startsWith('image/') && f.url) {
+              return `<div style="margin:8px 0;"><img src="${f.url}" alt="${escapeAttr(f.fileName)}" style="max-width:100%;height:auto;border-radius:6px;display:block;" /></div>`;
+            }
+            return `<div style="margin:6px 0;font-size:13px;color:#4b5563;">📎 <a href="${f.url ?? '#'}" style="color:#4f46e5;text-decoration:none;">${escapeAttr(f.fileName)}</a></div>`;
+          })
+          .join('')}</div>`
       : '';
     const finalHtml = html + attachmentsHtml;
     const finalText = text + (pendingFiles.length ? `\n\n📎 Archivos adjuntos: ${pendingFiles.map(f => f.fileName).join(', ')}` : '');
@@ -399,12 +419,6 @@ export function ReplyComposer({ ticketId, hideInternalNote = false }: ReplyCompo
         .dark .tiptap-mention {
           background: rgba(59, 130, 246, 0.2);
           color: rgb(147 197 253);
-        }
-        .ProseMirror img {
-          max-width: 100%;
-          height: auto;
-          border-radius: 6px;
-          margin: 8px 0;
         }
         .ProseMirror p.is-editor-empty:first-child::before {
           content: attr(data-placeholder);
@@ -507,19 +521,49 @@ export function ReplyComposer({ ticketId, hideInternalNote = false }: ReplyCompo
         {/* Pending files */}
         {pendingFiles.length > 0 && (
           <div className="mb-3 flex flex-wrap gap-2">
-            {pendingFiles.map((f, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-1.5 rounded-lg border bg-gray-50 px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800"
-              >
-                <FileIcon className="h-3 w-3 text-gray-400" />
-                <span className="max-w-[150px] truncate">{f.fileName}</span>
-                <span className="text-gray-400">({(f.fileSize / 1024).toFixed(0)} KB)</span>
-                <button onClick={() => removePendingFile(i)} className="text-gray-400 hover:text-red-500">
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
+            {pendingFiles.map((f, i) => {
+              const isImage = f.fileType.startsWith('image/') && !!f.url;
+              return (
+                <div
+                  key={i}
+                  className="group flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 py-1 pl-1 pr-2 text-xs dark:border-gray-700 dark:bg-gray-800"
+                >
+                  {isImage ? (
+                    <a
+                      href={f.url!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block h-8 w-8 shrink-0 overflow-hidden rounded border border-gray-200 bg-white dark:border-gray-700"
+                    >
+                      <img
+                        src={f.url!}
+                        alt={f.fileName}
+                        className="h-full w-full object-cover"
+                      />
+                    </a>
+                  ) : (
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+                      <FileIcon className="h-3.5 w-3.5 text-gray-400" />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <div className="max-w-[180px] truncate font-medium text-gray-700 dark:text-gray-200">
+                      {f.fileName}
+                    </div>
+                    <div className="text-[10px] text-gray-400">
+                      {(f.fileSize / 1024).toFixed(0)} KB
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => removePendingFile(i)}
+                    className="ml-1 shrink-0 rounded p-0.5 text-gray-400 hover:bg-gray-200 hover:text-red-500 dark:hover:bg-gray-700"
+                    aria-label="Quitar adjunto"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -625,4 +669,12 @@ function ToolbarButton({
 
 function Divider() {
   return <div className="mx-1 h-4 w-px bg-border" />;
+}
+
+function escapeAttr(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
