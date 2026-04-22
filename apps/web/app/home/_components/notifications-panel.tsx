@@ -18,7 +18,6 @@ import { toast } from 'sonner';
 import { getSupabaseBrowserClient } from '@kit/supabase/browser-client';
 import { Badge } from '@kit/ui/badge';
 import { Button } from '@kit/ui/button';
-import { Card, CardContent } from '@kit/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@kit/ui/tabs';
 
 interface Notification {
@@ -382,7 +381,7 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
           </Tabs>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 py-3">
+        <div className="flex-1 overflow-y-auto px-3 py-1">
           {!loaded ? (
             <div className="space-y-2">
               {[0, 1, 2].map((i) => (
@@ -400,81 +399,73 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
               </p>
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="flex flex-col">
               {filtered.map((n) => {
                 const cfg = getVisualConfig(n);
                 const Icon = cfg.icon;
                 return (
-                  <Card
+                  <div
                     key={n.id}
                     onClick={() => handleItemClick(n)}
-                    className={`cursor-pointer border transition-all hover:shadow-sm ${
-                      !n.is_read
-                        ? 'border-indigo-200 bg-indigo-50/40 dark:border-indigo-900 dark:bg-indigo-950/20'
-                        : ''
+                    className={`group relative flex cursor-pointer items-start gap-2.5 border-b border-border/60 px-2 py-2.5 transition-colors last:border-b-0 hover:bg-muted/50 ${
+                      !n.is_read ? '' : 'opacity-70'
                     }`}
                   >
-                    <CardContent className="p-3">
-                      <div className="flex items-start gap-3">
-                        <div
-                          className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg ${cfg.bgColor}`}
-                        >
-                          <Icon className={`h-4 w-4 ${cfg.iconColor}`} />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="mb-1 flex items-start justify-between gap-2">
-                            <h3 className="line-clamp-2 text-sm font-medium text-foreground">
-                              {n.title}
-                            </h3>
-                            {!n.is_read && (
-                              <span className="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-indigo-600" />
-                            )}
-                          </div>
-                          {n.body && (
-                            <p className="mb-1.5 line-clamp-2 text-xs text-muted-foreground">
-                              {n.body}
-                            </p>
-                          )}
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-muted-foreground">
-                              {timeAgo(n.created_at)}
-                            </span>
-                            <div className="flex items-center gap-0.5">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                title={n.is_read ? 'Marcar sin leer' : 'Marcar leída'}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (n.is_read) markAsUnread(n.id);
-                                  else markAsRead(n.id);
-                                }}
-                              >
-                                {n.is_read ? (
-                                  <Bell className="h-3.5 w-3.5" />
-                                ) : (
-                                  <Check className="h-3.5 w-3.5" />
-                                )}
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                title="Descartar"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  dismiss(n.id);
-                                }}
-                              >
-                                <X className="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
+                    <div
+                      className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md ${cfg.bgColor}`}
+                    >
+                      <Icon className={`h-3 w-3 ${cfg.iconColor}`} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline gap-2">
+                        <h3 className="truncate text-[13px] font-medium leading-tight text-foreground">
+                          {n.title}
+                        </h3>
+                        <span className="ml-auto flex-shrink-0 text-[11px] text-muted-foreground">
+                          {timeAgo(n.created_at)}
+                        </span>
                       </div>
-                    </CardContent>
-                  </Card>
+                      {n.body && (
+                        <p className="mt-0.5 truncate text-[12px] leading-snug text-muted-foreground">
+                          {n.body}
+                        </p>
+                      )}
+                    </div>
+                    {!n.is_read && (
+                      <span className="absolute left-0 top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-full bg-indigo-600" />
+                    )}
+                    <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-background/95 p-0.5 opacity-0 shadow-sm ring-1 ring-border transition-opacity group-hover:opacity-100">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5"
+                        title={n.is_read ? 'Marcar sin leer' : 'Marcar leída'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (n.is_read) markAsUnread(n.id);
+                          else markAsRead(n.id);
+                        }}
+                      >
+                        {n.is_read ? (
+                          <Bell className="h-3 w-3" />
+                        ) : (
+                          <Check className="h-3 w-3" />
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5"
+                        title="Descartar"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          dismiss(n.id);
+                        }}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
                 );
               })}
             </div>
