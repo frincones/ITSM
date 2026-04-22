@@ -26,7 +26,12 @@ export default async function RootLayout({
           {children}
         </RootProviders>
 
-        <Toaster richColors={true} theme={theme} position="top-center" />
+        <Toaster
+          richColors={true}
+          theme={theme}
+          position="top-center"
+          visibleToasts={3}
+        />
       </body>
     </html>
   );

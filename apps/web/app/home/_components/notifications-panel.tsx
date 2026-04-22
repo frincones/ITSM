@@ -201,19 +201,63 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
           const toInsert = enriched ?? n;
           setItems((prev) => (prev.some((p) => p.id === toInsert.id) ? prev : [toInsert, ...prev]));
           playNotificationSound();
-          toast(n.title, {
-            description: n.body ?? undefined,
-            duration: 6000,
-            position: 'bottom-right',
-            action: n.link
-              ? {
-                  label: 'Ver',
-                  onClick: () => {
-                    if (n.link) router.push(n.link);
-                  },
-                }
-              : undefined,
-          });
+          const cfg = getVisualConfig(toInsert);
+          const ToastIcon = cfg.icon;
+          toast.custom(
+            (id) => (
+              <div className="pointer-events-auto flex w-[380px] items-start gap-3 overflow-hidden rounded-xl border border-indigo-300/60 bg-gradient-to-br from-indigo-50 via-white to-indigo-50/60 p-3 shadow-[0_10px_40px_-10px_rgba(79,70,229,0.5)] ring-1 ring-indigo-500/20 dark:border-indigo-500/40 dark:from-indigo-950/60 dark:via-card dark:to-indigo-950/40 animate-in slide-in-from-right-4 fade-in duration-300">
+                <span className="absolute inset-y-0 left-0 w-1 bg-indigo-600" aria-hidden />
+                <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg ${cfg.bgColor} ring-2 ring-white/80 dark:ring-background`}>
+                  <ToastIcon className={`h-4.5 w-4.5 ${cfg.iconColor}`} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="mb-0.5 flex items-start justify-between gap-2">
+                    <h4 className="text-sm font-semibold leading-tight text-foreground">
+                      {toInsert.title}
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => toast.dismiss(id)}
+                      className="-mr-1 -mt-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      aria-label="Cerrar"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  {toInsert.body && (
+                    <p className="mb-2 line-clamp-2 text-xs leading-snug text-muted-foreground">
+                      {toInsert.body}
+                    </p>
+                  )}
+                  {toInsert.link && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (toInsert.link) router.push(toInsert.link);
+                          toast.dismiss(id);
+                        }}
+                        className="rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white shadow-sm transition-colors hover:bg-indigo-700"
+                      >
+                        Ver
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toast.dismiss(id)}
+                        className="text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        Ignorar
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ),
+            {
+              duration: 12000,
+              position: 'bottom-right',
+            },
+          );
         },
       )
       .on(
