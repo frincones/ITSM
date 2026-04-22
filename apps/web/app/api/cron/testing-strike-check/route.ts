@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
   const { data: tickets, error } = await svc
     .from('tickets')
     .select(
-      'id, tenant_id, ticket_number, title, status, custom_fields, testing_strikes, requester_email, assigned_agent_id, organization_id',
+      'id, tenant_id, ticket_number, title, status, custom_fields, testing_strikes, requester_email, assigned_agent_id, organization_id, organization:organizations(portal_token)',
     )
     .eq('status', 'testing')
     .is('deleted_at', null)
@@ -106,7 +106,7 @@ export async function GET(request: NextRequest) {
           autoClosedEmail({
             ticketNumber: t.ticket_number,
             title: t.title ?? '',
-            ticketUrl: buildTicketUrl(t.id),
+            ticketUrl: buildRequesterTicketUrl(t),
           }),
         ).catch(() => {});
 
@@ -185,8 +185,31 @@ export async function GET(request: NextRequest) {
 }
 
 function buildTicketUrl(ticketId: string): string {
-  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://itsm-web.vercel.app';
+  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://itsm.tdxcore.com';
   return `${base}/home/tickets/${ticketId}`;
+}
+
+// Emails triggered by this cron go to the ticket's REQUESTER (a customer
+// contact, not an agent). They don't have /home access, so we link them to
+// the per-org portal URL instead. Falls back to the agent URL only if the
+// organization has no portal_token configured — still broken for contacts
+// but at least doesn't silently drop a link.
+function buildRequesterTicketUrl(t: {
+  id: string;
+  requester_email: string | null;
+  organization:
+    | { portal_token: string | null }
+    | { portal_token: string | null }[]
+    | null;
+}): string {
+  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://itsm.tdxcore.com';
+  const org = Array.isArray(t.organization) ? t.organization[0] : t.organization;
+  const token = org?.portal_token;
+  if (!token) return `${base}/home/tickets/${t.id}`;
+  const emailParam = t.requester_email
+    ? `?email=${encodeURIComponent(t.requester_email)}`
+    : '';
+  return `${base}/portal/${token}/tickets/${t.id}${emailParam}`;
 }
 
 function strikeReminderEmail(p: {
