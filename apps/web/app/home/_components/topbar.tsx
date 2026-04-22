@@ -87,7 +87,7 @@ export function Topbar({ aiOpen, onToggleAi, userRole = 'agent' }: TopbarProps) 
           New Ticket
         </Button>
 
-        <NotificationsPanel userId={userData?.id} />
+        <NotificationsPanel userId={userData?.sub} />
 
         {!isClient && (
         <Button
