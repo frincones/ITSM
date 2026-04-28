@@ -9,17 +9,17 @@ import { queueNpsForTicket } from '~/lib/services/nps.service';
  *
  * Schedule: hourly (`0 * * * *`) — matches Freshdesk/Zendesk supervisor-rule cadence.
  *
- * Tickets parked in 'testing' accumulate strikes at 24/48/72 hours:
- *   S1 → reminder email + in-app to requester
- *   S2 → final warning to requester AND agent/manager
- *   S3 → auto-transition to 'resolved' (not 'closed', so CSAT still runs
- *        and the customer can still reopen through the portal)
+ * Tickets parked in 'testing' accumulate strikes at 5/10/15 days:
+ *   S1 (5 d)  → reminder email + in-app to requester
+ *   S2 (10 d) → final warning to requester AND agent/manager
+ *   S3 (15 d) → auto-transition to 'resolved' (not 'closed', so CSAT still
+ *               runs and the customer can still reopen through the portal)
  *
  * Client replies do NOT reset the counter. Only an explicit status change
  * out of 'testing' resets strikes (DB trigger) — per product decision.
  */
 
-const STRIKE_HOURS = [24, 48, 72] as const;
+const STRIKE_HOURS = [120, 240, 360] as const; // 5 d, 10 d, 15 d
 const AUTO_CLOSE_STRIKE = 3;
 
 export async function GET(request: NextRequest) {
@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
         ticket_id: t.id,
         tenant_id: t.tenant_id,
         content:
-          'Ticket cerrado automáticamente: llevaba 72 horas en Testing sin confirmación del solicitante (3 recordatorios agotados).',
+          'Ticket cerrado automáticamente: llevaba 15 días en Testing sin confirmación del solicitante (3 recordatorios agotados).',
         is_private: false,
         author_type: 'system',
       });
@@ -134,17 +134,19 @@ export async function GET(request: NextRequest) {
       .eq('id', t.id);
 
     if (t.requester_email) {
-      const hoursRemaining = (AUTO_CLOSE_STRIKE - nextStrike) * 24;
+      const hoursRemaining =
+        STRIKE_HOURS[AUTO_CLOSE_STRIKE - 1]! - STRIKE_HOURS[nextStrike - 1]!;
+      const daysRemaining = Math.round(hoursRemaining / 24);
       await notifyEmail(
         t.requester_email,
         nextStrike === 1
           ? `Recordatorio: confirma el ticket ${t.ticket_number}`
-          : `Último aviso: el ticket ${t.ticket_number} se cerrará en ${hoursRemaining}h`,
+          : `Último aviso: el ticket ${t.ticket_number} se cerrará en ${daysRemaining} días`,
         strikeReminderEmail({
           ticketNumber: t.ticket_number,
           title: t.title ?? '',
           strike: nextStrike,
-          hoursRemaining,
+          daysRemaining,
           ticketUrl: buildTicketUrl(t.id),
         }),
       ).catch(() => {});
@@ -162,8 +164,8 @@ export async function GET(request: NextRequest) {
         await notifyInApp(
           t.tenant_id,
           agent.user_id,
-          `⚠️ Ticket ${t.ticket_number} en testing hace 48h`,
-          'Se enviará cierre automático en 24h si no hay respuesta del cliente.',
+          `⚠️ Ticket ${t.ticket_number} en testing hace 10 días`,
+          'Se enviará cierre automático en 5 días si no hay respuesta del cliente.',
           'ticket',
           t.id,
           `/home/tickets/${t.id}`,
@@ -216,7 +218,7 @@ function strikeReminderEmail(p: {
   ticketNumber: string;
   title: string;
   strike: number;
-  hoursRemaining: number;
+  daysRemaining: number;
   ticketUrl: string;
 }): string {
   const isFinal = p.strike === 2;
@@ -224,8 +226,8 @@ function strikeReminderEmail(p: {
     ? `Último aviso — ${p.ticketNumber}`
     : `Recordatorio — ${p.ticketNumber}`;
   const intro = isFinal
-    ? `Tu ticket lleva 48 horas en <strong>Testing</strong>. Si no confirmas el resultado en las próximas ${p.hoursRemaining} horas, lo cerraremos automáticamente.`
-    : `Tu ticket está en <strong>Testing</strong> hace 24 horas esperando tu confirmación. Valida la solución o coméntanos si algo no quedó como esperabas.`;
+    ? `Tu ticket lleva 10 días en <strong>Testing</strong>. Si no confirmas el resultado en los próximos ${p.daysRemaining} días, lo cerraremos automáticamente.`
+    : `Tu ticket está en <strong>Testing</strong> hace 5 días esperando tu confirmación. Valida la solución o coméntanos si algo no quedó como esperabas.`;
 
   return baseTemplate({
     heading,
@@ -252,7 +254,7 @@ function autoClosedEmail(p: {
     preheader: 'Cerrado automáticamente por inactividad en Testing',
     body: `
       <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.6;">
-        Cerramos este ticket automáticamente porque llevaba 72 horas en Testing sin
+        Cerramos este ticket automáticamente porque llevaba 15 días en Testing sin
         confirmación. Si el problema no quedó resuelto, puedes reabrirlo desde el
         portal cuando gustes.
       </p>
