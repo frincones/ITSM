@@ -1,14 +1,26 @@
 // ---------------------------------------------------------------------------
-// MCP HTTP Endpoint — POST /api/mcp
+// MCP HTTP Endpoint — /api/mcp  (Streamable HTTP transport, MCP 2025-03-26)
 // ---------------------------------------------------------------------------
-// Implements JSON-RPC 2.0 over HTTP for the Model Context Protocol.
+// Implements JSON-RPC 2.0 over the MCP Streamable HTTP transport so MCP
+// clients (Claude Code, Claude Desktop, Cursor) can complete the handshake.
 //
-// Methods supported:
+// Transport contract honored:
+//   * POST  /api/mcp  with `Accept: application/json[, text/event-stream]`
+//                     → JSON-RPC body. On `initialize`, response carries
+//                       `Mcp-Session-Id: <uuid>`. Stateless backend: the
+//                       session id is regenerated each `initialize`.
+//   * GET   /api/mcp  with `Accept: text/event-stream`
+//                     → opens an SSE stream the client can poll for
+//                       server-pushed messages. Keep-alive comment every
+//                       15 s; closes after ~50 s so Vercel doesn't kill it
+//                       abruptly (clients reconnect transparently).
+//
+// JSON-RPC methods:
 //   - initialize           handshake: returns server info + capabilities
 //   - tools/list           catalog of registered tools (with JSON Schema)
 //   - tools/call           invoke a tool by name with arguments
 //   - ping                 liveness
-//   - notifications/*      ignored (no streaming yet)
+//   - notifications/*      ignored (no async pushes yet)
 //
 // Auth: Bearer token in `Authorization` header. The token is the plain
 //   API key (`nvd_live_xxxxx`). It's hashed with SHA-256 and verified
@@ -49,6 +61,13 @@ import {
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+// Vercel: cap stream duration. SSE GET stays open up to this; clients
+// reconnect transparently after close. POST handler typically returns
+// in <100 ms so this cap doesn't affect normal tool calls.
+export const maxDuration = 60;
+
+// Header used by Streamable HTTP. Spec: visible ASCII chars 0x21–0x7E.
+const SESSION_HEADER = 'Mcp-Session-Id';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -108,6 +127,21 @@ function newRequestId(): string {
   // RFC4122-like, sufficient for tracing. Crypto.randomUUID is available
   // in Node 19+ which Next 15 requires.
   return globalThis.crypto?.randomUUID?.() ?? `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function newSessionId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `sess_${Date.now()}_${Math.random().toString(36).slice(2, 18)}`;
+}
+
+/** True when the client signals it accepts SSE (per Streamable HTTP). */
+function clientAcceptsSse(req: NextRequest): boolean {
+  const accept = req.headers.get('accept') ?? '';
+  return accept.includes('text/event-stream');
+}
+
+/** Builds an SSE event line from a JSON-RPC payload. */
+function sseFrame(payload: unknown): string {
+  return `event: message\ndata: ${JSON.stringify(payload)}\n\n`;
 }
 
 // ---------------------------------------------------------------------------
@@ -354,52 +388,176 @@ async function executeRpc(
 }
 
 // ---------------------------------------------------------------------------
-// HTTP handler
+// Common response builders
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds the headers carried on every response (POST or GET):
+ *   - `Mcp-Session-Id`: required by Streamable HTTP clients (Claude Code,
+ *     Claude Desktop, Cursor) to complete the handshake. We re-issue on
+ *     every initialize and echo the inbound id on subsequent requests.
+ *   - CORS allow-list: relaxed for cross-origin MCP clients connecting
+ *     from custom hosts. Origin is reflected when present.
+ */
+function commonHeaders(req: NextRequest, sessionId: string): Headers {
+  const h = new Headers();
+  h.set(SESSION_HEADER, sessionId);
+  h.set('Access-Control-Expose-Headers', SESSION_HEADER);
+  const origin = req.headers.get('origin');
+  if (origin) {
+    h.set('Access-Control-Allow-Origin', origin);
+    h.set('Vary', 'Origin');
+    h.set('Access-Control-Allow-Credentials', 'true');
+  }
+  return h;
+}
+
+/**
+ * Builds an SSE response carrying ONE JSON-RPC message and closes the
+ * stream. Used when the client sets `Accept: text/event-stream` on POST —
+ * which Claude Code does on initialize.
+ */
+function jsonRpcAsSse(
+  req: NextRequest,
+  payload: unknown,
+  status: number,
+  sessionId: string,
+): Response {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const encoder = new TextEncoder();
+      controller.enqueue(encoder.encode(sseFrame(payload)));
+      controller.close();
+    },
+  });
+  const headers = commonHeaders(req, sessionId);
+  headers.set('Content-Type', 'text/event-stream; charset=utf-8');
+  headers.set('Cache-Control', 'no-cache, no-transform');
+  headers.set('Connection', 'keep-alive');
+  // Disable Vercel/Cloudflare buffering of SSE streams.
+  headers.set('X-Accel-Buffering', 'no');
+  return new Response(stream, { status, headers });
+}
+
+// ---------------------------------------------------------------------------
+// HTTP handler — POST
 // ---------------------------------------------------------------------------
 
 export async function POST(req: NextRequest) {
+  // Pre-resolve session id: echo inbound (subsequent requests) or mint a
+  // new one on initialize.
+  const inboundSession = req.headers.get(SESSION_HEADER) ?? req.headers.get(SESSION_HEADER.toLowerCase());
+  const wantsSse = clientAcceptsSse(req);
+
   let body: unknown;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json(
-      buildError(null, JsonRpcErrorCode.ParseError, 'Invalid JSON'),
-      { status: 400 },
-    );
+    const sid = inboundSession || newSessionId();
+    const err = buildError(null, JsonRpcErrorCode.ParseError, 'Invalid JSON');
+    if (wantsSse) return jsonRpcAsSse(req, err, 400, sid);
+    return NextResponse.json(err, { status: 400, headers: commonHeaders(req, sid) });
   }
+
+  // Detect an `initialize` call so we mint a fresh session id.
+  const isInitialize =
+    !Array.isArray(body) &&
+    typeof body === 'object' &&
+    body !== null &&
+    (body as JsonRpcRequest).method === 'initialize';
+  const sessionId = isInitialize ? newSessionId() : inboundSession || newSessionId();
 
   // Batch support per JSON-RPC 2.0.
   if (Array.isArray(body)) {
     if (body.length === 0) {
-      return NextResponse.json(
-        buildError(null, JsonRpcErrorCode.InvalidRequest, 'Empty batch'),
-        { status: 400 },
-      );
+      const err = buildError(null, JsonRpcErrorCode.InvalidRequest, 'Empty batch');
+      if (wantsSse) return jsonRpcAsSse(req, err, 400, sessionId);
+      return NextResponse.json(err, { status: 400, headers: commonHeaders(req, sessionId) });
     }
     const results = await Promise.all(
       body.map((item) => executeRpc(req, item as JsonRpcRequest)),
     );
-    return NextResponse.json(
-      results.map((r) => r.response),
-      { status: 200 },
-    );
+    const payload = results.map((r) => r.response);
+    if (wantsSse) return jsonRpcAsSse(req, payload, 200, sessionId);
+    return NextResponse.json(payload, { status: 200, headers: commonHeaders(req, sessionId) });
   }
 
   const single = body as JsonRpcRequest;
   const { response, httpStatus } = await executeRpc(req, single);
-  return NextResponse.json(response, { status: httpStatus });
+  if (wantsSse) return jsonRpcAsSse(req, response, httpStatus, sessionId);
+  return NextResponse.json(response, { status: httpStatus, headers: commonHeaders(req, sessionId) });
 }
 
-// GET is reserved for the future Streamable HTTP SSE channel. For now,
-// return 405 with a descriptive payload so misconfigured clients fail
-// loudly.
-export async function GET() {
-  return NextResponse.json(
-    {
-      error: 'Method Not Allowed',
-      hint: 'Use POST with a JSON-RPC 2.0 envelope. SSE streaming will be added in a future version.',
-      manifest: '/api/mcp/manifest',
+// ---------------------------------------------------------------------------
+// HTTP handler — GET (Streamable HTTP SSE channel)
+// ---------------------------------------------------------------------------
+// MCP clients open this stream to receive server-pushed messages
+// (notifications, server-to-client requests). We don't push anything
+// asynchronously yet, so the stream stays open with periodic keep-alive
+// comments and self-terminates after ~50 s. Clients reconnect transparently.
+//
+// Auth is OPTIONAL on GET: Claude Code probes this endpoint as part of
+// transport detection BEFORE auth is configured for some flows. We accept
+// without Bearer; the stream simply carries no privileged events. POST
+// remains strictly authenticated.
+
+export async function GET(req: NextRequest) {
+  const inboundSession = req.headers.get(SESSION_HEADER) ?? req.headers.get(SESSION_HEADER.toLowerCase());
+  const sessionId = inboundSession || newSessionId();
+
+  const headers = commonHeaders(req, sessionId);
+  headers.set('Content-Type', 'text/event-stream; charset=utf-8');
+  headers.set('Cache-Control', 'no-cache, no-transform');
+  headers.set('Connection', 'keep-alive');
+  headers.set('X-Accel-Buffering', 'no');
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      // Initial comment so proxies flush headers immediately.
+      controller.enqueue(encoder.encode(': mcp stream open\n\n'));
+
+      // Periodic heartbeat keeps middleboxes from closing the connection.
+      const heartbeat = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(`: heartbeat ${Date.now()}\n\n`));
+        } catch {
+          // Stream already closed by the client — stop pinging.
+          clearInterval(heartbeat);
+        }
+      }, 15_000);
+
+      // Self-close shortly before Vercel's maxDuration so we shut down
+      // cleanly. Clients reconnect.
+      const closeAfter = setTimeout(() => {
+        try { controller.close(); } catch { /* already closed */ }
+      }, 50_000);
+
+      // Abort cleanly when the client disconnects.
+      const onAbort = () => {
+        clearInterval(heartbeat);
+        clearTimeout(closeAfter);
+        try { controller.close(); } catch { /* already closed */ }
+      };
+      req.signal.addEventListener('abort', onAbort);
     },
-    { status: 405 },
+  });
+
+  return new Response(stream, { status: 200, headers });
+}
+
+// ---------------------------------------------------------------------------
+// HTTP handler — OPTIONS (CORS preflight)
+// ---------------------------------------------------------------------------
+
+export async function OPTIONS(req: NextRequest) {
+  const headers = commonHeaders(req, '');
+  headers.delete(SESSION_HEADER);
+  headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  headers.set(
+    'Access-Control-Allow-Headers',
+    `Authorization, Content-Type, Accept, ${SESSION_HEADER}, mcp-session-id, mcp-protocol-version`,
   );
+  headers.set('Access-Control-Max-Age', '86400');
+  return new Response(null, { status: 204, headers });
 }
