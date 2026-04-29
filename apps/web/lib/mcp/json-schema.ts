@@ -91,6 +91,32 @@ export function zodToJsonSchema(schema: z.ZodTypeAny): JsonSchema {
       }
       return base;
     }
+    case ZodFirstPartyTypeKind.ZodEffects: {
+      // `.refine()`, `.transform()`, and `.superRefine()` all wrap the
+      // source schema in ZodEffects. The runtime constraint isn't
+      // expressible in JSON Schema, but the inner schema describes the
+      // shape — surfacing that is what MCP clients (Anthropic API in
+      // particular) need to accept the tool. Without this case, *_get
+      // tools collapse to `inputSchema: {}` which fails Anthropic's
+      // tool-name + schema validation and the model drops the entire
+      // server's tool catalog.
+      const inner = (schema as unknown as { _def: { schema: z.ZodTypeAny } })._def.schema;
+      return zodToJsonSchema(inner);
+    }
+    case ZodFirstPartyTypeKind.ZodPipeline: {
+      // `z.coerce.date()` and friends produce ZodPipeline. Describe the
+      // input side of the pipeline.
+      const def = (schema as unknown as { _def: { in: z.ZodTypeAny; out: z.ZodTypeAny } })._def;
+      return zodToJsonSchema(def.in);
+    }
+    case ZodFirstPartyTypeKind.ZodReadonly:
+    case ZodFirstPartyTypeKind.ZodBranded:
+    case ZodFirstPartyTypeKind.ZodCatch: {
+      // Pass-through wrappers — describe the inner type.
+      const inner = (schema as unknown as { _def: { innerType?: z.ZodTypeAny; type?: z.ZodTypeAny } })._def;
+      const wrapped = inner.innerType ?? inner.type;
+      return wrapped ? zodToJsonSchema(wrapped) : {};
+    }
     case ZodFirstPartyTypeKind.ZodUnion: {
       const options = (schema as unknown as { _def: { options: z.ZodTypeAny[] } })._def.options;
       return { anyOf: options.map((o) => zodToJsonSchema(o)) };
