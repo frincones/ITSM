@@ -73,3 +73,6 @@ registry.register({
     };
   },
 });
+
+// Marker: imported by lib/mcp/server.ts to defeat tree-shaking.
+export const __metricsToolsLoaded = true;

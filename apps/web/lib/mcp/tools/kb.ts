@@ -110,3 +110,6 @@ registry.register({
     return { article: data };
   },
 });
+
+// Marker: imported by lib/mcp/server.ts to defeat tree-shaking.
+export const __kbToolsLoaded = true;

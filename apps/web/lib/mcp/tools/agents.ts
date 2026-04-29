@@ -64,3 +64,6 @@ registry.register({
     return { agent: data };
   },
 });
+
+// Marker: imported by lib/mcp/server.ts to defeat tree-shaking.
+export const __agentsToolsLoaded = true;

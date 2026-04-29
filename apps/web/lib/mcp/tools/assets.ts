@@ -71,3 +71,6 @@ registry.register({
     return { asset: data };
   },
 });
+
+// Marker: imported by lib/mcp/server.ts to defeat tree-shaking.
+export const __assetsToolsLoaded = true;

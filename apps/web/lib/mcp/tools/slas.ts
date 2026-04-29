@@ -60,3 +60,6 @@ registry.register({
     return { data: data ?? [], horizon };
   },
 });
+
+// Marker: imported by lib/mcp/server.ts to defeat tree-shaking.
+export const __slasToolsLoaded = true;
