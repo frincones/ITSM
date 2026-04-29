@@ -1,7 +1,175 @@
 # Arquitectura del MCP Server — NovaDesk ITSM
 
-> **Estado:** Implementado y mergeado a `main` en commit `8bb96ee` (29 abr 2026).
-> **Objetivo:** Permitir que agentes externos (Claude Desktop, Cursor, Zapier, n8n, copilots de clientes Enterprise) y agentes internos consuman datos y operen sobre tickets, organizaciones, KB y demás recursos de NovaDesk a través de un único endpoint estandarizado.
+> **Estado:** ✅ **Operativo en producción** — commit `be9fc48` (29 abr 2026).
+> **URL producción:** `https://itsm-web.vercel.app/api/mcp`
+> **Manifest público:** `https://itsm-web.vercel.app/api/mcp/manifest`
+> **Smoke test:** 10/10 pass (manifest, ping, initialize, auth gate, tools/list, tickets.list, metrics.ticket_summary).
+> **Tools registrados:** 31 en 11 dominios; **23 scopes**.
+> **Objetivo:** Permitir que agentes externos (Claude Desktop, Cursor, Claude Code, Zapier, n8n, copilots de clientes Enterprise) y agentes internos consuman datos y operen sobre tickets, organizaciones, KB y demás recursos de NovaDesk a través de un único endpoint estandarizado.
+
+---
+
+## ⚡ Quick Start — conectar un cliente en 60 segundos
+
+### A. Claude Code (CLI)
+
+```bash
+# Agregar el MCP al proyecto actual
+claude mcp add --scope project --transport http novadesk \
+  https://itsm-web.vercel.app/api/mcp \
+  --header "Authorization: Bearer nvd_live_TU_API_KEY"
+
+# Verificar
+claude /mcp
+# → debería listar "novadesk" con 31 tools
+
+# A nivel usuario (todas tus sesiones)
+claude mcp add --scope user --transport http novadesk \
+  https://itsm-web.vercel.app/api/mcp \
+  --header "Authorization: Bearer nvd_live_TU_API_KEY"
+```
+
+### B. Claude Desktop
+
+Edita `%APPDATA%\Claude\claude_desktop_config.json` (Windows) o `~/Library/Application Support/Claude/claude_desktop_config.json` (Mac):
+
+```json
+{
+  "mcpServers": {
+    "novadesk": {
+      "transport": "http",
+      "url": "https://itsm-web.vercel.app/api/mcp",
+      "headers": {
+        "Authorization": "Bearer nvd_live_TU_API_KEY"
+      }
+    }
+  }
+}
+```
+
+Reiniciar Claude Desktop. Las 31 tools aparecen en el indicador de herramientas (icono de martillo).
+
+### C. Cursor
+
+Settings → MCP → Add Server:
+- **Type:** HTTP
+- **URL:** `https://itsm-web.vercel.app/api/mcp`
+- **Headers:** `Authorization: Bearer nvd_live_TU_API_KEY`
+
+### D. Cualquier cliente HTTP / curl
+
+```bash
+curl -X POST https://itsm-web.vercel.app/api/mcp \
+  -H "Authorization: Bearer nvd_live_TU_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0", "id": 1,
+    "method": "tools/call",
+    "params": { "name": "tickets.list", "arguments": { "limit": 5 } }
+  }'
+```
+
+---
+
+## 🔑 Cómo generar un API key
+
+### Opción 1 — UI (recomendada para humanos)
+
+1. Login en `https://itsm-web.vercel.app/auth/sign-in` con cuenta admin/supervisor
+2. Ir a `/home/settings/api-keys`
+3. **Create API Key**:
+   - Name (ej. "Claude Desktop personal")
+   - Environment: `live` o `test`
+   - Scopes: pickear los necesarios o "All read"
+   - Rate limit: 60/min default
+4. **Copiar la plain key inmediatamente** — solo se muestra una vez
+5. Almacenar en gestor de secretos / config del cliente
+
+### Opción 2 — Script ops (recomendada para automation)
+
+`scripts/apply-mcp-migration-and-create-key.mjs` aplica la migración 00039 si falta y crea una key con todos los scopes para el primer tenant:
+
+```bash
+cd <repo>
+PG_CONNECTION_STRING="postgresql://postgres.<ref>:<pwd>@aws-1-us-east-2.pooler.supabase.com:5432/postgres" \
+node scripts/apply-mcp-migration-and-create-key.mjs
+```
+
+Output:
+```
+✓ Connected to Postgres
+✓ api_keys table already present — skipping migration
+✓ Using tenant: NovaDesk Demo — id 8be06573-...
+✓ API key created
+
+  PLAIN KEY (copy now — never shown again):
+     nvd_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Variables soportadas:
+- `KEY_NAME` (default: `mcp-test-fullaccess`)
+- `KEY_DESCRIPTION`
+- `KEY_RPM` (default: 120)
+
+### Opción 3 — SQL directo (operadores DB)
+
+```sql
+INSERT INTO api_keys (
+  tenant_id, name, environment, key_prefix, key_hash, scopes, rate_limit_rpm
+) VALUES (
+  '<tenant-uuid>',
+  'name',
+  'live',
+  'nvd_live_xxx',           -- primeros 12 chars del plain key
+  encode(digest('<plain-key>', 'sha256'), 'hex'),  -- requiere pgcrypto
+  ARRAY['tickets:read','kb:search']::text[],
+  60
+);
+```
+
+---
+
+## 📋 Validación end-to-end — 10/10 pass en producción
+
+```
+▶ 1. GET /api/mcp/manifest (public)
+  ✓ HTTP 200
+  ✓ server.name == "novadesk-itsm"
+  ✓ tool catalog: 31 tools
+  ✓ protocolVersion: 2025-03-26
+
+▶ 2. POST /api/mcp ping (public)
+  ✓ HTTP 200, JSON-RPC envelope correct
+
+▶ 3. POST /api/mcp initialize (public)
+  ✓ HTTP 200, includes protocolVersion + serverInfo
+
+▶ 4. POST /api/mcp tools/list WITHOUT Bearer → must 401
+  ✓ HTTP 401 with code -32001 (Unauthorized)
+
+▶ 5. POST /api/mcp tools/list WITH key
+  ✓ HTTP 200, 31 tools listed
+
+▶ 6. POST /api/mcp tools/call name=tickets.list
+  ✓ HTTP 200, returned 534 tickets (real data)
+
+▶ 7. POST /api/mcp tools/call name=metrics.ticket_summary
+  ✓ HTTP 200
+    total: 534
+    by_status: {"closed":359, "in_progress":12, "detenido":3,
+                "assigned":40, "resolved":11, "backlog":18,
+                "testing":29, "new":49, "cancelled":6,
+                "pending":6, "reopened":1}
+```
+
+Para re-ejecutar:
+```bash
+MCP_BASE_URL=https://itsm-web.vercel.app \
+MCP_API_KEY=nvd_live_xxx \
+bash scripts/test-mcp.sh
+```
+
+---
 
 ---
 
@@ -1039,14 +1207,101 @@ apps/web/supabase/migrations/00001-00038.sql          intactos
 
 ---
 
+## 15.b — Troubleshooting de conexión
+
+### El cliente dice "0 tools available"
+
+1. Verifica que el manifest devuelve tools:
+   ```bash
+   curl -s https://itsm-web.vercel.app/api/mcp/manifest | python -m json.tool | grep '"name"' | head
+   ```
+   Debe mostrar 31 tools. Si muestra 0, hay regresión de tree-shaking — abrir issue.
+
+2. Verifica que tu API key vive (no revocada/expirada):
+   ```bash
+   curl -X POST https://itsm-web.vercel.app/api/mcp \
+     -H "Authorization: Bearer nvd_live_..." \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | head -c 500
+   ```
+   - 401 → key inválida/revocada
+   - 200 con `"tools":[...]` → key OK, problema en el cliente
+
+### Claude Code no reconoce el MCP
+
+```bash
+# Limpiar config previa
+claude mcp remove novadesk
+
+# Re-agregar con scope explícito
+claude mcp add --scope user --transport http novadesk \
+  https://itsm-web.vercel.app/api/mcp \
+  --header "Authorization: Bearer nvd_live_..."
+
+# Listar MCPs registrados
+claude mcp list
+
+# Forzar reload
+claude /mcp
+```
+
+### Claude Desktop dice "Connection failed"
+
+- Verifica que el JSON config sea válido (sin trailing commas).
+- Path del config:
+  - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+  - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Reinicia Claude Desktop completamente (cerrar de la bandeja del sistema).
+- Revisa los logs:
+  - Windows: `%APPDATA%\Claude\Logs\mcp-server-novadesk.log`
+  - macOS: `~/Library/Logs/Claude/mcp-server-novadesk.log`
+
+### "Rate limit exceeded" (HTTP 429)
+
+```bash
+# Ver tu uso actual
+curl -X POST https://itsm-web.vercel.app/api/mcp \
+  -H "Authorization: Bearer nvd_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"audit.mcp_calls","arguments":{"api_key_id":"<TU_KEY_ID>","limit":10}}}'
+```
+
+Subir el rate limit: editar la key en `/home/settings/api-keys` (próxima feature) o vía SQL:
+```sql
+UPDATE api_keys SET rate_limit_rpm = 600 WHERE id = '...';
+```
+
+### "Forbidden — Scope 'X:Y' required" (HTTP 403)
+
+Tu API key no tiene el scope. Genera una nueva con scopes ampliados (la actual seguirá funcionando para los scopes que sí tiene).
+
+### Probar una tool específica desde Claude Code
+
+Después de `claude mcp add`, abre Claude Code y prueba:
+
+```
+Lista los 5 tickets críticos sin asignar usando el MCP de novadesk
+```
+
+Claude descubre las tools del manifest y elige `tickets.list` con los filtros adecuados. Si pasa, la conexión funciona end-to-end.
+
+---
+
 ## 16. Roadmap recomendado
 
-### v1.0 (entregada)
-- ✅ Foundation (migración, service, registry, context, audit, errors)
-- ✅ 28 tools en 11 dominios
-- ✅ Transport HTTP JSON-RPC 2.0
-- ✅ Manifest público
-- ✅ UI settings/api-keys
+### v1.0 (entregada y desplegada en producción)
+- ✅ Foundation (migración 00039, service, registry, context, audit, errors)
+- ✅ 31 tools en 11 dominios (tickets +8, kb +3, contacts +3, problems +3, organizations +2, agents +2, changes +2, assets +2, slas +2, metrics +2, audit +2)
+- ✅ Transport HTTP JSON-RPC 2.0 (single + batch)
+- ✅ Manifest público con cache edge
+- ✅ UI settings/api-keys (admin/supervisor only)
+- ✅ Script ops `scripts/apply-mcp-migration-and-create-key.mjs`
+- ✅ Smoke test `scripts/test-mcp.sh` (10/10 pass)
+- ✅ Validado contra prod con 534 tickets reales
+
+### Bugs fix-eados durante deploy
+- **Vercel build failure** (commit `83bc59f`): `'server-only'` en `api-key.service.ts` no podía importarse desde Client Component → split en `api-key.types.ts` (client-safe) + `api-key.service.ts` (server-only).
+- **`tools: []` en producción** (commit `be9fc48`): webpack tree-shaking eliminaba los `import './tools/X'` (side-effect-only) por `"sideEffects": false` → cada tools file exporta `__<domain>ToolsLoaded`, server.ts los referencia para forzar conservación.
 
 ### v1.1 (siguiente sprint sugerido)
 - [ ] Vector search: `kb.semantic_search` usando RPC `match_knowledge` + OpenAI embeddings
