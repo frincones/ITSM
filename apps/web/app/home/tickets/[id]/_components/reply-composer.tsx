@@ -50,6 +50,7 @@ interface UploadedFile {
   fileName: string;
   fileSize: number;
   fileType: string;
+  attachmentId?: string | null;
 }
 
 interface MacroTemplate {
@@ -259,7 +260,11 @@ export function ReplyComposer({ ticketId, hideInternalNote = false }: ReplyCompo
           const err = await res.json().catch(() => ({}));
           throw new Error(err.error ?? 'Upload failed');
         }
-        const data = (await res.json()) as { url: string | null; path: string };
+        const data = (await res.json()) as {
+          url: string | null;
+          path: string;
+          attachmentId?: string | null;
+        };
         setPendingFiles((prev) => [
           ...prev,
           {
@@ -268,6 +273,7 @@ export function ReplyComposer({ ticketId, hideInternalNote = false }: ReplyCompo
             fileName: file.name || `screenshot-${Date.now()}.png`,
             fileSize: file.size,
             fileType: file.type || 'image/png',
+            attachmentId: data.attachmentId ?? null,
           },
         ]);
         toast.success('Imagen adjuntada');
@@ -304,6 +310,9 @@ export function ReplyComposer({ ticketId, hideInternalNote = false }: ReplyCompo
       const formData = new FormData();
       formData.append('file', file);
       formData.append('orgId', ticketId);
+      // Pass ticketId so the endpoint creates a `ticket_attachments` row
+      // linked to this ticket. Without it the legacy embed-only path is used.
+      formData.append('ticketId', ticketId);
       const res = await fetch('/api/portal/upload', { method: 'POST', body: formData });
       if (res.ok) {
         const data = await res.json();
@@ -378,6 +387,14 @@ export function ReplyComposer({ ticketId, hideInternalNote = false }: ReplyCompo
     const finalHtml = html + attachmentsHtml;
     const finalText = text + (pendingFiles.length ? `\n\n📎 Archivos adjuntos: ${pendingFiles.map(f => f.fileName).join(', ')}` : '');
 
+    // Collect any attachment_ids returned by the upload endpoints so the
+    // server action can link them to the followup we're about to create.
+    // Files uploaded via legacy paths (no attachmentId) are still embedded
+    // in the HTML body; they just won't appear as standalone preview chips.
+    const attachmentIds = pendingFiles
+      .map((f) => f.attachmentId)
+      .filter((v): v is string => Boolean(v));
+
     startTransition(async () => {
       const result = await addFollowup(ticketId, {
         content: finalText,
@@ -385,6 +402,7 @@ export function ReplyComposer({ ticketId, hideInternalNote = false }: ReplyCompo
         is_private: replyMode === 'internal',
         mentioned_agent_ids: agents,
         mentioned_contact_ids: mentionedContactIds,
+        attachment_ids: attachmentIds,
       });
 
       if (!result.error) {

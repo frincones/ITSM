@@ -2,6 +2,13 @@
 
 import { getSupabaseServerClient } from '@kit/supabase/server-client';
 
+export interface PreviewAttachment {
+  id: string;
+  file_name: string;
+  mime_type: string | null;
+  file_size: number | null;
+}
+
 export interface PreviewFollowup {
   id: string;
   content: string;
@@ -10,6 +17,7 @@ export interface PreviewFollowup {
   created_at: string;
   author_type: string | null;
   author: { id: string; name: string; avatar_url: string | null } | null;
+  attachments: PreviewAttachment[];
 }
 
 export interface TicketPreviewData {
@@ -129,6 +137,39 @@ export async function getTicketPreviewData(
       }
     }
 
+    // Fetch attachments for these followups in one shot. Limit by ticket
+    // (RLS already scopes by tenant) to keep the query lean. Legacy rows
+    // with no followup_id are excluded — they show up in the full detail
+    // timeline via the timestamp heuristic, which we don't replicate here
+    // because the compact preview only shows the latest 5 messages anyway.
+    const followupIds = rawFollowups.map((f) => f.id);
+    const attachmentsByFollowup = new Map<string, PreviewAttachment[]>();
+    if (followupIds.length > 0) {
+      const { data: rawAttachments } = await client
+        .from('ticket_attachments')
+        .select('id, file_name, mime_type, file_size, followup_id')
+        .eq('ticket_id', ticketId)
+        .in('followup_id', followupIds);
+
+      for (const a of (rawAttachments ?? []) as Array<{
+        id: string;
+        file_name: string;
+        mime_type: string | null;
+        file_size: number | null;
+        followup_id: string | null;
+      }>) {
+        if (!a.followup_id) continue;
+        const list = attachmentsByFollowup.get(a.followup_id) ?? [];
+        list.push({
+          id: a.id,
+          file_name: a.file_name,
+          mime_type: a.mime_type,
+          file_size: a.file_size,
+        });
+        attachmentsByFollowup.set(a.followup_id, list);
+      }
+    }
+
     const followups: PreviewFollowup[] = rawFollowups.map((f) => ({
       id: f.id,
       content: f.content,
@@ -140,6 +181,7 @@ export async function getTicketPreviewData(
         f.author_type === 'agent' && f.author_id
           ? authorMap.get(f.author_id) ?? null
           : null,
+      attachments: attachmentsByFollowup.get(f.id) ?? [],
     }));
 
     // Counters in parallel (head: true so only count is fetched).

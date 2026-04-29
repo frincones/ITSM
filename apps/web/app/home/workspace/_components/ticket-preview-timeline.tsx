@@ -8,6 +8,8 @@ import { Eye, MessageSquare, Bot, Cog } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@kit/ui/avatar';
 import { Badge } from '@kit/ui/badge';
 
+import { AttachmentList } from '~/components/attachments/attachment-list';
+
 import type { PreviewFollowup } from '~/lib/actions/ticket-preview';
 
 interface TicketPreviewTimelineProps {
@@ -132,6 +134,12 @@ function FollowupItem({ f }: { f: PreviewFollowup }) {
         >
           {expanded ? 'Ver menos' : 'Ver más'}
         </button>
+      )}
+
+      {f.attachments.length > 0 && (
+        <div className="mt-2">
+          <AttachmentList attachments={f.attachments} variant="compact" />
+        </div>
       )}
     </div>
   );

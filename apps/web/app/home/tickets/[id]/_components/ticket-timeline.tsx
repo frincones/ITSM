@@ -2,7 +2,6 @@
 
 import {
   Clock,
-  Paperclip,
   Eye,
   MessageSquare,
   CheckCircle2,
@@ -13,6 +12,11 @@ import {
 import { Avatar, AvatarFallback } from '@kit/ui/avatar';
 import { Badge } from '@kit/ui/badge';
 import { Card, CardContent, CardHeader } from '@kit/ui/card';
+
+import {
+  AttachmentList,
+  type AttachmentRecord,
+} from '~/components/attachments/attachment-list';
 
 import { RichTextViewer } from './rich-text-viewer';
 
@@ -47,8 +51,17 @@ export interface TimelineSolution {
 
 export interface TimelineAttachment {
   id: string;
-  filename: string;
+  // Allow either DB-column name (`file_name`) or legacy alias (`filename`).
+  // The page passes `select('*')` so `file_name` is what arrives in
+  // practice; the alias keeps any older callers building this type by hand
+  // from breaking.
+  file_name?: string;
+  filename?: string;
   file_url?: string | null;
+  file_path?: string | null;
+  followup_id?: string | null;
+  mime_type?: string | null;
+  file_size?: number | null;
   created_at: string;
 }
 
@@ -61,7 +74,11 @@ interface TimelineEntry {
   isPrivate?: boolean;
   content: string;
   contentHtml?: string | null;
-  attachments?: string[];
+  // Attachments for this entry. Newer rows include the full attachment
+  // record so the AttachmentList component can render preview/download
+  // controls; legacy rows that only ever had a filename still display in
+  // the AttachmentList (preview is just disabled for them).
+  attachments?: AttachmentRecord[];
 }
 
 interface TicketTimelineProps {
@@ -115,17 +132,32 @@ function buildTimeline(props: TicketTimelineProps): TimelineEntry[] {
     content: 'Ticket created',
   });
 
-  // Followups
+  // Followups. Two attachment-matching strategies:
+  //   1. Exact: any attachment with `followup_id === f.id` belongs here.
+  //      This is the new path post-migration 00040 — reliable.
+  //   2. Heuristic: attachments without followup_id but uploaded within
+  //      60s of the followup. Legacy rows (and the rare race where the
+  //      followup_id link UPDATE didn't run) still surface this way.
   for (const f of props.followups) {
-    const relatedAttachments = props.attachments
-      .filter(
-        (a) =>
-          new Date(a.created_at).getTime() - new Date(f.created_at).getTime() <
-            60_000 &&
-          new Date(a.created_at).getTime() - new Date(f.created_at).getTime() >=
-            0,
-      )
-      .map((a) => a.filename);
+    const exact = props.attachments.filter((a) => a.followup_id === f.id);
+
+    const fuzzy = exact.length === 0
+      ? props.attachments.filter((a) => {
+          if (a.followup_id) return false; // already claimed by another followup
+          const delta =
+            new Date(a.created_at).getTime() -
+            new Date(f.created_at).getTime();
+          return delta >= 0 && delta < 60_000;
+        })
+      : [];
+
+    const matched = [...exact, ...fuzzy];
+    const relatedAttachments: AttachmentRecord[] = matched.map((a) => ({
+      id: a.id,
+      file_name: a.file_name ?? a.filename ?? 'archivo',
+      mime_type: a.mime_type ?? null,
+      file_size: a.file_size ?? null,
+    }));
 
     const authorInfo = f.author ?? (f as any).author_id ? props.agentMap?.[(f as any).author_id] : undefined;
     // Strip HTML comments (used for idempotency markers like <!-- resend:... -->)
@@ -240,18 +272,11 @@ export function TicketTimeline(props: TicketTimelineProps) {
                   </p>
                 )}
                 {entry.attachments && entry.attachments.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {entry.attachments.map((file, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
-                      >
-                        <Paperclip className="h-4 w-4 text-gray-500" />
-                        <span className="text-gray-700 dark:text-gray-300">
-                          {file}
-                        </span>
-                      </div>
-                    ))}
+                  <div className="mt-3">
+                    <AttachmentList
+                      attachments={entry.attachments}
+                      variant="full"
+                    />
                   </div>
                 )}
               </CardContent>

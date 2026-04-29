@@ -934,6 +934,25 @@ export async function addFollowup(
       return { data: null, error: error.message };
     }
 
+    // Link any attachments uploaded before submit to this followup so the
+    // timeline / preview UI can group them under the message that was sent.
+    // We scope by tenant + ticket as a defense-in-depth check (RLS already
+    // enforces tenant). Failures are non-fatal — the file still uploaded.
+    const attachmentIds = validated.attachment_ids ?? [];
+    if (attachmentIds.length > 0 && followup?.id) {
+      try {
+        await client
+          .from('ticket_attachments')
+          .update({ followup_id: followup.id as string })
+          .in('id', attachmentIds)
+          .eq('ticket_id', ticketId)
+          .eq('tenant_id', agent.tenant_id)
+          .is('followup_id', null);
+      } catch (linkErr) {
+        console.warn('[addFollowup] attachment link failed:', linkErr);
+      }
+    }
+
     // Auto-follow on participation — any agent who posts a followup,
     // public or private, becomes a follower on that ticket.
     if (!isClient) {

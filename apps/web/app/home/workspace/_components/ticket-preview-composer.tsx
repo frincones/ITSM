@@ -113,6 +113,9 @@ export function TicketPreviewComposer({
         is_private: replyMode === 'internal',
         mentioned_agent_ids: [],
         mentioned_contact_ids: [],
+        // Workspace composer doesn't support uploads (yet) — keep field
+        // explicit so the inferred input type matches the schema.
+        attachment_ids: [],
       });
 
       if (result.error) {

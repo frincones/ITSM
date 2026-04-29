@@ -114,6 +114,7 @@ export const addFollowupSchema = z.object({
   is_private: z.boolean().default(false),
   mentioned_agent_ids: z.array(uuidSchema).optional().default([]),
   mentioned_contact_ids: z.array(uuidSchema).optional().default([]),
+  attachment_ids: z.array(uuidSchema).optional().default([]),
 });
 
 export type AddFollowupInput = z.infer<typeof addFollowupSchema>;

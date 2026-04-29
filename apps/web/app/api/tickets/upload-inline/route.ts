@@ -88,9 +88,34 @@ export async function POST(req: NextRequest) {
       .from('ticket-attachments')
       .createSignedUrl(path, 60 * 60 * 24 * 7);
 
+    // Persist attachment metadata so it survives the signed-URL expiry and
+    // can be surfaced in the new preview/download UI. Best-effort: a failure
+    // here doesn't block the upload (the legacy embed-in-HTML path works
+    // without this row).
+    let attachmentId: string | null = null;
+    try {
+      const { data: inserted } = await serverClient
+        .from('ticket_attachments')
+        .insert({
+          tenant_id: agent.tenant_id,
+          ticket_id: ticketId,
+          file_name: file.name || `screenshot-${timestamp}.${ext}`,
+          file_path: path,
+          mime_type: file.type,
+          file_size: file.size,
+          uploaded_by: user.id,
+        })
+        .select('id')
+        .single();
+      attachmentId = (inserted?.id as string | undefined) ?? null;
+    } catch (insertErr) {
+      console.warn('[upload-inline] attachment row not created:', insertErr);
+    }
+
     return NextResponse.json({
       url: signed?.signedUrl ?? null,
       path,
+      attachmentId,
     });
   } catch (err) {
     console.error('[upload-inline] error:', err);
