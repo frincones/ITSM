@@ -139,6 +139,26 @@ function clientAcceptsSse(req: NextRequest): boolean {
   return accept.includes('text/event-stream');
 }
 
+/**
+ * JSON-RPC 2.0 spec § 4.1: a Notification is a Request object WITHOUT
+ * an `id` member. Detection is purely by `id` presence — the method name
+ * is irrelevant (`notifications/*` is just a convention).
+ *
+ * MCP spec (Streamable HTTP) requires servers to acknowledge notifications
+ * with HTTP 202 Accepted and an EMPTY body. Returning 204 with a body
+ * triggers a 500 in Next.js / Vercel because HTTP forbids a body on 204,
+ * which breaks the handshake — Claude Code's `notifications/initialized`
+ * hits this path right after `initialize`.
+ */
+function isNotification(rpc: unknown): boolean {
+  return (
+    typeof rpc === 'object' &&
+    rpc !== null &&
+    !('id' in rpc) &&
+    typeof (rpc as { method?: unknown }).method === 'string'
+  );
+}
+
 /** Builds an SSE event line from a JSON-RPC payload. */
 function sseFrame(payload: unknown): string {
   return `event: message\ndata: ${JSON.stringify(payload)}\n\n`;
@@ -205,10 +225,16 @@ async function executeRpc(
     };
   }
 
-  // Notifications (id absent) are silently accepted in the spec; we don't
-  // implement push notifications, so just acknowledge.
-  if (rpc.id === undefined && rpc.method.startsWith('notifications/')) {
-    return { response: { jsonrpc: '2.0', id: null, result: null }, httpStatus: 204 };
+  // Notifications (no `id`) MUST be filtered out before reaching this
+  // dispatcher — the POST handler returns HTTP 202 with empty body for
+  // them per the MCP Streamable HTTP spec. If one slips through here,
+  // treat it as a malformed request rather than silently 204'ing
+  // (which is invalid HTTP for non-empty bodies).
+  if (rpc.id === undefined) {
+    return {
+      response: buildError(null, JsonRpcErrorCode.InvalidRequest, 'Notifications must be handled via the POST 202 path'),
+      httpStatus: 400,
+    };
   }
 
   // Methods that don't require auth.
@@ -467,19 +493,35 @@ export async function POST(req: NextRequest) {
     (body as JsonRpcRequest).method === 'initialize';
   const sessionId = isInitialize ? newSessionId() : inboundSession || newSessionId();
 
-  // Batch support per JSON-RPC 2.0.
+  // Notifications: per MCP Streamable HTTP spec, ack with HTTP 202 and an
+  // empty body. Detection is by absence of `id` (JSON-RPC 2.0 § 4.1) — the
+  // method name is irrelevant. Claude Code's handshake sends
+  // `notifications/initialized` immediately after `initialize`; failing
+  // here cancels the connection.
   if (Array.isArray(body)) {
+    // Mixed batch handling: filter notifications out, only respond for
+    // non-notifications. If everything is a notification, return 202.
     if (body.length === 0) {
       const err = buildError(null, JsonRpcErrorCode.InvalidRequest, 'Empty batch');
       if (wantsSse) return jsonRpcAsSse(req, err, 400, sessionId);
       return NextResponse.json(err, { status: 400, headers: commonHeaders(req, sessionId) });
     }
+    const requests = body.filter((item) => !isNotification(item));
+    if (requests.length === 0) {
+      // All-notifications batch: ack with 202 + empty body.
+      return new Response(null, { status: 202, headers: commonHeaders(req, sessionId) });
+    }
     const results = await Promise.all(
-      body.map((item) => executeRpc(req, item as JsonRpcRequest)),
+      requests.map((item) => executeRpc(req, item as JsonRpcRequest)),
     );
     const payload = results.map((r) => r.response);
     if (wantsSse) return jsonRpcAsSse(req, payload, 200, sessionId);
     return NextResponse.json(payload, { status: 200, headers: commonHeaders(req, sessionId) });
+  }
+
+  if (isNotification(body)) {
+    // Single notification: 202 with empty body. Spec-compliant.
+    return new Response(null, { status: 202, headers: commonHeaders(req, sessionId) });
   }
 
   const single = body as JsonRpcRequest;
