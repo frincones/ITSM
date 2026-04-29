@@ -66,7 +66,7 @@ export async function GET() {
           title: 'List tickets',
           method: 'tools/call',
           params: {
-            name: 'tickets.list',
+            name: 'tickets_list',
             arguments: { page: 1, limit: 20, status: ['new', 'assigned'] },
           },
         },
@@ -74,7 +74,7 @@ export async function GET() {
           title: 'Search knowledge base',
           method: 'tools/call',
           params: {
-            name: 'kb.search',
+            name: 'kb_search',
             arguments: { query: 'wifi password reset', limit: 5 },
           },
         },

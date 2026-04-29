@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { registry } from '../registry';
 
 registry.register({
-  name: 'slas.list',
+  name: 'slas_list',
   description: 'List SLA definitions configured in the tenant.',
   scope: 'slas:read',
   inputSchema: z.object({
@@ -28,7 +28,7 @@ registry.register({
 });
 
 registry.register({
-  name: 'slas.get_breaches',
+  name: 'slas_get_breaches',
   description: 'Return tickets that have breached SLA OR will breach within `within_minutes`. Defaults to currently breached only.',
   scope: 'slas:read',
   inputSchema: z.object({

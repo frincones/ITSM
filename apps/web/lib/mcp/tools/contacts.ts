@@ -16,7 +16,7 @@ const CONTACT_COLUMNS =
   'id, name, email, phone, whatsapp_id, company, avatar_url, channel_identifiers, metadata, created_at, updated_at';
 
 registry.register({
-  name: 'contacts.list',
+  name: 'contacts_list',
   description: 'List contacts (end users / requesters) in the tenant.',
   scope: 'contacts:read',
   inputSchema: PaginationInput.extend({
@@ -48,7 +48,7 @@ registry.register({
 });
 
 registry.register({
-  name: 'contacts.get',
+  name: 'contacts_get',
   description: 'Get a contact by id or email.',
   scope: 'contacts:read',
   inputSchema: z.object({
@@ -71,7 +71,7 @@ registry.register({
 });
 
 registry.register({
-  name: 'contacts.upsert',
+  name: 'contacts_upsert',
   description: 'Create a contact or update it if a contact with the same email already exists in the tenant.',
   scope: 'contacts:write',
   inputSchema: z.object({

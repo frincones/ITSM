@@ -16,7 +16,7 @@ import {
 } from '../schemas';
 
 registry.register({
-  name: 'audit.list',
+  name: 'audit_list',
   description: 'List entries from audit_logs (UI/agent mutations) for the tenant. Filter by resource_type, resource_id, user_id, action, and date.',
   scope: 'audit:read',
   inputSchema: PaginationInput.extend({
@@ -49,7 +49,7 @@ registry.register({
 });
 
 registry.register({
-  name: 'audit.mcp_calls',
+  name: 'audit_mcp_calls',
   description: 'List MCP/REST tool-call audit entries for the tenant. Filter by tool_name, status, api_key_id, and date.',
   scope: 'audit:read',
   inputSchema: PaginationInput.extend({

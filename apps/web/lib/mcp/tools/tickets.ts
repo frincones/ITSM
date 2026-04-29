@@ -56,7 +56,7 @@ const listInput = PaginationInput.extend({
 });
 
 registry.register({
-  name: 'tickets.list',
+  name: 'tickets_list',
   description: 'List tickets in the tenant with filters, pagination, and sorting. Returns summary fields only — use tickets.get for full detail.',
   scope: 'tickets:read',
   inputSchema: listInput,
@@ -122,7 +122,7 @@ const getInput = z.object({
 });
 
 registry.register({
-  name: 'tickets.get',
+  name: 'tickets_get',
   description: 'Get a single ticket by id or ticket_number. Optionally include followups, tasks, and solutions.',
   scope: 'tickets:read',
   inputSchema: getInput,
@@ -186,7 +186,7 @@ registry.register({
 // ---------------------------------------------------------------------------
 
 registry.register({
-  name: 'tickets.search',
+  name: 'tickets_search',
   description: 'Search tickets by title and description using case-insensitive substring match. For semantic search use kb.search against the knowledge base.',
   scope: 'tickets:read',
   inputSchema: z.object({
@@ -232,7 +232,7 @@ const createInput = z.object({
 });
 
 registry.register({
-  name: 'tickets.create',
+  name: 'tickets_create',
   description: 'Create a new ticket. Auto-assignment, AI classification, and follower notifications run via the existing trigger/workflow chain — this tool does not bypass them.',
   scope: 'tickets:write',
   inputSchema: createInput,
@@ -290,7 +290,7 @@ const updateInput = z.object({
 });
 
 registry.register({
-  name: 'tickets.update',
+  name: 'tickets_update',
   description: 'Update mutable fields on a ticket. For status transitions use tickets.transition_status. For assignment use tickets.assign.',
   scope: 'tickets:write',
   inputSchema: updateInput,
@@ -327,7 +327,7 @@ const addCommentInput = z.object({
 });
 
 registry.register({
-  name: 'tickets.add_comment',
+  name: 'tickets_add_comment',
   description: 'Add a public or private followup (comment) to a ticket.',
   scope: 'tickets:comment',
   inputSchema: addCommentInput,
@@ -376,7 +376,7 @@ const assignInput = z.object({
 });
 
 registry.register({
-  name: 'tickets.assign',
+  name: 'tickets_assign',
   description: 'Assign a ticket to an agent and/or group. Pass null to unassign.',
   scope: 'tickets:assign',
   inputSchema: assignInput,
@@ -421,7 +421,7 @@ const transitionInput = z.object({
 });
 
 registry.register({
-  name: 'tickets.transition_status',
+  name: 'tickets_transition_status',
   description: 'Change a ticket status. Valid transitions are enforced by the database. Optionally attach a resolution note as a private followup.',
   scope: 'tickets:write',
   inputSchema: transitionInput,

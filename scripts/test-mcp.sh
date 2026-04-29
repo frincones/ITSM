@@ -8,7 +8,7 @@
 #   3. POST /api/mcp { method: initialize } (public; server info)
 #   4. POST /api/mcp { method: tools/list } WITHOUT auth (must 401)
 #   5. POST /api/mcp { method: tools/list } WITH auth (if MCP_API_KEY set)
-#   6. POST /api/mcp { method: tools/call name=tickets.list } (if key set)
+#   6. POST /api/mcp { method: tools/call name=tickets_list } (if key set)
 #
 # Usage:
 #   MCP_BASE_URL=https://your-domain.com bash scripts/test-mcp.sh
@@ -64,7 +64,9 @@ if [ "$s" = "200" ]; then
   else
     ng 'server.name missing or different — is this the right deployment?'
   fi
-  tools_count=$(echo "$b" | grep -oE '"name":"[a-z_]+\.[a-z_]+"' | wc -l)
+  # Tool names follow the Anthropic-allowed pattern (no dots, no slashes).
+  # Filter by known domain prefix so we don't count server.name or other fields.
+  tools_count=$(echo "$b" | grep -oE '"name":"(tickets|kb|agents|assets|audit|changes|contacts|metrics|organizations|problems|slas)_[a-z_]+"' | wc -l)
   if [ "$tools_count" -ge 25 ]; then
     ok "tool catalog: $tools_count entries"
   else
@@ -130,19 +132,19 @@ else
   s=$(extract_status "$r")
   b=$(extract_body "$r")
   if [ "$s" = "200" ] && echo "$b" | grep -q '"tools"'; then
-    n=$(echo "$b" | grep -oE '"name":"[a-z_]+\.[a-z_]+"' | wc -l)
+    n=$(echo "$b" | grep -oE '"name":"(tickets|kb|agents|assets|audit|changes|contacts|metrics|organizations|problems|slas)_[a-z_]+"' | wc -l)
     ok "HTTP 200, $n tools listed"
   else
     ng "HTTP $s — body: $(echo "$b" | head -c 300)"
   fi
 
-  step "6. POST /api/mcp { method: tools/call name=tickets.list }"
-  body='{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"tickets.list","arguments":{"limit":3}}}'
+  step "6. POST /api/mcp { method: tools/call name=tickets_list }"
+  body='{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"tickets_list","arguments":{"limit":3}}}'
   r=$(curl_json POST /api/mcp "$body" "$API_KEY")
   s=$(extract_status "$r")
   b=$(extract_body "$r")
   if [ "$s" = "200" ] && echo "$b" | grep -q '"structuredContent"'; then
-    ok "HTTP 200, tickets.list returned structured content"
+    ok "HTTP 200, tickets_list returned structured content"
     echo "$b" | grep -oE '"total":[0-9]+' | head -1 | sed 's/^/    /'
   elif [ "$s" = "403" ] && echo "$b" | grep -q '"code":-32002'; then
     warn "HTTP 403: API key missing tickets:read scope — expected if you scoped narrowly"
@@ -150,8 +152,8 @@ else
     ng "HTTP $s — body: $(echo "$b" | head -c 300)"
   fi
 
-  step "7. POST /api/mcp { method: tools/call name=metrics.ticket_summary }"
-  body='{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"metrics.ticket_summary","arguments":{}}}'
+  step "7. POST /api/mcp { method: tools/call name=metrics_ticket_summary }"
+  body='{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"metrics_ticket_summary","arguments":{}}}'
   r=$(curl_json POST /api/mcp "$body" "$API_KEY")
   s=$(extract_status "$r")
   b=$(extract_body "$r")

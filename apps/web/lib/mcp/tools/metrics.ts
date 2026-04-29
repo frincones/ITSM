@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { registry } from '../registry';
 
 registry.register({
-  name: 'metrics.daily',
+  name: 'metrics_daily',
   description: 'Read pre-aggregated daily ticket metrics. Aggregates can be filtered by date range, ticket_type, status, and channel.',
   scope: 'metrics:read',
   inputSchema: z.object({
@@ -38,7 +38,7 @@ registry.register({
 });
 
 registry.register({
-  name: 'metrics.ticket_summary',
+  name: 'metrics_ticket_summary',
   description: 'Live counts of open tickets grouped by status. Cheap, indexed query suitable for dashboards.',
   scope: 'metrics:read',
   inputSchema: z.object({

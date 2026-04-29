@@ -23,7 +23,7 @@ const problemStatusEnum = z.enum([
 const severityEnum = z.enum(['low', 'medium', 'high', 'critical']);
 
 registry.register({
-  name: 'problems.list',
+  name: 'problems_list',
   description: 'List problems (ITIL) with filters and pagination.',
   scope: 'problems:read',
   inputSchema: PaginationInput.extend({
@@ -56,7 +56,7 @@ registry.register({
 });
 
 registry.register({
-  name: 'problems.get',
+  name: 'problems_get',
   description: 'Get a single problem by id or problem_number, including linked tickets.',
   scope: 'problems:read',
   inputSchema: z.object({
@@ -92,7 +92,7 @@ registry.register({
 });
 
 registry.register({
-  name: 'problems.create',
+  name: 'problems_create',
   description: 'Create a new problem.',
   scope: 'problems:write',
   inputSchema: z.object({

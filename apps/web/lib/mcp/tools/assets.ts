@@ -18,7 +18,7 @@ const ASSET_COLUMNS =
 const assetStatusEnum = z.enum(['available', 'in_use', 'maintenance', 'retired', 'lost']);
 
 registry.register({
-  name: 'assets.list',
+  name: 'assets_list',
   description: 'List assets (CMDB) with filters and pagination.',
   scope: 'assets:read',
   inputSchema: PaginationInput.extend({
@@ -50,7 +50,7 @@ registry.register({
 });
 
 registry.register({
-  name: 'assets.get',
+  name: 'assets_get',
   description: 'Get a single asset by id or asset_tag.',
   scope: 'assets:read',
   inputSchema: z.object({

@@ -19,7 +19,7 @@ const AGENT_COLUMNS =
   'id, name, email, role, skills, avatar_url, is_active, last_active_at, created_at';
 
 registry.register({
-  name: 'agents.list',
+  name: 'agents_list',
   description: 'List agents (NovaDesk staff) in the tenant. Read-only.',
   scope: 'agents:read',
   inputSchema: PaginationInput.extend({
@@ -47,7 +47,7 @@ registry.register({
 });
 
 registry.register({
-  name: 'agents.get',
+  name: 'agents_get',
   description: 'Get a single agent by id.',
   scope: 'agents:read',
   inputSchema: z.object({ id: z.string().uuid() }),

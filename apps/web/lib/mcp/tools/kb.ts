@@ -23,7 +23,7 @@ const ARTICLE_LIST_COLUMNS =
 const ARTICLE_DETAIL_COLUMNS = ARTICLE_LIST_COLUMNS + ', content_markdown, content_html, ai_auto_generated, author_id';
 
 registry.register({
-  name: 'kb.list_categories',
+  name: 'kb_list_categories',
   description: 'List knowledge base categories with parent / child hierarchy info.',
   scope: 'kb:read',
   inputSchema: z.object({
@@ -44,7 +44,7 @@ registry.register({
 });
 
 registry.register({
-  name: 'kb.search',
+  name: 'kb_search',
   description: 'Search knowledge base articles by title, content, and tags using case-insensitive substring match. Returns published articles only by default.',
   scope: 'kb:search',
   inputSchema: PaginationInput.extend({
@@ -86,7 +86,7 @@ registry.register({
 });
 
 registry.register({
-  name: 'kb.get_article',
+  name: 'kb_get_article',
   description: 'Get a single knowledge base article by id or slug, including full markdown content.',
   scope: 'kb:read',
   inputSchema: z.object({

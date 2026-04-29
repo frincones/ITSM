@@ -23,7 +23,7 @@ const changeStatusEnum = z.enum([
 const changeTypeEnum = z.enum(['standard', 'normal', 'emergency']);
 
 registry.register({
-  name: 'changes.list',
+  name: 'changes_list',
   description: 'List change requests (ITIL) with filters and pagination.',
   scope: 'changes:read',
   inputSchema: PaginationInput.extend({
@@ -58,7 +58,7 @@ registry.register({
 });
 
 registry.register({
-  name: 'changes.get',
+  name: 'changes_get',
   description: 'Get a single change by id or change_number.',
   scope: 'changes:read',
   inputSchema: z.object({

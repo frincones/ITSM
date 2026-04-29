@@ -16,7 +16,7 @@ const ORG_COLUMNS =
   'id, name, slug, domain, industry, contact_name, contact_email, contact_phone, sla_id, is_active, max_users, contract_start, contract_end, created_at, updated_at';
 
 registry.register({
-  name: 'organizations.list',
+  name: 'organizations_list',
   description: 'List client organizations in the tenant. Honors API key org-allowlist when set.',
   scope: 'organizations:read',
   inputSchema: PaginationInput.extend({
@@ -53,7 +53,7 @@ registry.register({
 });
 
 registry.register({
-  name: 'organizations.get',
+  name: 'organizations_get',
   description: 'Get a single organization by id or slug.',
   scope: 'organizations:read',
   inputSchema: z.object({
