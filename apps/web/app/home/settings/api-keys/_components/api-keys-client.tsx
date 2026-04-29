@@ -42,7 +42,7 @@ import {
   ALL_SCOPES,
   type ApiKeyEnvironment,
   type ApiKeyRecord,
-} from '~/lib/services/api-key.service';
+} from '~/lib/services/api-key.types';
 
 interface Props {
   keys: ApiKeyRecord[];

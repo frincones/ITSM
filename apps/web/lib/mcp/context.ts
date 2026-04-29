@@ -19,7 +19,7 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { forbidden } from './errors';
-import { hasScope } from '~/lib/services/api-key.service';
+import { hasScope } from '~/lib/services/api-key.types';
 
 export type McpChannel = 'mcp' | 'rest' | 'internal';
 

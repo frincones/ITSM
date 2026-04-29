@@ -17,13 +17,15 @@ import { z } from 'zod';
 import { getSupabaseServerClient } from '@kit/supabase/server-client';
 
 import {
-  ALL_SCOPES,
   createApiKey,
   listApiKeys,
   revokeApiKey,
+} from '~/lib/services/api-key.service';
+import {
+  ALL_SCOPES,
   type ApiKeyEnvironment,
   type ApiKeyRecord,
-} from '~/lib/services/api-key.service';
+} from '~/lib/services/api-key.types';
 
 const SETTINGS_PATH = '/home/settings/api-keys';
 

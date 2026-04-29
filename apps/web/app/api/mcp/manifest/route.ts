@@ -21,7 +21,7 @@ import {
   MCP_SERVER_VERSION,
   registry,
 } from '~/lib/mcp/server';
-import { ALL_SCOPES } from '~/lib/services/api-key.service';
+import { ALL_SCOPES } from '~/lib/services/api-key.types';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
