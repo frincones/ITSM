@@ -1,11 +1,18 @@
 # Arquitectura del MCP Server — NovaDesk ITSM
 
-> **Estado:** ✅ **Operativo en producción** — commit `be9fc48` (29 abr 2026).
+> **Estado:** ✅ **Operativo en producción y registrable por Claude Code/Desktop/Cursor** — commit `e1ceec2` (29 abr 2026).
 > **URL producción:** `https://itsm-web.vercel.app/api/mcp`
 > **Manifest público:** `https://itsm-web.vercel.app/api/mcp/manifest`
-> **Smoke test:** 10/10 pass (manifest, ping, initialize, auth gate, tools/list, tickets.list, metrics.ticket_summary).
+> **Transport:** MCP Streamable HTTP (spec 2025-03-26) — JSON-RPC 2.0 + `Mcp-Session-Id` + SSE GET.
+> **Smoke test:** 10/10 pass + transport handshake validado + 31/31 tools con `inputSchema` válido.
 > **Tools registrados:** 31 en 11 dominios; **23 scopes**.
 > **Objetivo:** Permitir que agentes externos (Claude Desktop, Cursor, Claude Code, Zapier, n8n, copilots de clientes Enterprise) y agentes internos consuman datos y operen sobre tickets, organizaciones, KB y demás recursos de NovaDesk a través de un único endpoint estandarizado.
+
+> ### ⚠️ Nomenclatura de tools — leer antes de integrar
+>
+> Los nombres usan **underscore** como separador: `tickets_list` (no `tickets.list`), `kb_search` (no `kb.search`), `metrics_ticket_summary`, etc.
+> Razón: la API de Anthropic valida tool names contra `^[a-zA-Z0-9_-]{1,64}$` y rechaza dots.
+> El namespacing semántico (`<dominio>_<acción>`) se conserva — solo cambia el separador.
 
 ---
 
@@ -65,7 +72,7 @@ curl -X POST https://itsm-web.vercel.app/api/mcp \
   -d '{
     "jsonrpc": "2.0", "id": 1,
     "method": "tools/call",
-    "params": { "name": "tickets.list", "arguments": { "limit": 5 } }
+    "params": { "name": "tickets_list", "arguments": { "limit": 5 } }
   }'
 ```
 
@@ -150,10 +157,10 @@ INSERT INTO api_keys (
 ▶ 5. POST /api/mcp tools/list WITH key
   ✓ HTTP 200, 31 tools listed
 
-▶ 6. POST /api/mcp tools/call name=tickets.list
+▶ 6. POST /api/mcp tools/call name=tickets_list
   ✓ HTTP 200, returned 534 tickets (real data)
 
-▶ 7. POST /api/mcp tools/call name=metrics.ticket_summary
+▶ 7. POST /api/mcp tools/call name=metrics_ticket_summary
   ✓ HTTP 200
     total: 534
     by_status: {"closed":359, "in_progress":12, "detenido":3,
@@ -530,7 +537,7 @@ export interface MCPContext {
 
 ```ts
 interface ToolDefinition<TInput, TOutput> {
-  name: string;            // dotted: 'tickets.list'
+  name: string;            // dotted: 'tickets_list'
   description: string;
   scope: string;           // required scope
   inputSchema: ZodSchema;
@@ -552,7 +559,7 @@ class ToolRegistry {
 export const registry = new ToolRegistry();  // singleton
 ```
 
-**Esta es la pieza que hace al MCP plataforma.** El registry no sabe nada de HTTP. El mismo `registry.invoke('tickets.create', ctx, input)` funciona desde:
+**Esta es la pieza que hace al MCP plataforma.** El registry no sabe nada de HTTP. El mismo `registry.invoke('tickets_create', ctx, input)` funciona desde:
 - HTTP route handler (este repo)
 - Cron job interno
 - Workflow engine
@@ -598,14 +605,14 @@ Cada tool: `(ctx: MCPContext, input: zod-validated) => Promise<output>`. Self-re
 
 | Tool | Scope | Input | Output |
 |---|---|---|---|
-| `tickets.list` | `tickets:read` | filters (status[], type[], urgency, assigned_*, organization_id, dates, search), sort, page, limit | `{ data: Ticket[], pagination }` |
-| `tickets.get` | `tickets:read` | `id` o `ticket_number`, include_followups/tasks/solutions | `{ ticket, followups?, tasks?, solutions? }` |
-| `tickets.search` | `tickets:read` | `query` (≥2 chars), limit | `{ data, query }` (ilike sobre title+description) |
-| `tickets.create` | `tickets:write` | title, description, type, urgency, impact, organization_id, category_id, requester_id/email, tags | `{ ticket }` |
-| `tickets.update` | `tickets:write` | id + campos parciales | `{ ticket }` |
-| `tickets.add_comment` | `tickets:comment` | ticket_id, content, content_html?, is_private | `{ followup }` |
-| `tickets.assign` | `tickets:assign` | ticket_id, assigned_agent_id?, assigned_group_id? | `{ ticket }` (auto-transition a `assigned` si nuevo) |
-| `tickets.transition_status` | `tickets:write` | ticket_id, status, resolution_note? | `{ ticket }` (auto-llena resolved_at/closed_at) |
+| `tickets_list` | `tickets:read` | filters (status[], type[], urgency, assigned_*, organization_id, dates, search), sort, page, limit | `{ data: Ticket[], pagination }` |
+| `tickets_get` | `tickets:read` | `id` o `ticket_number`, include_followups/tasks/solutions | `{ ticket, followups?, tasks?, solutions? }` |
+| `tickets_search` | `tickets:read` | `query` (≥2 chars), limit | `{ data, query }` (ilike sobre title+description) |
+| `tickets_create` | `tickets:write` | title, description, type, urgency, impact, organization_id, category_id, requester_id/email, tags | `{ ticket }` |
+| `tickets_update` | `tickets:write` | id + campos parciales | `{ ticket }` |
+| `tickets_add_comment` | `tickets:comment` | ticket_id, content, content_html?, is_private | `{ followup }` |
+| `tickets_assign` | `tickets:assign` | ticket_id, assigned_agent_id?, assigned_group_id? | `{ ticket }` (auto-transition a `assigned` si nuevo) |
+| `tickets_transition_status` | `tickets:write` | ticket_id, status, resolution_note? | `{ ticket }` (auto-llena resolved_at/closed_at) |
 
 **Nota importante:** estas tools **NO** llaman a los Server Actions existentes (`lib/actions/tickets.ts`) porque esos dependen de `auth.uid()` JWT — inválido para API-key callers. Replican la lógica mínima necesaria con queries Supabase directas. Auto-assignment, AI classification y notificaciones de followers siguen ocurriendo via los triggers/workflows DB que ya existen.
 
@@ -613,23 +620,23 @@ Cada tool: `(ctx: MCPContext, input: zod-validated) => Promise<output>`. Self-re
 
 | Tool | Scope | Notas |
 |---|---|---|
-| `organizations.list` | `organizations:read` | filters (is_active, search), pagination, honra `resolveOrgFilter()` |
-| `organizations.get` | `organizations:read` | by id o slug |
+| `organizations_list` | `organizations:read` | filters (is_active, search), pagination, honra `resolveOrgFilter()` |
+| `organizations_get` | `organizations:read` | by id o slug |
 
 ### 6.3. `contacts.*` (3 tools)
 
 | Tool | Scope | Notas |
 |---|---|---|
-| `contacts.list` | `contacts:read` | filters (search, email exacto), pagination |
-| `contacts.get` | `contacts:read` | by id o email |
-| `contacts.upsert` | `contacts:write` | crea o updates por email — útil para ingestion automatizado |
+| `contacts_list` | `contacts:read` | filters (search, email exacto), pagination |
+| `contacts_get` | `contacts:read` | by id o email |
+| `contacts_upsert` | `contacts:write` | crea o updates por email — útil para ingestion automatizado |
 
 ### 6.4. `agents.*` (2 tools)
 
 | Tool | Scope | Notas |
 |---|---|---|
-| `agents.list` | `agents:read` | filters (is_active, role) |
-| `agents.get` | `agents:read` | by id |
+| `agents_list` | `agents:read` | filters (is_active, role) |
+| `agents_get` | `agents:read` | by id |
 
 Read-only. Mutations stay in admin UI.
 
@@ -637,26 +644,26 @@ Read-only. Mutations stay in admin UI.
 
 | Tool | Scope | Notas |
 |---|---|---|
-| `kb.list_categories` | `kb:read` | jerarquía completa (parent_id), filtro is_active |
-| `kb.search` | `kb:search` | text-based ilike sobre title+content; filters (category, language, tags, only_public, include_drafts) |
-| `kb.get_article` | `kb:read` | by id o slug, devuelve markdown completo |
+| `kb_list_categories` | `kb:read` | jerarquía completa (parent_id), filtro is_active |
+| `kb_search` | `kb:search` | text-based ilike sobre title+content; filters (category, language, tags, only_public, include_drafts) |
+| `kb_get_article` | `kb:read` | by id o slug, devuelve markdown completo |
 
-**Vector search no expuesto en v1.** El RPC `match_knowledge` (pgvector) ya existe en DB; agregar `kb.semantic_search` requiere endpoint de embeddings (OpenAI) — postpuesto para v2 cuando tengamos llave configurada por tenant.
+**Vector search no expuesto en v1.** El RPC `match_knowledge` (pgvector) ya existe en DB; agregar `kb_semantic_search` requiere endpoint de embeddings (OpenAI) — postpuesto para v2 cuando tengamos llave configurada por tenant.
 
 ### 6.6. `problems.*` (3 tools)
 
 | Tool | Scope | Notas |
 |---|---|---|
-| `problems.list` | `problems:read` | filters (status[], urgency, assigned), pagination |
-| `problems.get` | `problems:read` | by id o problem_number, opcional `include_linked_tickets` |
-| `problems.create` | `problems:write` | title, description, urgency, impact, category |
+| `problems_list` | `problems:read` | filters (status[], urgency, assigned), pagination |
+| `problems_get` | `problems:read` | by id o problem_number, opcional `include_linked_tickets` |
+| `problems_create` | `problems:write` | title, description, urgency, impact, category |
 
 ### 6.7. `changes.*` (2 tools)
 
 | Tool | Scope | Notas |
 |---|---|---|
-| `changes.list` | `changes:read` | filters (status[], change_type, scheduled_*) |
-| `changes.get` | `changes:read` | by id o change_number, devuelve impact_analysis + rollback_plan |
+| `changes_list` | `changes:read` | filters (status[], change_type, scheduled_*) |
+| `changes_get` | `changes:read` | by id o change_number, devuelve impact_analysis + rollback_plan |
 
 Read-only en v1 (creates de changes pasan por aprobación, mejor mantener en UI por ahora).
 
@@ -664,15 +671,15 @@ Read-only en v1 (creates de changes pasan por aprobación, mejor mantener en UI 
 
 | Tool | Scope | Notas |
 |---|---|---|
-| `assets.list` | `assets:read` | filters (status[], assigned_to, asset_type_id) |
-| `assets.get` | `assets:read` | by id o asset_tag |
+| `assets_list` | `assets:read` | filters (status[], assigned_to, asset_type_id) |
+| `assets_get` | `assets:read` | by id o asset_tag |
 
 ### 6.9. `slas.*` (2 tools)
 
 | Tool | Scope | Notas |
 |---|---|---|
-| `slas.list` | `slas:read` | targets por urgencia, calendar, is_active |
-| `slas.get_breaches` | `slas:read` | tickets que ya breached o breachearán dentro de `within_minutes` (default 0 = ya) |
+| `slas_list` | `slas:read` | targets por urgencia, calendar, is_active |
+| `slas_get_breaches` | `slas:read` | tickets que ya breached o breachearán dentro de `within_minutes` (default 0 = ya) |
 
 Esta segunda es **enormemente valiosa** para agentes de monitoreo / alerting externos.
 
@@ -680,15 +687,15 @@ Esta segunda es **enormemente valiosa** para agentes de monitoreo / alerting ext
 
 | Tool | Scope | Notas |
 |---|---|---|
-| `metrics.daily` | `metrics:read` | lee `daily_metrics` pre-agregada (count, avg_resolution_minutes, sla_met/breached) |
-| `metrics.ticket_summary` | `metrics:read` | live counts por status + urgency, opcional org filter |
+| `metrics_daily` | `metrics:read` | lee `daily_metrics` pre-agregada (count, avg_resolution_minutes, sla_met/breached) |
+| `metrics_ticket_summary` | `metrics:read` | live counts por status + urgency, opcional org filter |
 
 ### 6.11. `audit.*` (2 tools)
 
 | Tool | Scope | Notas |
 |---|---|---|
-| `audit.list` | `audit:read` | lee `audit_logs` (UI mutations) — filters resource_type, action, user, dates |
-| `audit.mcp_calls` | `audit:read` | lee `mcp_audit_log` — filters tool_name, status, api_key_id, channel |
+| `audit_list` | `audit:read` | lee `audit_logs` (UI mutations) — filters resource_type, action, user, dates |
+| `audit_mcp_calls` | `audit:read` | lee `mcp_audit_log` — filters tool_name, status, api_key_id, channel |
 
 Permite a un agente externo auditar uso de su propia API key.
 
@@ -755,18 +762,51 @@ Authorization: Bearer nvd_live_<32 chars>
 
 Estándar industria, portable a cualquier cliente HTTP. **NO** usamos un header custom (`X-API-Key`) porque limita interoperabilidad.
 
-#### GET handler
+#### GET handler — SSE stream (Streamable HTTP)
 
-Retorna 405 con hint:
-```json
-{
-  "error": "Method Not Allowed",
-  "hint": "Use POST with JSON-RPC 2.0. SSE streaming will be added in a future version.",
-  "manifest": "/api/mcp/manifest"
-}
+Abre un canal SSE para mensajes server-pushed. Aunque hoy no empujamos eventos asíncronos, los clientes MCP (Claude Code, Desktop, Cursor) lo abren tras `initialize` como parte del handshake — devolver 405 rompe la conexión.
+
+**Comportamiento:**
+- `Content-Type: text/event-stream; charset=utf-8`
+- `Cache-Control: no-cache, no-transform`
+- `X-Accel-Buffering: no` (deshabilita buffering en Vercel/Cloudflare)
+- Comentario inicial (`: mcp stream open`) para forzar flush de headers en proxies
+- Heartbeat cada 15 s (`: heartbeat <ts>`) para evitar que middleboxes cierren la conexión
+- Self-close a 50 s para evitar que `maxDuration` la mate bruscamente — los clientes reconectan transparente
+- `req.signal` listener para cerrar limpio cuando el cliente desconecta
+- Echo del `Mcp-Session-Id` inbound (o emite uno nuevo si falta)
+- Auth opcional en GET — Claude Code lo prueba antes de configurar Bearer en algunos flows
+
+**Sustituto futuro:** cuando se implementen push events reales (ticket created, sla breach), el handler convierte el `controller` actual en un broadcaster Redis pub/sub o Supabase Realtime. La firma de la respuesta no cambia.
+
+#### POST con `Accept: text/event-stream`
+
+Si el cliente lo solicita, la respuesta JSON-RPC se devuelve como un **único frame SSE** en lugar de body JSON:
+
+```
+event: message
+data: {"jsonrpc":"2.0","id":1,"result":{...}}
+
 ```
 
-GET se reserva para Streamable HTTP SSE en v2.
+Se cierra el stream tras el frame. Claude Code usa esto en `initialize`.
+
+#### OPTIONS preflight CORS
+
+```
+Access-Control-Allow-Methods: GET, POST, OPTIONS
+Access-Control-Allow-Headers: Authorization, Content-Type, Accept, Mcp-Session-Id, mcp-session-id, mcp-protocol-version
+Access-Control-Expose-Headers: Mcp-Session-Id
+Access-Control-Max-Age: 86400
+```
+
+Origin reflejado, credentials habilitadas. Necesario para clientes browser-based.
+
+#### Notificaciones JSON-RPC (sin `id`)
+
+Detectadas por ausencia de campo `id` (JSON-RPC 2.0 § 4.1, no por nombre del método). Se responden con **HTTP 202 + body vacío** per spec MCP. **Nunca** entran al dispatcher de tools — short-circuit en el POST handler. Sirve a `notifications/initialized` (paso obligatorio de Claude Code tras `initialize`) y a cualquier futuro `notifications/cancelled`, `notifications/progress`, etc.
+
+Para batches mixtos: filtrar notificaciones, devolver solo respuestas para los requests reales. Batch all-notifications → 202 + empty.
 
 ### 7.2. `app/api/mcp/manifest/route.ts` — descubrimiento público
 
@@ -872,7 +912,7 @@ Defensa en profundidad — múltiples capas independientes.
 
 ## 10. Flujo end-to-end de una llamada
 
-Ejemplo: `claude-desktop` consume `tickets.list` con limit=5.
+Ejemplo: `claude-desktop` consume `tickets_list` con limit=5.
 
 ```
 [1] Claude Desktop construye request:
@@ -882,7 +922,7 @@ Ejemplo: `claude-desktop` consume `tickets.list` con limit=5.
     {
       "jsonrpc": "2.0", "id": 1,
       "method": "tools/call",
-      "params": { "name": "tickets.list", "arguments": { "limit": 5 } }
+      "params": { "name": "tickets_list", "arguments": { "limit": 5 } }
     }
 
 [2] Vercel edge → Next.js route handler                              ~5ms
@@ -906,7 +946,7 @@ Ejemplo: `claude-desktop` consume `tickets.list` con limit=5.
 [6] buildContext():                                                  ~0ms
     MCPContext { tenantId, scopes, supabase, requireScope(), ... }
 
-[7] registry.invoke('tickets.list', ctx, { limit: 5 }):
+[7] registry.invoke('tickets_list', ctx, { limit: 5 }):
     - lookup → ToolDefinition
     - ctx.requireScope('tickets:read')
       hasScope(['tickets:*'], 'tickets:read') → true
@@ -937,6 +977,79 @@ Ejemplo: `claude-desktop` consume `tickets.list` con limit=5.
 
 Total: ~50-100ms (P95)
 ```
+
+### 10.b. Handshake completo de un cliente MCP (Claude Code / Desktop / Cursor)
+
+Claude Code no llama directo a `tools/call` — primero ejecuta el handshake del transport. Cualquier paso que falle marca la conexión como "Failed to connect" y descarta el catálogo entero.
+
+```
+[A] POST /api/mcp
+    Headers: Authorization: Bearer ..., Accept: application/json, text/event-stream
+    Body:    {"jsonrpc":"2.0","id":1,"method":"initialize",
+              "params":{"protocolVersion":"2025-03-26",
+                        "clientInfo":{"name":"claude-code","version":"x.y"},
+                        "capabilities":{}}}
+
+    Server (este MCP):
+      - Genera Mcp-Session-Id fresco: 0e7e400a-4cfb-4b6e-8ff9-...
+      - Si Accept incluye text/event-stream → respuesta como SSE frame
+      - Body:  {"jsonrpc":"2.0","id":1,"result":{
+                 "protocolVersion":"2025-03-26",
+                 "serverInfo":{"name":"novadesk-itsm","version":"1.0.0"},
+                 "capabilities":{"tools":{"listChanged":false},...},
+                 "instructions":"..."}}
+      - Headers: Mcp-Session-Id: 0e7e400a-..., Access-Control-Expose-Headers: Mcp-Session-Id
+      → HTTP 200
+
+[B] POST /api/mcp           ← notification (no `id` field)
+    Headers: Authorization: Bearer ..., Mcp-Session-Id: 0e7e400a-...
+    Body:    {"jsonrpc":"2.0","method":"notifications/initialized"}
+
+    Server:
+      - Detecta `id` ausente → notification
+      - Short-circuit antes del dispatcher
+      → HTTP 202, body 0 bytes, Mcp-Session-Id eco
+
+[C] GET /api/mcp            ← stream SSE para mensajes server-pushed
+    Headers: Accept: text/event-stream, Mcp-Session-Id: 0e7e400a-...
+
+    Server:
+      - Headers: Content-Type: text/event-stream, Mcp-Session-Id eco
+      - Body: ": mcp stream open\n\n"
+              ": heartbeat <ts>\n\n"  (cada 15s)
+              ...
+              (close a 50s; cliente reconecta transparente)
+
+[D] POST /api/mcp           ← descubrimiento de tools
+    Headers: Authorization: Bearer ..., Mcp-Session-Id: 0e7e400a-...
+    Body:    {"jsonrpc":"2.0","id":2,"method":"tools/list"}
+
+    Server:
+      - Body: {"jsonrpc":"2.0","id":2,"result":{
+                "tools":[
+                  {"name":"tickets_list",
+                   "description":"...",
+                   "inputSchema":{"type":"object","properties":{...}},
+                   "_meta":{"scope":"tickets:read","since":"1.0.0",...}},
+                  ... (31 tools)
+                ]}}
+      → HTTP 200
+
+[E] POST /api/mcp           ← invocación real de una tool (a partir de aquí, ver § 10)
+    Body:    {"jsonrpc":"2.0","id":3,"method":"tools/call",
+              "params":{"name":"tickets_list","arguments":{"limit":5}}}
+```
+
+**Validación de cada escalón** (todos requeridos para que Claude Code muestre las 31 tools):
+
+| Paso | Falla histórica | Resuelto en |
+|---|---|---|
+| `initialize` HTTP 200 + `Mcp-Session-Id` header | Header faltaba — respuesta JSON sin él | `5ef70e3` |
+| `initialize` con `Accept: text/event-stream` devuelve SSE frame | POST solo devolvía JSON | `5ef70e3` |
+| GET `/api/mcp` abre stream SSE válido | GET devolvía 405 Method Not Allowed | `5ef70e3` |
+| `notifications/initialized` → HTTP 202 + body vacío | HTTP 500 (devolvía 204 con body, inválido) | `6029957` |
+| `tools/list` devuelve nombres con regex Anthropic-compat | Nombres con `.` → modelo descarta catálogo | `1adeaf8` |
+| Cada tool emite `inputSchema` no-vacío | 7 tools `*_get` emitían `{}` por `.refine()` | `e1ceec2` |
 
 ---
 
@@ -1026,7 +1139,7 @@ curl -X POST https://your-domain.com/api/mcp \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 
-# tickets.list
+# tickets_list
 curl -X POST https://your-domain.com/api/mcp \
   -H "Authorization: Bearer nvd_live_..." \
   -H "Content-Type: application/json" \
@@ -1034,7 +1147,7 @@ curl -X POST https://your-domain.com/api/mcp \
     "jsonrpc":"2.0","id":1,
     "method":"tools/call",
     "params":{
-      "name":"tickets.list",
+      "name":"tickets_list",
       "arguments":{"limit":5}
     }
   }'
@@ -1078,13 +1191,13 @@ curl -X POST https://your-domain.com/api/mcp \
 | **Agente interno consume MCP local** | `import { registry } from 'lib/mcp/server'` → `registry.invoke(...)` (sin HTTP, in-process) |
 | **Workflow Builder usa tools como nodos** | Cada `action node` = 1 tool MCP. Workflow engine no implementa nada, solo orquesta. |
 | **Marketplace público / Zapier** | Usan `/api/mcp/manifest` autogenerado. Cero código manual. |
-| **Streaming SSE / push notifications** | Implementar `GET /api/mcp` (route ya devuelve 405 con hint) |
+| **Streaming SSE / push notifications** | GET `/api/mcp` ya está implementado como SSE keep-alive — para empujar eventos basta cambiar el `ReadableStream` por un broadcaster (Supabase Realtime, Redis pub/sub) |
 | **Resources MCP** (taxonomías cacheables: status enum, categories tree) | `lib/mcp/resources/` + 2 métodos extra en route |
 | **Prompts MCP** (templates: `triage_ticket`, `summarize_thread`) | `lib/mcp/prompts/` + 2 métodos extra |
 | **JWT auth (UI propia consume MCP)** | Helper alternativo en route handler que produce el mismo `MCPContext` desde sesión Supabase. Tools no cambian. |
 | **Rate limit con Redis** | Reemplazar `mcp_rate_buckets` queries por Upstash. Service signature idéntica. |
 | **Soft revocation por scope** | Agregar `revoked_scopes text[]` y filtrar en `verify_api_key()`. |
-| **Webhooks salientes desde tools** | En cada `tickets.create/update`, llamar `dispatchWebhook()` (servicio existente). |
+| **Webhooks salientes desde tools** | En cada `tickets_create/update`, llamar `dispatchWebhook()` (servicio existente). |
 
 El registry, el context, los scopes y el audit ya están listos para todos estos casos.
 
@@ -1097,7 +1210,7 @@ import { registry } from '../registry';
 import { PaginationInput, buildPaginationOutput, rangeFromPagination } from '../schemas';
 
 registry.register({
-  name: 'projects.list',
+  name: 'projects_list',
   description: 'List projects in the tenant.',
   scope: 'projects:read',
   inputSchema: PaginationInput.extend({
@@ -1263,7 +1376,7 @@ claude /mcp
 curl -X POST https://itsm-web.vercel.app/api/mcp \
   -H "Authorization: Bearer nvd_live_..." \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"audit.mcp_calls","arguments":{"api_key_id":"<TU_KEY_ID>","limit":10}}}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"audit_mcp_calls","arguments":{"api_key_id":"<TU_KEY_ID>","limit":10}}}'
 ```
 
 Subir el rate limit: editar la key en `/home/settings/api-keys` (próxima feature) o vía SQL:
@@ -1283,7 +1396,7 @@ Después de `claude mcp add`, abre Claude Code y prueba:
 Lista los 5 tickets críticos sin asignar usando el MCP de novadesk
 ```
 
-Claude descubre las tools del manifest y elige `tickets.list` con los filtros adecuados. Si pasa, la conexión funciona end-to-end.
+Claude descubre las tools del manifest y elige `tickets_list` con los filtros adecuados. Si pasa, la conexión funciona end-to-end.
 
 ---
 
@@ -1300,19 +1413,30 @@ Claude descubre las tools del manifest y elige `tickets.list` con los filtros ad
 - ✅ Validado contra prod con 534 tickets reales
 
 ### Bugs fix-eados durante deploy
-- **Vercel build failure** (commit `83bc59f`): `'server-only'` en `api-key.service.ts` no podía importarse desde Client Component → split en `api-key.types.ts` (client-safe) + `api-key.service.ts` (server-only).
-- **`tools: []` en producción** (commit `be9fc48`): webpack tree-shaking eliminaba los `import './tools/X'` (side-effect-only) por `"sideEffects": false` → cada tools file exporta `__<domain>ToolsLoaded`, server.ts los referencia para forzar conservación.
+
+Cinco fixes incrementales necesarios para que Claude Code, Desktop y Cursor completaran el handshake completo:
+
+| # | Commit | Síntoma | Causa | Fix |
+|---|---|---|---|---|
+| 1 | `83bc59f` | Vercel build failure | `'server-only'` en `api-key.service.ts` no podía importarse desde Client Component | Split en `api-key.types.ts` (client-safe) + `api-key.service.ts` (server-only) |
+| 2 | `be9fc48` | `tools: []` en manifest de producción | Webpack tree-shaking eliminaba los `import './tools/X'` (side-effect-only) por `"sideEffects": false` | Cada tools file exporta `__<domain>ToolsLoaded`; `server.ts` los referencia en un array para forzar conservación |
+| 3 | `5ef70e3` | Claude Code: "Failed to connect" tras handshake | Faltaba `Mcp-Session-Id` header en respuesta + GET no soportaba SSE (devolvía 405) | Implementar Streamable HTTP completo: header en cada response, GET → `text/event-stream` con keep-alive, POST honra `Accept: text/event-stream`, OPTIONS preflight CORS |
+| 4 | `6029957` | `notifications/initialized` → HTTP 500, handshake roto | Notificación se procesaba como request y devolvía HTTP 204 con body — HTTP forbids body en 204, Vercel respondía 500 | Detectar notificaciones por ausencia de `id` (JSON-RPC 2.0 § 4.1), short-circuit antes del dispatcher, devolver HTTP 202 con body vacío |
+| 5 | `1adeaf8` | Claude Code: "0 tools available" tras conectar | Tool names usaban `.` (`tickets.list`) — Anthropic API regex `^[a-zA-Z0-9_-]{1,64}$` los rechaza, modelo descarta el catálogo entero | Renombrar 31 tools de `<dominio>.<acción>` a `<dominio>_<acción>` (sed mecánico en `lib/mcp/tools/*.ts` + manifest examples + smoke test) |
+| 6 | `e1ceec2` | Claude Code: tools/list devuelve schemas válidos pero modelo sigue mostrando 0 tools | 7 tools `*_get` emitían `"inputSchema": {}` porque mi converter Zod→JSON-Schema no manejaba `ZodEffects` (wrapper que crea `.refine()`); Anthropic rechaza schemas vacíos y eso descarta el catálogo entero | Agregar caso `ZodEffects` que recurse al `_def.schema`. Bonus: `ZodPipeline`, `ZodReadonly`, `ZodBranded`, `ZodCatch` también soportados ahora |
+
+**Lección operativa:** validar contra el cliente real (no solo curl). Curl ignora todo lo que no sea body — los clientes MCP son estrictos con headers, transport details y schema validation. Una sola tool con schema inválido descarta las 30 restantes.
 
 ### v1.1 (siguiente sprint sugerido)
-- [ ] Vector search: `kb.semantic_search` usando RPC `match_knowledge` + OpenAI embeddings
+- [ ] Vector search: `kb_semantic_search` usando RPC `match_knowledge` + OpenAI embeddings
 - [ ] Resources MCP: `novadesk://schema/ticket-statuses`, `novadesk://schema/categories`, `novadesk://schema/agents`
 - [ ] Prompts MCP: `triage_ticket`, `summarize_thread`, `suggest_kb_response`, `escalation_decision`
-- [ ] Tools de inbox: `inbox.list_conversations`, `inbox.send_message`
-- [ ] Tools de workflows: `workflows.list`, `workflows.execute`
+- [ ] Tools de inbox: `inbox_list_conversations`, `inbox_send_message`
+- [ ] Tools de workflows: `workflows_list`, `workflows_execute`
 
 ### v1.2 (medio plazo)
-- [ ] Streamable HTTP SSE (GET handler) — push events: ticket creado/asignado/cerrado, sla breach
-- [ ] Webhooks subscribe vía MCP: `webhooks.create`, `webhooks.list`, `webhooks.delete`
+- [x] ~~Streamable HTTP SSE (GET handler)~~ — entregado en commit `5ef70e3`. Pendiente: cambiar el keep-alive por push real de eventos (ticket creado/asignado/cerrado, sla breach) vía Supabase Realtime
+- [ ] Webhooks subscribe vía MCP: `webhooks_create`, `webhooks_list`, `webhooks_delete`
 - [ ] Rate limit con Upstash Redis (alta concurrencia)
 - [ ] Idempotency keys: header `Idempotency-Key` para tools `*.create`
 
@@ -1355,7 +1479,7 @@ POST /api/mcp
   "jsonrpc": "2.0", "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "tickets.list",
+    "name": "tickets_list",
     "arguments": {
       "status": ["new", "backlog"],
       "urgency": "critical",
@@ -1375,7 +1499,7 @@ POST /api/mcp
   "jsonrpc": "2.0", "id": 2,
   "method": "tools/call",
   "params": {
-    "name": "tickets.create",
+    "name": "tickets_create",
     "arguments": {
       "title": "Disk full on prod-db-01",
       "description": "Disk usage 94% on /var/lib/postgresql. Triggered by Prometheus alert.",
@@ -1396,7 +1520,7 @@ POST /api/mcp
   "jsonrpc": "2.0", "id": 3,
   "method": "tools/call",
   "params": {
-    "name": "kb.search",
+    "name": "kb_search",
     "arguments": {
       "query": "vpn no conecta windows 11",
       "language": "es",
@@ -1415,7 +1539,7 @@ POST /api/mcp
   "jsonrpc": "2.0", "id": 4,
   "method": "tools/call",
   "params": {
-    "name": "slas.get_breaches",
+    "name": "slas_get_breaches",
     "arguments": {
       "within_minutes": 60,
       "limit": 100
@@ -1430,11 +1554,11 @@ POST /api/mcp
 POST /api/mcp
 [
   { "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-    "params": { "name": "tickets.list", "arguments": { "limit": 5 } } },
+    "params": { "name": "tickets_list", "arguments": { "limit": 5 } } },
   { "jsonrpc": "2.0", "id": 2, "method": "tools/call",
-    "params": { "name": "metrics.ticket_summary", "arguments": {} } },
+    "params": { "name": "metrics_ticket_summary", "arguments": {} } },
   { "jsonrpc": "2.0", "id": 3, "method": "tools/call",
-    "params": { "name": "slas.get_breaches", "arguments": { "within_minutes": 30 } } }
+    "params": { "name": "slas_get_breaches", "arguments": { "within_minutes": 30 } } }
 ]
 ```
 
@@ -1442,8 +1566,25 @@ Las 3 tools se ejecutan en paralelo, devuelven array de respuestas, cada una aud
 
 ---
 
-**Versión:** 1.0
+**Versión:** 1.1 — Streamable HTTP + Anthropic-compat tool names + ZodEffects schema
 **Fecha:** 2026-04-29
-**Commit:** `8bb96ee` en `main`
+**Commit HEAD:** `e1ceec2` en `main`
+**Línea de commits del MCP en main:**
+  `8bb96ee` (foundation) → `83bc59f` → `be9fc48` → `6857448` (docs) → `5ef70e3` → `6029957` → `1adeaf8` → `e1ceec2`
 **Autor:** @arquitecto + @fullstack-dev + @db-integration
 **Documento maestro:** `Contexto/ARQUITECTURA.md` (referencia general)
+
+---
+
+## Apéndice C — Cambios desde la v1.0 inicial
+
+| Área | Antes (v1.0 — `8bb96ee`) | Después (v1.1 — `e1ceec2`) |
+|---|---|---|
+| **Transport** | POST JSON-RPC 2.0 únicamente | + `Mcp-Session-Id` header + GET SSE keep-alive + Accept SSE en POST + OPTIONS CORS |
+| **Notificaciones** | Tratadas como request (HTTP 204 con body, inválido) | HTTP 202 con body vacío per spec MCP |
+| **Tool names** | `tickets.list`, `kb.search` (dotted) | `tickets_list`, `kb_search` (underscore, Anthropic-compat) |
+| **inputSchema** | 7 tools devolvían `{}` | Todas devuelven `type: object` con properties — `ZodEffects`, `ZodPipeline`, `ZodReadonly`, `ZodBranded`, `ZodCatch` soportados |
+| **Compatibilidad** | curl funciona, MCP clients fallan | Curl + Claude Code + Claude Desktop + Cursor — todos pasan handshake completo |
+| **Bug log explícito** | N/A | 6 fixes documentados con commit ref + síntoma + causa + fix |
+
+Si tienes una integración previa que usaba los nombres dotted (`tickets.list`), ajustarla es un find-replace mecánico de `.` por `_` en los nombres de tool. Auth, scopes, schemas, y semánticas de respuesta son idénticos.
