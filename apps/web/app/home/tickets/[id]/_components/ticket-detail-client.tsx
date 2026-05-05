@@ -649,6 +649,7 @@ export function TicketDetailClient({
               <TicketTimeline
                 ticketCreatedAt={ticket.created_at}
                 ticketCreatedBy={requester?.name ?? ticket.requester_email ?? undefined}
+                ticketDescription={ticket.description}
                 followups={liveFollowups}
                 tasks={tasks}
                 solutions={solutions}

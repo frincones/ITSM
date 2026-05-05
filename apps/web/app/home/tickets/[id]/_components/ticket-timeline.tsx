@@ -84,6 +84,7 @@ interface TimelineEntry {
 interface TicketTimelineProps {
   ticketCreatedAt: string;
   ticketCreatedBy?: string;
+  ticketDescription?: string | null;
   followups: TimelineFollowup[];
   tasks: TimelineTask[];
   solutions: TimelineSolution[];
@@ -123,13 +124,16 @@ function formatTimestamp(iso: string): string {
 function buildTimeline(props: TicketTimelineProps): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
 
-  // Created event
+  // Created event — body is the requester's original description so the
+  // timeline reads as a conversation thread starting with the issue report.
+  // Empty string means legacy ticket with no stored description; the render
+  // falls back to a marker line in that case.
   entries.push({
     id: 'created',
     type: 'created',
     timestamp: props.ticketCreatedAt,
     user: props.ticketCreatedBy ?? 'System',
-    content: 'Ticket created',
+    content: props.ticketDescription?.trim() ?? '',
   });
 
   // Followups. Two attachment-matching strategies:
@@ -299,22 +303,58 @@ export function TicketTimeline(props: TicketTimelineProps) {
               </div>
             </div>
           ) : entry.type === 'created' ? (
-            <div className="flex items-center gap-3 py-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-100 dark:bg-green-500/20">
-                <ArrowRight className="h-4 w-4 text-green-600 dark:text-green-400" />
+            entry.content ? (
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <Avatar>
+                        <AvatarFallback>{getInitials(entry.user)}</AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-900 dark:text-gray-100">
+                            {entry.user}
+                          </span>
+                          <Badge className="border-green-200 bg-green-100 text-xs text-green-700 dark:border-green-500/30 dark:bg-green-500/20 dark:text-green-300">
+                            <ArrowRight className="mr-1 h-3 w-3" />
+                            Original request
+                          </Badge>
+                        </div>
+                        <span className="text-sm text-gray-500 dark:text-gray-400">
+                          {formatTimestamp(entry.timestamp)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {/* Plain text only. If you ever switch to description_html,
+                      sanitize it first (DOMPurify or equivalent) — never feed
+                      raw HTML into dangerouslySetInnerHTML here. */}
+                  <p className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
+                    {entry.content}
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="flex items-center gap-3 py-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-100 dark:bg-green-500/20">
+                  <ArrowRight className="h-4 w-4 text-green-600 dark:text-green-400" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    <span className="font-medium text-gray-900 dark:text-gray-100">
+                      {entry.user}
+                    </span>{' '}
+                    Ticket created
+                  </p>
+                  <span className="text-xs text-gray-500 dark:text-gray-500">
+                    {formatTimestamp(entry.timestamp)}
+                  </span>
+                </div>
               </div>
-              <div className="flex-1">
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  <span className="font-medium text-gray-900 dark:text-gray-100">
-                    {entry.user}
-                  </span>{' '}
-                  {entry.content}
-                </p>
-                <span className="text-xs text-gray-500 dark:text-gray-500">
-                  {formatTimestamp(entry.timestamp)}
-                </span>
-              </div>
-            </div>
+            )
           ) : (
             <div className="flex items-center gap-3 py-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800">
