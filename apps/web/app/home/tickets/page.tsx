@@ -91,7 +91,11 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
       assigned_agent:agents(id, name, avatar_url, email),
       category:categories!tickets_category_id_fkey(id, name)
 `,
-      { count: 'exact' },
+      // 'estimated' lets PostgREST use the planner's row estimate for big
+      // datasets (cheap) and falls back to an exact count when the result
+      // fits on a single page. Switching off 'exact' was the single biggest
+      // win against filter/search latency.
+      { count: 'estimated' },
     )
     .is('deleted_at', null);
 

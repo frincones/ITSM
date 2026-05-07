@@ -601,9 +601,30 @@ export function TicketListClient({
   // Search
   // ---------------------------------------------------------------------------
 
-  const handleSearch = () => {
-    navigateTo({ search: search || undefined, page: undefined });
-  };
+  // Only navigate when the search value actually differs from what's already
+  // reflected in the URL. Without this guard, every blur/Enter caused a full
+  // server re-render even when nothing changed — visible as a lag spike when
+  // the user clicked anywhere outside the input.
+  const runSearch = useCallback(
+    (value: string) => {
+      const next = value.trim();
+      if (next === (searchQuery ?? '').trim()) return;
+      navigateTo({ search: next || undefined, page: undefined });
+    },
+    [navigateTo, searchQuery],
+  );
+
+  // Debounced auto-search: fires 400ms after the user stops typing. The
+  // 2-character minimum mirrors the server-side guard so we don't burn an
+  // RPC on a single character.
+  useEffect(() => {
+    const trimmed = search.trim();
+    if (trimmed.length === 1) return; // server ignores 1-char anyway
+    const handle = setTimeout(() => runSearch(search), 400);
+    return () => clearTimeout(handle);
+  }, [search, runSearch]);
+
+  const handleSearch = () => runSearch(search);
 
   const handleSearchKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -791,7 +812,12 @@ export function TicketListClient({
       </div>
 
       {/* Table */}
-      <div className="flex-1 overflow-auto bg-white">
+      <div
+        className={`relative flex-1 overflow-auto bg-white transition-opacity duration-150 ${
+          isPending ? 'pointer-events-none opacity-60' : ''
+        }`}
+        aria-busy={isPending}
+      >
         <Table>
           <TableHeader className="sticky top-0 border-b border-gray-200 bg-gray-50">
             <TableRow>

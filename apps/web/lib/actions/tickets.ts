@@ -895,10 +895,13 @@ export async function addFollowup(
       ? []
       : (validated.mentioned_contact_ids ?? []);
 
-    // Verify ticket belongs to tenant
+    // Verify ticket belongs to tenant — and grab every column the notify
+    // path will need, so we don't have to round-trip again later.
     const { data: existing } = await client
       .from('tickets')
-      .select('id, tenant_id, organization_id')
+      .select(
+        'id, tenant_id, organization_id, ticket_number, title, type, urgency, requester_email, assigned_agent_id',
+      )
       .eq('id', ticketId)
       .eq('tenant_id', agent.tenant_id)
       .is('deleted_at', null)
@@ -938,19 +941,21 @@ export async function addFollowup(
     // timeline / preview UI can group them under the message that was sent.
     // We scope by tenant + ticket as a defense-in-depth check (RLS already
     // enforces tenant). Failures are non-fatal — the file still uploaded.
+    // Fire-and-forget: the attachment link doesn't have to settle before we
+    // return. Realtime + the timeline's own attachments query will pick it
+    // up moments later.
     const attachmentIds = validated.attachment_ids ?? [];
     if (attachmentIds.length > 0 && followup?.id) {
-      try {
-        await client
-          .from('ticket_attachments')
-          .update({ followup_id: followup.id as string })
-          .in('id', attachmentIds)
-          .eq('ticket_id', ticketId)
-          .eq('tenant_id', agent.tenant_id)
-          .is('followup_id', null);
-      } catch (linkErr) {
-        console.warn('[addFollowup] attachment link failed:', linkErr);
-      }
+      client
+        .from('ticket_attachments')
+        .update({ followup_id: followup.id as string })
+        .in('id', attachmentIds)
+        .eq('ticket_id', ticketId)
+        .eq('tenant_id', agent.tenant_id)
+        .is('followup_id', null)
+        .then(({ error: linkErr }) => {
+          if (linkErr) console.warn('[addFollowup] attachment link failed:', linkErr);
+        });
     }
 
     // Auto-follow on participation — any agent who posts a followup,
@@ -993,69 +998,41 @@ export async function addFollowup(
         .then(() => {});
     }
 
-    // Notify on public replies (not internal notes)
-    if (!validated.is_private) {
-      const { data: tkt } = await client
-        .from('tickets')
-        .select('ticket_number, title, type, urgency, requester_email, assigned_agent_id')
-        .eq('id', ticketId)
-        .single();
-      if (tkt) {
-        notifyTicketCommented({
-          tenantId: agent.tenant_id,
-          ticketNumber: tkt.ticket_number,
-          ticketId,
-          title: tkt.title,
-          type: tkt.type,
-          urgency: tkt.urgency,
-          status: '',
-          comment: validated.content,
-          commentHtml: validated.content_html ?? null,
-          agentName: agent.name,
-          requesterEmail: tkt.requester_email ?? undefined,
-          agentUserId: user.id,
-          agentEmail: agent.email,
-          assignedAgentId: tkt.assigned_agent_id ?? undefined,
-          emailMessageId,
-          ccContactIds: mentionedContactIds,
-          mentionedAgentIds,
-          followupId: followup.id as string,
-        }).catch(() => {});
-      }
-    } else {
-      // Internal note: fan out only to agent followers (no requester, no
-      // contacts). notifyTicketCommented already filters by requesterEmail
-      // presence, but we pass undefined explicitly to make the intent clear.
-      const { data: tkt } = await client
-        .from('tickets')
-        .select('ticket_number, title, type, urgency, assigned_agent_id')
-        .eq('id', ticketId)
-        .single();
-      if (tkt) {
-        notifyTicketCommented({
-          tenantId: agent.tenant_id,
-          ticketNumber: tkt.ticket_number,
-          ticketId,
-          title: tkt.title,
-          type: tkt.type,
-          urgency: tkt.urgency,
-          status: '',
-          comment: validated.content,
-          commentHtml: validated.content_html ?? null,
-          agentName: agent.name,
-          requesterEmail: undefined,
-          agentUserId: user.id,
-          agentEmail: agent.email,
-          assignedAgentId: tkt.assigned_agent_id ?? undefined,
-          emailMessageId,
-          ccContactIds: [],
-          followupId: followup.id as string,
-          isInternal: true,
-        }).catch(() => {});
-      }
-    }
+    // Notify on public replies and internal notes. We reuse the columns
+    // already fetched in the tenant-verification query above instead of
+    // round-tripping the database again — that single round-trip was
+    // visible as ~50–150ms of dead time before the editor cleared.
+    notifyTicketCommented({
+      tenantId: agent.tenant_id,
+      ticketNumber: existing.ticket_number,
+      ticketId,
+      title: existing.title,
+      type: existing.type,
+      urgency: existing.urgency,
+      status: '',
+      comment: validated.content,
+      commentHtml: validated.content_html ?? null,
+      agentName: agent.name,
+      // Internal notes never reach the requester; passing undefined makes
+      // notifyTicketCommented skip the email path entirely.
+      requesterEmail: validated.is_private
+        ? undefined
+        : (existing.requester_email ?? undefined),
+      agentUserId: user.id,
+      agentEmail: agent.email,
+      assignedAgentId: existing.assigned_agent_id ?? undefined,
+      emailMessageId,
+      ccContactIds: validated.is_private ? [] : mentionedContactIds,
+      mentionedAgentIds: validated.is_private ? undefined : mentionedAgentIds,
+      followupId: followup.id as string,
+      isInternal: validated.is_private,
+    }).catch(() => {});
 
-    revalidatePath(`/home/tickets/${ticketId}`);
+    // No revalidatePath here: the ticket-detail page subscribes to
+    // ticket_followups via Supabase Realtime, so the new message lands in
+    // the timeline through the websocket — no server re-render needed.
+    // Re-introducing revalidatePath would force the next navigation to
+    // re-run all ~10 parallel queries on this route for no UI gain.
     return { data: followup, error: null };
   } catch (err) {
     if (err instanceof z.ZodError) {
