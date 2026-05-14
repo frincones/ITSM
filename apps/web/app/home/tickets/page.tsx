@@ -52,6 +52,12 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
 
   let currentAgentId: string | null = null;
   let isClient = false;
+  // List of organization IDs the current user is allowed to see tickets
+  // for. `null` means "no restriction" (TDX staff with global access).
+  // An empty array means "no orgs" — the query gets short-circuited so
+  // no rows leak through.
+  let allowedOrgIds: string[] | null = null;
+
   if (user) {
     const { data: agent } = await client
       .from('agents')
@@ -60,9 +66,48 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
       .maybeSingle();
     currentAgentId = agent?.id ?? null;
     if (!agent || agent.role === 'readonly') isClient = true;
+
+    // Build the per-user org allowlist. We union:
+    //   (a) organizations from organization_users (portal users)
+    //   (b) organizations from agent_organizations (readonly agents
+    //       explicitly linked to a customer org)
+    // TDX staff (admin/supervisor/agent) with NO explicit agent_organizations
+    // rows keep global access — that's the historical behavior.
+    const [{ data: orgUserRows }, { data: agentOrgRows }] = await Promise.all([
+      client
+        .from('organization_users')
+        .select('organization_id')
+        .eq('user_id', user.id)
+        .eq('is_active', true),
+      agent?.id
+        ? client
+            .from('agent_organizations')
+            .select('organization_id')
+            .eq('agent_id', agent.id)
+        : Promise.resolve({ data: [] as { organization_id: string }[] }),
+    ]);
+
+    const fromOrgUsers = (orgUserRows ?? [])
+      .map((r) => r.organization_id as string | null)
+      .filter((id): id is string => Boolean(id));
+    const fromAgentOrgs = (agentOrgRows ?? [])
+      .map((r) => r.organization_id as string | null)
+      .filter((id): id is string => Boolean(id));
+
+    if (isClient) {
+      // Clients (portal users + readonly agents) MUST be scoped. If the
+      // union is empty they can't see anything — better than leaking.
+      allowedOrgIds = [...new Set([...fromOrgUsers, ...fromAgentOrgs])];
+    } else if (fromAgentOrgs.length > 0) {
+      // Staff agents who have been explicitly assigned to specific orgs
+      // are scoped to those orgs. Staff without any agent_organizations
+      // row keep tenant-wide access (allowedOrgIds stays null).
+      allowedOrgIds = [...new Set(fromAgentOrgs)];
+    }
   } else {
     // No auth → keep TicketListClient hiding the button
     isClient = true;
+    allowedOrgIds = [];
   }
 
   // Build query with server-side filters
@@ -99,22 +144,29 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
     )
     .is('deleted_at', null);
 
-  // Filter by organization (from OrgSelector ?org= param or user context)
-  // If no org param → show all (backwards compatible for TDX admin)
+  // Filter by organization. The ?org= URL param is honored ONLY when the
+  // user is allowed to see that org — without this check, anyone could
+  // type `?org=<other-org-uuid>` and read another customer's tickets.
+  // When allowedOrgIds is null, the user has tenant-wide access (TDX
+  // staff path) and any org filter passes through.
   if (params.org) {
-    query = query.eq('organization_id', params.org);
-  } else if (user) {
-    // Check if user is an org_user (not TDX agent) → auto-filter by their org
-    const { data: orgUser } = await client
-      .from('organization_users')
-      .select('organization_id')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .maybeSingle();
-    if (orgUser?.organization_id) {
-      query = query.eq('organization_id', orgUser.organization_id);
+    if (allowedOrgIds !== null && !allowedOrgIds.includes(params.org)) {
+      // Cross-org access attempt — short-circuit with an impossible
+      // filter so the page renders the empty state without leaking.
+      query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+    } else {
+      query = query.eq('organization_id', params.org);
+    }
+  } else if (allowedOrgIds !== null) {
+    // No explicit org param — restrict to the user's allowed set.
+    if (allowedOrgIds.length === 0) {
+      query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+    } else {
+      query = query.in('organization_id', allowedOrgIds);
     }
   }
+  // else: allowedOrgIds === null → tenant-wide access (TDX staff). No
+  // additional filter beyond the tenant_id one that RLS already enforces.
 
   // Apply tab-based filters
   if (params.tab === 'mine') {

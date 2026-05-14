@@ -58,6 +58,52 @@ export default async function TicketDetailPage({
       userRole = 'client'; // readonly or org_user
     }
 
+    // ---------- Cross-org access guard ----------
+    // RLS only filters by tenant_id, so without this check a user from
+    // organization A could open a ticket of organization B just by
+    // guessing the UUID. Staff agents (admin/supervisor/agent) keep
+    // tenant-wide access — only clients (readonly + org_users) get
+    // scoped to their assigned orgs.
+    if (userRole === 'client') {
+      const ticketOrgId = (ticket as { organization_id: string | null }).organization_id;
+
+      if (ticketOrgId) {
+        const [orgUserCheck, agentOrgCheck] = await Promise.all([
+          client
+            .from('organization_users')
+            .select('organization_id')
+            .eq('user_id', authUser.id)
+            .eq('organization_id', ticketOrgId)
+            .eq('is_active', true)
+            .maybeSingle(),
+          currentAgentId
+            ? client
+                .from('agent_organizations')
+                .select('organization_id')
+                .eq('agent_id', currentAgentId)
+                .eq('organization_id', ticketOrgId)
+                .maybeSingle()
+            : Promise.resolve({ data: null }),
+        ]);
+
+        const hasAccess =
+          Boolean(orgUserCheck.data) || Boolean(agentOrgCheck.data);
+
+        if (!hasAccess) {
+          console.warn('[TicketDetail] cross-org access blocked', {
+            userId: authUser.id,
+            ticketId: id,
+            ticketOrgId,
+          });
+          notFound();
+        }
+      } else {
+        // Ticket has no organization_id (legacy data). Only staff can
+        // view orphaned tickets — clients are denied.
+        notFound();
+      }
+    }
+
     // Auto-follow on view: any agent who opens a ticket becomes a follower
     // so future updates reach them via notifyTicketCommented / notifyTicketStatusChanged.
     // Idempotent — if they're already following for another reason (creator,
