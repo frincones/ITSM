@@ -241,6 +241,12 @@ export async function createTicket(
     let tenantId: string;
     let enforcedOrgId: string | null = null;
     let agentEmailForNotify: string | undefined;
+    // Forced requester for the client path — we never trust whatever the
+    // browser sent because a client could otherwise submit a ticket on
+    // somebody else's behalf. Stays null for staff agents who are
+    // legitimately allowed to register a ticket for another person.
+    let forcedRequesterEmail: string | null = null;
+    let forcedRequesterId: string | null = null;
 
     const isClient = !agent || agent.role === 'readonly';
 
@@ -248,10 +254,13 @@ export async function createTicket(
       tenantId = agent.tenant_id;
       agentEmailForNotify = agent.email;
     } else {
-      // Path B: client/readonly — enforce their own organization.
+      // Path B: client/readonly — enforce their own organization AND
+      // their own requester identity.
       const { data: orgUser } = await client
         .from('organization_users')
-        .select('organization_id, organization:organizations(id, tenant_id)')
+        .select(
+          'organization_id, email, organization:organizations(id, tenant_id)',
+        )
         .eq('user_id', user.id)
         .eq('is_active', true)
         .maybeSingle();
@@ -271,6 +280,24 @@ export async function createTicket(
       if (validated.organization_id && validated.organization_id !== org.id) {
         return { data: null, error: 'Invalid organization' };
       }
+
+      // Force requester to be the logged-in user.
+      forcedRequesterEmail = (orgUser?.email as string | null) ?? user.email ?? null;
+      if (!forcedRequesterEmail) {
+        return { data: null, error: 'No requester email on file' };
+      }
+
+      // Best-effort match a contacts row in the same org so the list view
+      // shows the requester's name. If none exists we still create with
+      // the email; a contacts row can be linked later.
+      const { data: contactMatch } = await client
+        .from('contacts')
+        .select('id')
+        .eq('organization_id', org.id)
+        .ilike('email', forcedRequesterEmail)
+        .limit(1)
+        .maybeSingle();
+      forcedRequesterId = contactMatch?.id ?? null;
     }
 
     const { data: ticket, error } = await client
@@ -279,6 +306,13 @@ export async function createTicket(
         ...validated,
         organization_id: enforcedOrgId ?? validated.organization_id,
         tenant_id: tenantId, // NEVER from frontend
+        // For clients, requester is forced server-side; for staff agents,
+        // we trust the validated form input.
+        requester_email: forcedRequesterEmail ?? validated.requester_email,
+        requester_id:
+          forcedRequesterEmail !== null
+            ? forcedRequesterId
+            : (validated.requester_id ?? null),
         created_by: user.id,
         status: 'new',
       })
