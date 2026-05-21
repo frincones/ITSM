@@ -190,22 +190,48 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
   // comments/followups. The RPC returns ranked ticket ids; we restrict
   // the main query to that set to preserve sorting/pagination.
   if (params.search && params.search.trim().length >= 2) {
-    const { data: searchRows } = await (client as unknown as {
-      rpc: (
-        fn: string,
-        params: Record<string, unknown>,
-      ) => Promise<{ data: unknown; error: { message: string } | null }>;
-    }).rpc('search_global', {
-      p_query: params.search.trim(),
-      p_limit: 500,
-    });
-    const ticketIds = [
-      ...new Set(
-        ((searchRows ?? []) as Array<{ entity_type: string; entity_id: string }>)
-          .filter((r) => r.entity_type === 'ticket' || r.entity_type === 'ticket_comment')
-          .map((r) => r.entity_id),
-      ),
-    ];
+    const rawQuery = params.search.trim();
+
+    // Fast-path: when the search looks like a ticket number (contains a
+    // hyphen-separated digit block or starts with "TKT"), skip the RPC
+    // and run a single trigram-indexed ILIKE on tickets.ticket_number.
+    // search_global scans 9 entity types (tickets, followups, contacts,
+    // agents, organizations, kb, problems, changes, assets) on every
+    // call — that's hundreds of buffer hits we don't need when the user
+    // is clearly looking for a specific ticket.
+    const looksLikeTicketNumber = /^(tkt[-_]?|tkt\s)?[\d-]{2,}$/i.test(rawQuery)
+      || /^TKT[-_]/i.test(rawQuery);
+
+    let ticketIds: string[];
+    if (looksLikeTicketNumber) {
+      const { data: numberRows } = await client
+        .from('tickets')
+        .select('id')
+        .ilike('ticket_number', `%${rawQuery}%`)
+        .is('deleted_at', null)
+        .limit(100);
+      ticketIds = [...new Set((numberRows ?? []).map((r) => r.id as string))];
+    } else {
+      const { data: searchRows } = await (client as unknown as {
+        rpc: (
+          fn: string,
+          params: Record<string, unknown>,
+        ) => Promise<{ data: unknown; error: { message: string } | null }>;
+      }).rpc('search_global', {
+        p_query: rawQuery,
+        // 100 is well above the list's page size; 500 was producing huge
+        // result sets we then re-filtered in JS for no reason.
+        p_limit: 100,
+      });
+      ticketIds = [
+        ...new Set(
+          ((searchRows ?? []) as Array<{ entity_type: string; entity_id: string }>)
+            .filter((r) => r.entity_type === 'ticket' || r.entity_type === 'ticket_comment')
+            .map((r) => r.entity_id),
+        ),
+      ];
+    }
+
     if (ticketIds.length === 0) {
       // No matches — short-circuit with an impossible filter so the UI
       // renders the empty state instead of everything.
