@@ -777,6 +777,19 @@ export async function setTestingResult(
 
     if (tErr || !ticket) return { data: null, error: 'Ticket not found' };
 
+    // The Testing sub-state is only meaningful while the ticket is in
+    // status='testing'. Allowing writes from any status leaked stuck
+    // 'fracaso' flags onto resolved/closed tickets (48 such rows in prod
+    // before the 00041 cleanup) and corrupted the "Casos Fracaso Testing"
+    // report. The UI already hides the picker outside testing — this is
+    // defense-in-depth against direct API calls.
+    if (ticket.status !== 'testing') {
+      return {
+        data: null,
+        error: 'El resultado de testing solo puede marcarse mientras el ticket está en estado Testing',
+      };
+    }
+
     const currentCustom =
       (ticket.custom_fields as Record<string, unknown> | null) ?? {};
     const nextCustom: Record<string, unknown> = { ...currentCustom };
