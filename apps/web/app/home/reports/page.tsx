@@ -10,6 +10,13 @@ export const metadata = {
   title: 'Reporte Gestión Soporte',
 };
 
+// Force dynamic rendering so the counters reflect the live DB state on
+// every visit. Without this, Next.js cached the first render — that's
+// how "Casos Fracaso Testing: 3" stuck on screen even after the
+// underlying tickets had been resolved and the orphan testing_result
+// keys cleaned (migration 00041).
+export const dynamic = 'force-dynamic';
+
 interface PageProps {
   searchParams: Promise<{ date?: string; org?: string }>;
 }
