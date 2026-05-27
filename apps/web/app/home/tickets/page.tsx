@@ -185,52 +185,47 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
     query = query.gte('priority', 12);
   }
 
-  // Apply search filter — uses the global search RPC so it matches on
-  // title, description, ticket_number, requester_email, tags, AND inside
-  // comments/followups. The RPC returns ranked ticket ids; we restrict
-  // the main query to that set to preserve sorting/pagination.
+  // Apply search filter. We DON'T use search_global anymore for this
+  // surface — the RPC scans 9 entity types (tickets, followups, contacts,
+  // agents, orgs, kb, problems, changes, assets) which is wasted work
+  // when the user is on /home/tickets and clearly wants tickets only.
+  //
+  // Two direct fast-paths cover every realistic search:
+  //   • numeric / "TKT-…" → trigram ILIKE on ticket_number
+  //   • free text          → OR of ILIKE on (title, description,
+  //                          requester_email, ticket_number)
+  //
+  // Both use the existing gin_trgm indexes (idx_tickets_number_trgm,
+  // idx_tickets_title_trgm) and cost roughly one round-trip each.
   if (params.search && params.search.trim().length >= 2) {
     const rawQuery = params.search.trim();
-
-    // Fast-path: when the search looks like a ticket number (contains a
-    // hyphen-separated digit block or starts with "TKT"), skip the RPC
-    // and run a single trigram-indexed ILIKE on tickets.ticket_number.
-    // search_global scans 9 entity types (tickets, followups, contacts,
-    // agents, organizations, kb, problems, changes, assets) on every
-    // call — that's hundreds of buffer hits we don't need when the user
-    // is clearly looking for a specific ticket.
     const looksLikeTicketNumber = /^(tkt[-_]?|tkt\s)?[\d-]{2,}$/i.test(rawQuery)
       || /^TKT[-_]/i.test(rawQuery);
 
-    let ticketIds: string[];
-    if (looksLikeTicketNumber) {
-      const { data: numberRows } = await client
-        .from('tickets')
-        .select('id')
-        .ilike('ticket_number', `%${rawQuery}%`)
-        .is('deleted_at', null)
-        .limit(100);
-      ticketIds = [...new Set((numberRows ?? []).map((r) => r.id as string))];
-    } else {
-      const { data: searchRows } = await (client as unknown as {
-        rpc: (
-          fn: string,
-          params: Record<string, unknown>,
-        ) => Promise<{ data: unknown; error: { message: string } | null }>;
-      }).rpc('search_global', {
-        p_query: rawQuery,
-        // 100 is well above the list's page size; 500 was producing huge
-        // result sets we then re-filtered in JS for no reason.
-        p_limit: 100,
-      });
-      ticketIds = [
-        ...new Set(
-          ((searchRows ?? []) as Array<{ entity_type: string; entity_id: string }>)
-            .filter((r) => r.entity_type === 'ticket' || r.entity_type === 'ticket_comment')
-            .map((r) => r.entity_id),
-        ),
-      ];
-    }
+    // Escape commas, parens and quotes so the .or() filter is safe.
+    const escaped = rawQuery.replace(/[(),"]/g, ' ');
+    const likePattern = `%${escaped}%`;
+
+    const searchQb = client
+      .from('tickets')
+      .select('id')
+      .is('deleted_at', null)
+      .limit(100);
+
+    const { data: matchRows } = await (looksLikeTicketNumber
+      ? searchQb.ilike('ticket_number', likePattern)
+      : searchQb.or(
+          [
+            `title.ilike.${likePattern}`,
+            `description.ilike.${likePattern}`,
+            `requester_email.ilike.${likePattern}`,
+            `ticket_number.ilike.${likePattern}`,
+          ].join(','),
+        ));
+
+    const ticketIds = [
+      ...new Set((matchRows ?? []).map((r) => r.id as string)),
+    ];
 
     if (ticketIds.length === 0) {
       // No matches — short-circuit with an impossible filter so the UI
@@ -315,14 +310,24 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
   // Pagination
   query = query.range(offset, offset + limit - 1);
 
-  // RLS filters automatically by tenant_id
-  const { data: tickets, count, error } = await query;
-
-  // Fetch organizations for the "Client" column (id → name map)
-  const { data: orgs } = await client
-    .from('organizations')
-    .select('id, name')
-    .eq('is_active', true);
+  // The list query depends on the org allowlist + filters resolved above.
+  // The other two ("Client" column source + agent filter dropdown) are
+  // independent — fly them in parallel instead of waiting on the list
+  // first. This shaves two sequential round-trips on every page render
+  // (≈200–400ms on a remote dev session).
+  const [
+    { data: tickets, count, error },
+    { data: orgs },
+    { data: allAgents },
+  ] = await Promise.all([
+    query,
+    client.from('organizations').select('id, name').eq('is_active', true),
+    client
+      .from('agents')
+      .select('id, name, email, role, avatar_url')
+      .eq('is_active', true)
+      .order('name'),
+  ]);
 
   const organizationMap: Record<string, string> = {};
   if (orgs) {
@@ -330,13 +335,6 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
       organizationMap[org.id] = org.name;
     }
   }
-
-  // Agents list for the multi-select filter (scoped to the tenant)
-  const { data: allAgents } = await client
-    .from('agents')
-    .select('id, name, email, role, avatar_url')
-    .eq('is_active', true)
-    .order('name');
 
   return (
     <TicketListClient
