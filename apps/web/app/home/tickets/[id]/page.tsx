@@ -18,13 +18,22 @@ export default async function TicketDetailPage({
 
   const client = getSupabaseServerClient();
 
-  // ---------- Fetch ticket ----------
-  const { data: ticket, error: ticketError } = await client
-    .from('tickets')
-    .select('*')
-    .eq('id', id)
-    .is('deleted_at', null)
-    .single();
+  // ---------- Round 1: auth + ticket in parallel ----------
+  // The ticket query gates everything else (we need organization_id), but
+  // auth.getUser() can run alongside it instead of after.
+  const [authResult, ticketResult] = await Promise.all([
+    client.auth.getUser(),
+    client
+      .from('tickets')
+      .select('*')
+      .eq('id', id)
+      .is('deleted_at', null)
+      .single(),
+  ]);
+
+  const ticket = ticketResult.data;
+  const ticketError = ticketResult.error;
+  const authUser = authResult.data.user;
 
   console.log('[TicketDetail] Ticket query result:', {
     hasData: !!ticket,
@@ -39,48 +48,16 @@ export default async function TicketDetailPage({
     notFound();
   }
 
-  // ---------- Resolve current user role ----------
-  const { data: { user: authUser } } = await client.auth.getUser();
-  let userRole: 'admin' | 'agent' | 'client' = 'client';
-  let currentAgentId: string | null = null;
-  if (authUser) {
-    const { data: agentRecord } = await client
-      .from('agents')
-      .select('id, role, tenant_id')
-      .eq('user_id', authUser.id)
-      .maybeSingle();
-    currentAgentId = (agentRecord as { id: string; role: string; tenant_id: string } | null)?.id ?? null;
-    if (agentRecord?.role === 'admin' || agentRecord?.role === 'supervisor') {
-      userRole = 'admin';
-    } else if (agentRecord?.role === 'agent') {
-      userRole = 'agent';
-    } else {
-      userRole = 'client'; // readonly or org_user
-    }
-
-    // Auto-follow on view: any agent who opens a ticket becomes a follower
-    // so future updates reach them via notifyTicketCommented / notifyTicketStatusChanged.
-    // Idempotent — if they're already following for another reason (creator,
-    // followup, mention) the first reason wins thanks to onConflict.
-    if (currentAgentId && userRole !== 'client' && agentRecord?.tenant_id) {
-      addFollower(client, {
-        tenantId: agentRecord.tenant_id as string,
-        ticketId: id,
-        agentId: currentAgentId,
-        reason: 'view',
-      }).catch(() => {});
-    }
-  }
-
-  // Followers — fetched in parallel with the rest. Only TDX staff see the
-  // follower UI; for clients we just skip the fetch entirely.
-  const followers =
-    userRole === 'client' ? [] : await listFollowers(client, id);
-
-  // ---------- Fetch related data ----------
+  // ---------- Round 2: every dependent query in parallel ----------
+  // Previously this code ran sequentially: agent role → cross-org guard →
+  // listFollowers → big Promise.all → requester contact → conversation
+  // lookup → portal activity. That was 5–7 round-trips before render.
+  // Everything below only needs `id`, `authUser.id`, and `ticket.*` —
+  // which we already have — so they can all fly at once.
   console.log('[TicketDetail] Fetching related data...');
 
   const [
+    agentRecordResult,
     followupsResult,
     tasksResult,
     solutionsResult,
@@ -91,7 +68,18 @@ export default async function TicketDetailPage({
     organizationsResult,
     orgUsersOfTicketOrg,
     agentOrgLinks,
+    followersResultRaw,
+    requesterResult,
+    conversationsResult,
+    portalActivityResult,
   ] = await Promise.all([
+    authUser
+      ? client
+          .from('agents')
+          .select('id, role, tenant_id')
+          .eq('user_id', authUser.id)
+          .maybeSingle()
+      : Promise.resolve({ data: null as { id: string; role: string; tenant_id: string } | null }),
     client.from('ticket_followups').select('*').eq('ticket_id', id).order('created_at', { ascending: true }),
     client.from('ticket_tasks').select('*').eq('ticket_id', id).order('created_at', { ascending: true }),
     client.from('ticket_solutions').select('*').eq('ticket_id', id).order('created_at', { ascending: true }),
@@ -106,7 +94,8 @@ export default async function TicketDetailPage({
     client.from('groups').select('id, name').order('name'),
     client.from('categories').select('id, name').order('name'),
     client.from('organizations').select('id, name').eq('is_active', true).order('name'),
-    // Users of the ticket's organization (scoped view)
+    // Users of the ticket's organization (used both as the scoped-view
+    // source AND as the cross-org access check for the current user).
     ticket.organization_id
       ? client
           .from('organization_users')
@@ -115,14 +104,104 @@ export default async function TicketDetailPage({
           .eq('is_active', true)
           .not('user_id', 'is', null)
       : Promise.resolve({ data: [] as { user_id: string }[] }),
-    // Agents explicitly linked to the ticket's org
+    // Agents explicitly linked to the ticket's org (same dual purpose).
     ticket.organization_id
       ? client
           .from('agent_organizations')
           .select('agent_id')
           .eq('organization_id', ticket.organization_id)
       : Promise.resolve({ data: [] as { agent_id: string }[] }),
+    // Followers list — only meaningful for staff but cheap enough that
+    // fetching it unconditionally beats branching on userRole, which we
+    // don't know yet at this point in the flow.
+    listFollowers(client, id),
+    // Requester contact (joined by email — there's no FK to contacts).
+    ticket.requester_email
+      ? client
+          .from('contacts')
+          .select('id, name, email, phone, company')
+          .eq('email', ticket.requester_email)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    // Portal conversation id — we still need a second round trip for
+    // inbox_messages if a conversation exists, but that's rare so it
+    // stays out of the hot path.
+    client
+      .from('inbox_conversations')
+      .select('id')
+      .eq('ticket_id', id)
+      .limit(1),
+    // Portal activity log (only when the requester has an email).
+    ticket.organization_id && ticket.requester_email
+      ? client
+          .from('portal_activity_log')
+          .select('id, event_type, event_data, page_url, created_at, session_id')
+          .eq('organization_id', ticket.organization_id)
+          .eq('user_email', ticket.requester_email)
+          .order('created_at', { ascending: true })
+          .limit(100)
+      : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
   ]);
+
+  // ---------- Resolve current user role from the fetched record ----------
+  const agentRecord = agentRecordResult.data as
+    | { id: string; role: string; tenant_id: string }
+    | null;
+  let userRole: 'admin' | 'agent' | 'client' = 'client';
+  let currentAgentId: string | null = agentRecord?.id ?? null;
+  if (agentRecord?.role === 'admin' || agentRecord?.role === 'supervisor') {
+    userRole = 'admin';
+  } else if (agentRecord?.role === 'agent') {
+    userRole = 'agent';
+  } else {
+    userRole = 'client';
+  }
+
+  // ---------- Cross-org access guard ----------
+  // Derive access from the data we already have — the
+  // organization_users / agent_organizations lists were fetched for the
+  // scoped-view merge anyway, so reusing them here avoids two extra
+  // round-trips per client request.
+  if (authUser && userRole === 'client') {
+    const ticketOrgId = (ticket as { organization_id: string | null }).organization_id;
+
+    if (!ticketOrgId) {
+      // Orphaned ticket without an org — only staff can see it.
+      notFound();
+    }
+
+    const userInOrgViaPortal = (orgUsersOfTicketOrg.data ?? []).some(
+      (r: { user_id: string | null }) => r.user_id === authUser.id,
+    );
+    const userInOrgViaAgentLink =
+      Boolean(currentAgentId) &&
+      (agentOrgLinks.data ?? []).some(
+        (r: { agent_id: string }) => r.agent_id === currentAgentId,
+      );
+
+    if (!userInOrgViaPortal && !userInOrgViaAgentLink) {
+      console.warn('[TicketDetail] cross-org access blocked', {
+        userId: authUser.id,
+        ticketId: id,
+        ticketOrgId,
+      });
+      notFound();
+    }
+  }
+
+  // Followers visible only to TDX staff; the fetch already happened.
+  const followers = userRole === 'client' ? [] : (followersResultRaw ?? []);
+
+  // Auto-follow on view (fire-and-forget): any agent who opens a ticket
+  // becomes a follower so future updates reach them. Idempotent.
+  if (currentAgentId && userRole !== 'client' && agentRecord?.tenant_id) {
+    addFollower(client, {
+      tenantId: agentRecord.tenant_id,
+      ticketId: id,
+      agentId: currentAgentId,
+      reason: 'view',
+    }).catch(() => {});
+  }
 
   // Merge: TDX staff + any agents belonging to the ticket's org (readonly clients of that org,
   // plus agents explicitly linked via agent_organizations).
@@ -192,25 +271,18 @@ export default async function TicketDetailPage({
     ? (categoriesResult.data ?? []).find((c: any) => c.id === ticket.category_id) ?? null
     : null;
 
-  // ---------- Requester ----------
-  let requester = null;
-  if (ticket.requester_email) {
-    const { data } = await client
-      .from('contacts')
-      .select('id, name, email, phone, company')
-      .eq('email', ticket.requester_email)
-      .maybeSingle();
-    requester = data;
-  }
+  // ---------- Requester (already fetched in Round 2) ----------
+  const requester = requesterResult.data ?? null;
 
-  // ---------- Portal conversation (chat history) ----------
-  let portalConversation: any[] = [];
-  const { data: conversations } = await client
-    .from('inbox_conversations')
-    .select('id')
-    .eq('ticket_id', id)
-    .limit(1);
+  // ---------- Portal activity log (already fetched in Round 2) ----------
+  const portalActivity = portalActivityResult.data ?? [];
 
+  // ---------- Portal conversation messages (depends on conversation id) ----------
+  // The conversation existence is known from Round 2, but we still need a
+  // follow-up query to load its messages. Skip entirely when there's no
+  // conversation row — most tickets don't have one.
+  const conversations = conversationsResult.data;
+  let portalConversation: Array<Record<string, unknown>> = [];
   if (conversations?.[0]?.id) {
     const { data: msgs } = await client
       .from('inbox_messages')
@@ -218,19 +290,6 @@ export default async function TicketDetailPage({
       .eq('conversation_id', conversations[0].id)
       .order('created_at', { ascending: true });
     portalConversation = msgs ?? [];
-  }
-
-  // ---------- Portal activity log ----------
-  let portalActivity: any[] = [];
-  if (ticket.requester_email) {
-    const { data: activity } = await client
-      .from('portal_activity_log')
-      .select('id, event_type, event_data, page_url, created_at, session_id')
-      .eq('organization_id', ticket.organization_id)
-      .eq('user_email', ticket.requester_email)
-      .order('created_at', { ascending: true })
-      .limit(100);
-    portalActivity = activity ?? [];
   }
 
   console.log('[TicketDetail] Resolved relations:', {

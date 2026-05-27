@@ -68,11 +68,18 @@ interface Organization {
   name: string;
 }
 
+interface DefaultRequester {
+  email: string;
+  name: string | null;
+  contactId: string | null;
+}
+
 interface CreateTicketFormProps {
   categories: Category[];
   contacts: Contact[];
   organizations?: Organization[];
   lockedOrganizationId?: string | null;
+  defaultRequester?: DefaultRequester | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,10 +111,14 @@ export function CreateTicketForm({
   contacts,
   organizations = [],
   lockedOrganizationId = null,
+  defaultRequester = null,
 }: CreateTicketFormProps) {
   const lockedOrg = lockedOrganizationId
     ? organizations.find((o) => o.id === lockedOrganizationId) ?? null
     : null;
+  // Clients (portal users with a locked org) can never create a ticket
+  // on someone else's behalf — the requester is always themselves.
+  const requesterLocked = Boolean(lockedOrg) && Boolean(defaultRequester);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -119,7 +130,9 @@ export function CreateTicketForm({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Requester autocomplete state
-  const [requesterSearch, setRequesterSearch] = useState('');
+  const [requesterSearch, setRequesterSearch] = useState(
+    defaultRequester?.email ?? '',
+  );
   const [showContactDropdown, setShowContactDropdown] = useState(false);
 
   // React Hook Form
@@ -133,8 +146,8 @@ export function CreateTicketForm({
       impact: 'medium',
       organization_id: lockedOrganizationId ?? undefined,
       category_id: undefined,
-      requester_id: undefined,
-      requester_email: undefined,
+      requester_id: defaultRequester?.contactId ?? undefined,
+      requester_email: defaultRequester?.email ?? '',
       tags: [],
     },
   });
@@ -504,54 +517,69 @@ export function CreateTicketForm({
                   name="requester_email"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Requester Email</FormLabel>
-                      <div className="relative">
-                        <FormControl>
-                          <Input
-                            placeholder="Search by name or email..."
-                            value={requesterSearch}
-                            onChange={(e) => {
-                              setRequesterSearch(e.target.value);
-                              field.onChange(e.target.value || undefined);
-                              // User is editing the email manually — any
-                              // previously-selected contact no longer applies.
-                              form.setValue('requester_id', undefined);
-                              setShowContactDropdown(true);
-                            }}
-                            onFocus={() => setShowContactDropdown(true)}
-                            onBlur={() => {
-                              // Delay to allow click on dropdown item
-                              setTimeout(() => setShowContactDropdown(false), 200);
-                            }}
-                          />
-                        </FormControl>
-                        {/* Autocomplete dropdown */}
-                        {showContactDropdown && filteredContacts.length > 0 && (
-                          <div className="absolute z-50 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-lg">
-                            <ul className="max-h-48 overflow-auto py-1">
-                              {filteredContacts.map((contact) => (
-                                <li key={contact.id}>
-                                  <button
-                                    type="button"
-                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50"
-                                    onMouseDown={(e) => {
-                                      e.preventDefault();
-                                      handleSelectContact(contact);
-                                    }}
-                                  >
-                                    <span className="font-medium text-gray-900">
-                                      {contact.name}
-                                    </span>
-                                    <span className="text-gray-500">
-                                      {contact.email}
-                                    </span>
-                                  </button>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </div>
+                      <FormLabel>
+                        Requester Email <span className="text-red-500">*</span>
+                      </FormLabel>
+                      {requesterLocked ? (
+                        // RHF already holds the values from defaultValues —
+                        // we just render a read-only display. The server
+                        // re-derives the requester for the client path
+                        // anyway, so we can't be tricked even if someone
+                        // unlocks the field via DevTools.
+                        <div className="rounded-md border border-input bg-muted/30 px-3 py-2 text-sm font-medium">
+                          {defaultRequester?.name
+                            ? `${defaultRequester.name} <${defaultRequester.email}>`
+                            : defaultRequester?.email}
+                        </div>
+                      ) : (
+                        <div className="relative">
+                          <FormControl>
+                            <Input
+                              placeholder="Search by name or email..."
+                              value={requesterSearch}
+                              onChange={(e) => {
+                                setRequesterSearch(e.target.value);
+                                field.onChange(e.target.value);
+                                // User is editing the email manually — any
+                                // previously-selected contact no longer applies.
+                                form.setValue('requester_id', undefined);
+                                setShowContactDropdown(true);
+                              }}
+                              onFocus={() => setShowContactDropdown(true)}
+                              onBlur={() => {
+                                // Delay to allow click on dropdown item
+                                setTimeout(() => setShowContactDropdown(false), 200);
+                              }}
+                            />
+                          </FormControl>
+                          {/* Autocomplete dropdown */}
+                          {showContactDropdown && filteredContacts.length > 0 && (
+                            <div className="absolute z-50 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-lg">
+                              <ul className="max-h-48 overflow-auto py-1">
+                                {filteredContacts.map((contact) => (
+                                  <li key={contact.id}>
+                                    <button
+                                      type="button"
+                                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50"
+                                      onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        handleSelectContact(contact);
+                                      }}
+                                    >
+                                      <span className="font-medium text-gray-900">
+                                        {contact.name}
+                                      </span>
+                                      <span className="text-gray-500">
+                                        {contact.email}
+                                      </span>
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}

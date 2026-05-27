@@ -5,7 +5,7 @@ import {
   optionalUuid,
   requiredString,
   optionalString,
-  optionalEmail,
+  emailSchema,
   paginationSchema,
   dateRangeSchema,
   sortSchema,
@@ -55,8 +55,12 @@ export const createTicketSchema = z.object({
   impact: severityLevelEnum.default('medium'),
   organization_id: optionalUuid,
   category_id: optionalUuid,
+  // requester_id is optional because not every requester is in the
+  // contacts table — a brand-new email address is fine. requester_email
+  // is required: a ticket without a "who asked for this" is unusable
+  // and historically allowed clients to submit anonymous-looking rows.
   requester_id: optionalUuid,
-  requester_email: optionalEmail,
+  requester_email: emailSchema,
   tags: z.array(z.string().trim().min(1)).optional().default([]),
 });
 

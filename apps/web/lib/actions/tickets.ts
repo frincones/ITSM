@@ -241,6 +241,12 @@ export async function createTicket(
     let tenantId: string;
     let enforcedOrgId: string | null = null;
     let agentEmailForNotify: string | undefined;
+    // Forced requester for the client path — we never trust whatever the
+    // browser sent because a client could otherwise submit a ticket on
+    // somebody else's behalf. Stays null for staff agents who are
+    // legitimately allowed to register a ticket for another person.
+    let forcedRequesterEmail: string | null = null;
+    let forcedRequesterId: string | null = null;
 
     const isClient = !agent || agent.role === 'readonly';
 
@@ -248,10 +254,13 @@ export async function createTicket(
       tenantId = agent.tenant_id;
       agentEmailForNotify = agent.email;
     } else {
-      // Path B: client/readonly — enforce their own organization.
+      // Path B: client/readonly — enforce their own organization AND
+      // their own requester identity.
       const { data: orgUser } = await client
         .from('organization_users')
-        .select('organization_id, organization:organizations(id, tenant_id)')
+        .select(
+          'organization_id, email, organization:organizations(id, tenant_id)',
+        )
         .eq('user_id', user.id)
         .eq('is_active', true)
         .maybeSingle();
@@ -271,6 +280,24 @@ export async function createTicket(
       if (validated.organization_id && validated.organization_id !== org.id) {
         return { data: null, error: 'Invalid organization' };
       }
+
+      // Force requester to be the logged-in user.
+      forcedRequesterEmail = (orgUser?.email as string | null) ?? user.email ?? null;
+      if (!forcedRequesterEmail) {
+        return { data: null, error: 'No requester email on file' };
+      }
+
+      // Best-effort match a contacts row in the same org so the list view
+      // shows the requester's name. If none exists we still create with
+      // the email; a contacts row can be linked later.
+      const { data: contactMatch } = await client
+        .from('contacts')
+        .select('id')
+        .eq('organization_id', org.id)
+        .ilike('email', forcedRequesterEmail)
+        .limit(1)
+        .maybeSingle();
+      forcedRequesterId = contactMatch?.id ?? null;
     }
 
     const { data: ticket, error } = await client
@@ -279,6 +306,13 @@ export async function createTicket(
         ...validated,
         organization_id: enforcedOrgId ?? validated.organization_id,
         tenant_id: tenantId, // NEVER from frontend
+        // For clients, requester is forced server-side; for staff agents,
+        // we trust the validated form input.
+        requester_email: forcedRequesterEmail ?? validated.requester_email,
+        requester_id:
+          forcedRequesterEmail !== null
+            ? forcedRequesterId
+            : (validated.requester_id ?? null),
         created_by: user.id,
         status: 'new',
       })
@@ -743,6 +777,19 @@ export async function setTestingResult(
 
     if (tErr || !ticket) return { data: null, error: 'Ticket not found' };
 
+    // The Testing sub-state is only meaningful while the ticket is in
+    // status='testing'. Allowing writes from any status leaked stuck
+    // 'fracaso' flags onto resolved/closed tickets (48 such rows in prod
+    // before the 00041 cleanup) and corrupted the "Casos Fracaso Testing"
+    // report. The UI already hides the picker outside testing — this is
+    // defense-in-depth against direct API calls.
+    if (ticket.status !== 'testing') {
+      return {
+        data: null,
+        error: 'El resultado de testing solo puede marcarse mientras el ticket está en estado Testing',
+      };
+    }
+
     const currentCustom =
       (ticket.custom_fields as Record<string, unknown> | null) ?? {};
     const nextCustom: Record<string, unknown> = { ...currentCustom };
@@ -895,10 +942,13 @@ export async function addFollowup(
       ? []
       : (validated.mentioned_contact_ids ?? []);
 
-    // Verify ticket belongs to tenant
+    // Verify ticket belongs to tenant — and grab every column the notify
+    // path will need, so we don't have to round-trip again later.
     const { data: existing } = await client
       .from('tickets')
-      .select('id, tenant_id, organization_id')
+      .select(
+        'id, tenant_id, organization_id, ticket_number, title, type, urgency, requester_email, assigned_agent_id',
+      )
       .eq('id', ticketId)
       .eq('tenant_id', agent.tenant_id)
       .is('deleted_at', null)
@@ -938,19 +988,21 @@ export async function addFollowup(
     // timeline / preview UI can group them under the message that was sent.
     // We scope by tenant + ticket as a defense-in-depth check (RLS already
     // enforces tenant). Failures are non-fatal — the file still uploaded.
+    // Fire-and-forget: the attachment link doesn't have to settle before we
+    // return. Realtime + the timeline's own attachments query will pick it
+    // up moments later.
     const attachmentIds = validated.attachment_ids ?? [];
     if (attachmentIds.length > 0 && followup?.id) {
-      try {
-        await client
-          .from('ticket_attachments')
-          .update({ followup_id: followup.id as string })
-          .in('id', attachmentIds)
-          .eq('ticket_id', ticketId)
-          .eq('tenant_id', agent.tenant_id)
-          .is('followup_id', null);
-      } catch (linkErr) {
-        console.warn('[addFollowup] attachment link failed:', linkErr);
-      }
+      client
+        .from('ticket_attachments')
+        .update({ followup_id: followup.id as string })
+        .in('id', attachmentIds)
+        .eq('ticket_id', ticketId)
+        .eq('tenant_id', agent.tenant_id)
+        .is('followup_id', null)
+        .then(({ error: linkErr }) => {
+          if (linkErr) console.warn('[addFollowup] attachment link failed:', linkErr);
+        });
     }
 
     // Auto-follow on participation — any agent who posts a followup,
@@ -993,69 +1045,41 @@ export async function addFollowup(
         .then(() => {});
     }
 
-    // Notify on public replies (not internal notes)
-    if (!validated.is_private) {
-      const { data: tkt } = await client
-        .from('tickets')
-        .select('ticket_number, title, type, urgency, requester_email, assigned_agent_id')
-        .eq('id', ticketId)
-        .single();
-      if (tkt) {
-        notifyTicketCommented({
-          tenantId: agent.tenant_id,
-          ticketNumber: tkt.ticket_number,
-          ticketId,
-          title: tkt.title,
-          type: tkt.type,
-          urgency: tkt.urgency,
-          status: '',
-          comment: validated.content,
-          commentHtml: validated.content_html ?? null,
-          agentName: agent.name,
-          requesterEmail: tkt.requester_email ?? undefined,
-          agentUserId: user.id,
-          agentEmail: agent.email,
-          assignedAgentId: tkt.assigned_agent_id ?? undefined,
-          emailMessageId,
-          ccContactIds: mentionedContactIds,
-          mentionedAgentIds,
-          followupId: followup.id as string,
-        }).catch(() => {});
-      }
-    } else {
-      // Internal note: fan out only to agent followers (no requester, no
-      // contacts). notifyTicketCommented already filters by requesterEmail
-      // presence, but we pass undefined explicitly to make the intent clear.
-      const { data: tkt } = await client
-        .from('tickets')
-        .select('ticket_number, title, type, urgency, assigned_agent_id')
-        .eq('id', ticketId)
-        .single();
-      if (tkt) {
-        notifyTicketCommented({
-          tenantId: agent.tenant_id,
-          ticketNumber: tkt.ticket_number,
-          ticketId,
-          title: tkt.title,
-          type: tkt.type,
-          urgency: tkt.urgency,
-          status: '',
-          comment: validated.content,
-          commentHtml: validated.content_html ?? null,
-          agentName: agent.name,
-          requesterEmail: undefined,
-          agentUserId: user.id,
-          agentEmail: agent.email,
-          assignedAgentId: tkt.assigned_agent_id ?? undefined,
-          emailMessageId,
-          ccContactIds: [],
-          followupId: followup.id as string,
-          isInternal: true,
-        }).catch(() => {});
-      }
-    }
+    // Notify on public replies and internal notes. We reuse the columns
+    // already fetched in the tenant-verification query above instead of
+    // round-tripping the database again — that single round-trip was
+    // visible as ~50–150ms of dead time before the editor cleared.
+    notifyTicketCommented({
+      tenantId: agent.tenant_id,
+      ticketNumber: existing.ticket_number,
+      ticketId,
+      title: existing.title,
+      type: existing.type,
+      urgency: existing.urgency,
+      status: '',
+      comment: validated.content,
+      commentHtml: validated.content_html ?? null,
+      agentName: agent.name,
+      // Internal notes never reach the requester; passing undefined makes
+      // notifyTicketCommented skip the email path entirely.
+      requesterEmail: validated.is_private
+        ? undefined
+        : (existing.requester_email ?? undefined),
+      agentUserId: user.id,
+      agentEmail: agent.email,
+      assignedAgentId: existing.assigned_agent_id ?? undefined,
+      emailMessageId,
+      ccContactIds: validated.is_private ? [] : mentionedContactIds,
+      mentionedAgentIds: validated.is_private ? undefined : mentionedAgentIds,
+      followupId: followup.id as string,
+      isInternal: validated.is_private,
+    }).catch(() => {});
 
-    revalidatePath(`/home/tickets/${ticketId}`);
+    // No revalidatePath here: the ticket-detail page subscribes to
+    // ticket_followups via Supabase Realtime, so the new message lands in
+    // the timeline through the websocket — no server re-render needed.
+    // Re-introducing revalidatePath would force the next navigation to
+    // re-run all ~10 parallel queries on this route for no UI gain.
     return { data: followup, error: null };
   } catch (err) {
     if (err instanceof z.ZodError) {

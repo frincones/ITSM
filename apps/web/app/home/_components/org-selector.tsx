@@ -65,40 +65,63 @@ export function OrgSelector() {
 
       const { data: agent } = await supabase
         .from('agents')
-        .select('tenant_id, role')
+        .select('id, tenant_id, role')
         .eq('user_id', user.id)
         .maybeSingle();
 
       const isClient = !agent || agent.role === 'readonly';
 
-      // Path A: client (no agent row, or readonly) → lock to their org
+      // Path A: client (no agent row, or readonly) → lock to their org.
+      // We also check agent_organizations because a readonly agent can
+      // be linked there instead of (or in addition to) organization_users.
       if (isClient) {
-        const { data: orgUser } = await supabase
-          .from('organization_users')
-          .select('organization_id, organization:organizations(id, name, slug)')
-          .eq('user_id', user.id)
-          .eq('is_active', true)
-          .maybeSingle();
+        const [{ data: orgUser }, { data: agentOrgs }] = await Promise.all([
+          supabase
+            .from('organization_users')
+            .select('organization:organizations(id, name, slug)')
+            .eq('user_id', user.id)
+            .eq('is_active', true)
+            .maybeSingle(),
+          agent?.id
+            ? supabase
+                .from('agent_organizations')
+                .select('organization:organizations(id, name, slug)')
+                .eq('agent_id', agent.id)
+            : Promise.resolve({ data: [] as Array<{
+                organization: { id: string; name: string; slug: string } | null;
+              }> }),
+        ]);
 
-        const org = (orgUser?.organization ?? null) as
+        const orgs: { id: string; name: string; slug: string }[] = [];
+        const orgUserOrg = (orgUser?.organization ?? null) as
           | { id: string; name: string; slug: string }
           | null;
+        if (orgUserOrg) orgs.push(orgUserOrg);
 
-        if (org) {
-          setOrganizations([
-            { id: org.id, name: org.name, slug: org.slug, ticket_count: 0 },
-          ]);
-          setIsOrgUser(true);
+        for (const row of agentOrgs ?? []) {
+          const o = (row as { organization: { id: string; name: string; slug: string } | null }).organization;
+          if (o && !orgs.find((existing) => existing.id === o.id)) orgs.push(o);
+        }
+
+        if (orgs.length > 0) {
+          setOrganizations(
+            orgs.map((o) => ({ id: o.id, name: o.name, slug: o.slug, ticket_count: 0 })),
+          );
+          // Lock the badge only when the user has exactly one org —
+          // multi-org clients still need a switcher.
+          setIsOrgUser(orgs.length === 1);
         }
         setLoading(false);
         return;
       }
 
-      // Path B: user is an agent
+      // Path B: user is a staff agent. Filter agent_organizations by the
+      // agent's `id` (FK target) — not by user.id, which was a bug that
+      // made every staff agent see all tenant orgs.
       const { data: agentOrgs } = await supabase
         .from('agent_organizations')
         .select('organization_id')
-        .eq('agent_id', user.id);
+        .eq('agent_id', agent.id);
 
       let query = supabase
         .from('organizations')
