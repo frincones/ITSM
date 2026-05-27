@@ -944,10 +944,12 @@ export async function addFollowup(
 
     // Verify ticket belongs to tenant — and grab every column the notify
     // path will need, so we don't have to round-trip again later.
+    // first_response_at is included so we can stamp it below on the first
+    // staff reply without an extra round-trip.
     const { data: existing } = await client
       .from('tickets')
       .select(
-        'id, tenant_id, organization_id, ticket_number, title, type, urgency, requester_email, assigned_agent_id',
+        'id, tenant_id, organization_id, ticket_number, title, type, urgency, requester_email, assigned_agent_id, first_response_at',
       )
       .eq('id', ticketId)
       .eq('tenant_id', agent.tenant_id)
@@ -982,6 +984,28 @@ export async function addFollowup(
 
     if (error) {
       return { data: null, error: error.message };
+    }
+
+    // First-response stamping: ITIL "first response" = the first PUBLIC
+    // reply from a staff agent. Until migration 00045 this only fired
+    // when status left 'new' via changeTicketStatus, so an agent who
+    // replied without moving status left first_response_at NULL and
+    // broke every FRT metric. Doing it here closes that hole. Fire-and-
+    // forget + .is('first_response_at', null) keeps it race-safe even
+    // when two replies land at the same moment.
+    if (
+      !isClient &&
+      !validated.is_private &&
+      !(existing as { first_response_at: string | null }).first_response_at
+    ) {
+      client
+        .from('tickets')
+        .update({ first_response_at: new Date().toISOString() })
+        .eq('id', ticketId)
+        .is('first_response_at', null)
+        .then(({ error: frtErr }) => {
+          if (frtErr) console.warn('[addFollowup] first_response_at stamp failed:', frtErr);
+        });
     }
 
     // Link any attachments uploaded before submit to this followup so the
