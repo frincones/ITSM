@@ -27,6 +27,7 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
+  Loader2,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -814,10 +815,27 @@ export function TicketListClient({
       {/* Table */}
       <div
         className={`relative flex-1 overflow-auto bg-white transition-opacity duration-150 ${
-          isPending ? 'pointer-events-none opacity-60' : ''
+          isPending ? 'pointer-events-none opacity-70' : ''
         }`}
         aria-busy={isPending}
       >
+        {/* Loading overlay — shown during search / filter / sort / page
+            transitions so the user sees something is happening instead of
+            just a dimmed table. The spinner sits over the table content
+            with a subtle white veil so the rows underneath still hint at
+            what's about to refresh. */}
+        {isPending && (
+          <div
+            className="pointer-events-none sticky top-0 z-20 flex h-0 items-start justify-center"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="mt-20 flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-md">
+              <Loader2 className="h-4 w-4 animate-spin text-indigo-600" />
+              Cargando…
+            </div>
+          </div>
+        )}
         <Table>
           <TableHeader className="sticky top-0 border-b border-gray-200 bg-gray-50">
             <TableRow>
