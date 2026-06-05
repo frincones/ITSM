@@ -7,7 +7,6 @@ import { getUserAllowedModules } from '~/lib/services/user-permissions.service';
 import {
   calculateAIPerformance,
   getLatestInsights,
-  generateAIInsights,
 } from '~/lib/services/ai-insights.service';
 
 import { DashboardClient } from './_components/dashboard-client';
@@ -413,6 +412,12 @@ async function fetchDashboardData(orgId?: string | null): Promise<DashboardData>
   } catch { /* fallback to 0s */ }
 
   // ---------- AI insights (REAL from LLM analysis) ----------
+  // We ONLY read cached insights here. Generating them calls an LLM
+  // (gpt-4o-mini), which used to run inline on every dashboard render with no
+  // cache hit — turning a page load into a 30–60s wait. Generation now lives
+  // exclusively in the /api/cron/ai-insights job (see vercel.json). If the
+  // cache is empty the dashboard simply renders without insights instead of
+  // blocking on the model.
   let aiInsights: AiInsightData[] = [];
 
   try {
@@ -423,13 +428,7 @@ async function fetchDashboardData(orgId?: string | null): Promise<DashboardData>
       .maybeSingle();
 
     if (agentForInsights.data?.tenant_id) {
-      // Try to get cached insights first
-      let insights = await getLatestInsights(client, agentForInsights.data.tenant_id);
-
-      // If no insights or expired, generate fresh ones
-      if (insights.length === 0) {
-        insights = await generateAIInsights(client, agentForInsights.data.tenant_id);
-      }
+      const insights = await getLatestInsights(client, agentForInsights.data.tenant_id);
 
       aiInsights = insights.map((i) => ({
         type: i.insight_type === 'pattern' ? 'analysis' as const
