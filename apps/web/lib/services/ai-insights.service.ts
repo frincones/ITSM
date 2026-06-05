@@ -37,40 +37,50 @@ export async function calculateAIPerformance(
   // Count total tickets (last 30 days)
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
 
-  const { count: totalTickets } = await client
-    .from('tickets')
-    .select('id', { count: 'exact', head: true })
-    .eq('tenant_id', tenantId)
-    .is('deleted_at', null)
-    .gte('created_at', thirtyDaysAgo);
+  // These four COUNTs are independent — run them concurrently rather than as
+  // four sequential round-trips (this is on the dashboard render path).
+  const [
+    { count: totalTickets },
+    { count: aiClassifiedTickets },
+    { count: portalTickets },
+    { count: portalResolved },
+  ] = await Promise.all([
+    // Total tickets
+    client
+      .from('tickets')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null)
+      .gte('created_at', thirtyDaysAgo),
 
-  // Tickets that were AI-classified (have ai_classification not null)
-  const { count: aiClassifiedTickets } = await client
-    .from('tickets')
-    .select('id', { count: 'exact', head: true })
-    .eq('tenant_id', tenantId)
-    .is('deleted_at', null)
-    .gte('created_at', thirtyDaysAgo)
-    .not('ai_classification', 'is', null);
+    // Tickets that were AI-classified (have ai_classification not null)
+    client
+      .from('tickets')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null)
+      .gte('created_at', thirtyDaysAgo)
+      .not('ai_classification', 'is', null),
 
-  // Tickets created from portal (AI-assisted at minimum)
-  const { count: portalTickets } = await client
-    .from('tickets')
-    .select('id', { count: 'exact', head: true })
-    .eq('tenant_id', tenantId)
-    .is('deleted_at', null)
-    .gte('created_at', thirtyDaysAgo)
-    .eq('channel', 'portal');
+    // Tickets created from portal (AI-assisted at minimum)
+    client
+      .from('tickets')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null)
+      .gte('created_at', thirtyDaysAgo)
+      .eq('channel', 'portal'),
 
-  // Tickets resolved that came from portal (AI-resolved proxy)
-  const { count: portalResolved } = await client
-    .from('tickets')
-    .select('id', { count: 'exact', head: true })
-    .eq('tenant_id', tenantId)
-    .is('deleted_at', null)
-    .gte('created_at', thirtyDaysAgo)
-    .eq('channel', 'portal')
-    .in('status', ['resolved', 'closed']);
+    // Tickets resolved that came from portal (AI-resolved proxy)
+    client
+      .from('tickets')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null)
+      .gte('created_at', thirtyDaysAgo)
+      .eq('channel', 'portal')
+      .in('status', ['resolved', 'closed']),
+  ]);
 
   const total = totalTickets ?? 0;
   const classified = aiClassifiedTickets ?? 0;
