@@ -7,7 +7,6 @@ import { getUserAllowedModules } from '~/lib/services/user-permissions.service';
 import {
   calculateAIPerformance,
   getLatestInsights,
-  generateAIInsights,
 } from '~/lib/services/ai-insights.service';
 
 import { DashboardClient } from './_components/dashboard-client';
@@ -71,6 +70,12 @@ export interface AiInsightData {
   confidence?: number;
 }
 
+interface DashboardUser {
+  id?: string;
+  email?: string | null;
+  user_metadata?: Record<string, unknown> | null;
+}
+
 export interface DashboardData {
   userName: string;
   kpis: KpiData;
@@ -111,8 +116,15 @@ function getDayLabel(dateStr: string): string {
 /*  Data Fetching                                                              */
 /* -------------------------------------------------------------------------- */
 
-async function fetchDashboardData(orgId?: string | null): Promise<DashboardData> {
+async function fetchDashboardData(
+  orgId: string | null | undefined,
+  user: DashboardUser | null,
+): Promise<DashboardData> {
   const client = getSupabaseServerClient();
+  // The caller already resolved the authenticated user (cached per request via
+  // requireUserInServerComponent), so we reuse its claims instead of issuing
+  // more auth.getUser() round-trips here.
+  const userId = user?.id ?? '';
 
   // Resolve organization filter for this user
   // If orgId passed (from ?org= param) → filter by that org
@@ -120,18 +132,15 @@ async function fetchDashboardData(orgId?: string | null): Promise<DashboardData>
   // If neither → no filter (TDX admin sees all)
   let effectiveOrgId: string | null = orgId ?? null;
 
-  if (!effectiveOrgId) {
+  if (!effectiveOrgId && userId) {
     try {
-      const { data: { user: authUser } } = await client.auth.getUser();
-      if (authUser) {
-        const { data: orgUser } = await client
-          .from('organization_users')
-          .select('organization_id')
-          .eq('user_id', authUser.id)
-          .eq('is_active', true)
-          .maybeSingle();
-        effectiveOrgId = orgUser?.organization_id ?? null;
-      }
+      const { data: orgUser } = await client
+        .from('organization_users')
+        .select('organization_id')
+        .eq('user_id', userId)
+        .eq('is_active', true)
+        .maybeSingle();
+      effectiveOrgId = orgUser?.organization_id ?? null;
     } catch { /* ignore — no org filter */ }
   }
 
@@ -169,7 +178,7 @@ async function fetchDashboardData(orgId?: string | null): Promise<DashboardData>
     slaOnTrackResult,
     slaAtRiskResult,
     slaBreachedResult,
-    userResult,
+    agentResult,
   ] = await Promise.all([
     // KPI: Open tickets (statuses that are not resolved/closed/cancelled)
     applyOrgFilter(
@@ -275,8 +284,13 @@ async function fetchDashboardData(orgId?: string | null): Promise<DashboardData>
       .in('status', ['new', 'assigned', 'in_progress', 'pending', 'testing'])
       .lte('sla_due_date', now.toISOString())),
 
-    // Current user
-    client.auth.getUser(),
+    // Current user's agent row — needed for the tenant-scoped AI sections.
+    // Folded into this parallel block so it no longer adds a sequential
+    // round-trip after the KPIs resolve (and it's only fetched once now,
+    // instead of the two duplicate agents lookups it replaced).
+    userId
+      ? client.from('agents').select('tenant_id').eq('user_id', userId).maybeSingle()
+      : Promise.resolve({ data: null as { tenant_id: string } | null }),
   ]);
 
   // ---------- Compute KPIs ----------
@@ -388,65 +402,52 @@ async function fetchDashboardData(orgId?: string | null): Promise<DashboardData>
         }
       : { onTrack: 85, atRisk: 12, breached: 3, complianceThisMonth: 94 };
 
-  // ---------- AI performance (REAL from ticket data) ----------
+  // ---------- AI performance + insights ----------
+  // Both are tenant-scoped and depend only on the agent row resolved in the
+  // parallel block above (no more duplicate agents lookups). Performance reads
+  // ticket counts; insights read the cron-populated cache. They're independent,
+  // so we run them together instead of one-after-another.
   let aiPerformance: AiPerformanceData = {
     autoClassificationRate: 0,
     aiResolvedNoHuman: 0,
     aiAssistedResolution: 0,
   };
-
-  try {
-    const agentForAI = await client
-      .from('agents')
-      .select('tenant_id')
-      .eq('user_id', userResult.data?.user?.id ?? '')
-      .maybeSingle();
-
-    if (agentForAI.data?.tenant_id) {
-      const perf = await calculateAIPerformance(client, agentForAI.data.tenant_id);
-      aiPerformance = {
-        autoClassificationRate: perf.autoClassificationRate,
-        aiResolvedNoHuman: perf.aiResolvedNoHuman,
-        aiAssistedResolution: perf.aiAssistedResolution,
-      };
-    }
-  } catch { /* fallback to 0s */ }
-
-  // ---------- AI insights (REAL from LLM analysis) ----------
   let aiInsights: AiInsightData[] = [];
 
-  try {
-    const agentForInsights = await client
-      .from('agents')
-      .select('tenant_id')
-      .eq('user_id', userResult.data?.user?.id ?? '')
-      .maybeSingle();
+  const tenantId = agentResult.data?.tenant_id ?? null;
 
-    if (agentForInsights.data?.tenant_id) {
-      // Try to get cached insights first
-      let insights = await getLatestInsights(client, agentForInsights.data.tenant_id);
+  if (tenantId) {
+    const [perfResult, insightsResult] = await Promise.all([
+      calculateAIPerformance(client, tenantId).catch(() => null),
+      // We ONLY read cached insights here. Generation calls an LLM
+      // (gpt-4o-mini) and now lives exclusively in the /api/cron/ai-insights
+      // job (see vercel.json) — it must never block a page render.
+      getLatestInsights(client, tenantId).catch(() => []),
+    ]);
 
-      // If no insights or expired, generate fresh ones
-      if (insights.length === 0) {
-        insights = await generateAIInsights(client, agentForInsights.data.tenant_id);
-      }
-
-      aiInsights = insights.map((i) => ({
-        type: i.insight_type === 'pattern' ? 'analysis' as const
-            : i.insight_type === 'recommendation' ? 'suggestion' as const
-            : i.insight_type === 'alert' ? 'analysis' as const
-            : 'analysis' as const,
-        title: i.title,
-        content: i.description,
-        confidence: i.confidence ? Math.round(i.confidence * 100) : undefined,
-      }));
+    if (perfResult) {
+      aiPerformance = {
+        autoClassificationRate: perfResult.autoClassificationRate,
+        aiResolvedNoHuman: perfResult.aiResolvedNoHuman,
+        aiAssistedResolution: perfResult.aiAssistedResolution,
+      };
     }
-  } catch { /* fallback to empty */ }
+
+    aiInsights = insightsResult.map((i) => ({
+      type: i.insight_type === 'pattern' ? 'analysis' as const
+          : i.insight_type === 'recommendation' ? 'suggestion' as const
+          : i.insight_type === 'alert' ? 'analysis' as const
+          : 'analysis' as const,
+      title: i.title,
+      content: i.description,
+      confidence: i.confidence ? Math.round(i.confidence * 100) : undefined,
+    }));
+  }
 
   // ---------- User name ----------
   const userName =
-    userResult.data?.user?.user_metadata?.display_name ??
-    userResult.data?.user?.email?.split('@')[0] ??
+    (user?.user_metadata?.display_name as string | undefined) ??
+    user?.email?.split('@')[0] ??
     'User';
 
   return {
@@ -479,17 +480,17 @@ interface HomePageProps {
 }
 
 export default async function HomePage({ searchParams }: HomePageProps) {
-  await requireUserInServerComponent();
+  // requireUserInServerComponent resolves the user once per request (cached)
+  // and returns the JWT claims (id/email/user_metadata). We thread it through
+  // the rest of the page so nothing re-fetches the user over the network.
+  const user = await requireUserInServerComponent();
 
   // If the user's allowed modules don't include dashboard, bounce them to
   // their first allowed module so they land on something they can use.
   let redirectPath: string | null = null;
   try {
     const client = getSupabaseServerClient();
-    const {
-      data: { user },
-    } = await client.auth.getUser();
-    if (user) {
+    if (user?.id) {
       const allowed = await getUserAllowedModules(client, user.id);
       if (allowed && !allowed.includes('dashboard')) {
         const moduleToPath: Record<string, string> = {
@@ -531,7 +532,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   let data: DashboardData;
 
   try {
-    data = await fetchDashboardData(params.org);
+    data = await fetchDashboardData(params.org, user);
   } catch {
     // Fallback data when tables do not exist yet (pre-migration)
     data = {

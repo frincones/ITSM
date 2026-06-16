@@ -152,19 +152,30 @@ function getPatterns() {
 
         const supabase = createMiddlewareClient(req, res);
 
-        // Check the flag against the fresh user record (not JWT claims).
-        // The JWT can lag behind user_metadata updates until the session is
-        // refreshed, which would otherwise bounce users in a loop right
-        // after they set their permanent password.
-        const {
-          data: { user: freshUser },
-        } = await supabase.auth.getUser();
-        const hasTempPassword =
-          freshUser?.user_metadata?.password_temporary === true;
-        if (hasTempPassword) {
-          return NextResponse.redirect(
-            new URL('/auth/set-password', origin).href,
-          );
+        // Only the *temp-password* path needs a fresh user record. The JWT can
+        // lag behind user_metadata right after a user sets their permanent
+        // password (claim still says temporary), so we re-fetch to avoid
+        // bouncing them into a set-password loop. But a claim that already says
+        // "not temporary" is authoritative — so in the common case (every
+        // normal navigation) we skip the extra auth.getUser() network round-trip
+        // entirely.
+        const claims = data.claims as {
+          user_metadata?: Record<string, unknown>;
+        };
+        const claimSaysTempPassword =
+          claims?.user_metadata?.password_temporary === true;
+
+        if (claimSaysTempPassword) {
+          const {
+            data: { user: freshUser },
+          } = await supabase.auth.getUser();
+          const hasTempPassword =
+            freshUser?.user_metadata?.password_temporary === true;
+          if (hasTempPassword) {
+            return NextResponse.redirect(
+              new URL('/auth/set-password', origin).href,
+            );
+          }
         }
 
         const requiresMultiFactorAuthentication =
