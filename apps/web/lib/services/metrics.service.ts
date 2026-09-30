@@ -444,14 +444,26 @@ export async function getGranularMetrics(
 
 /**
  * Calculates the percentage of tickets with `sla_met = true` within the
- * given date range.
+ * given date range, aggregated across the whole tenant.
+ *
+ * `compliance_rate` is NULL when there is nothing measurable in the range.
+ * It is deliberately not 0 and emphatically not 100: a client with no
+ * support contract (or a quiet month) has no compliance figure, and
+ * reporting 100% there invents a contractual commitment that was never
+ * signed. Callers must render NULL as "sin datos".
+ *
+ * NOT contract-grade. This reads `daily_metrics`, which has no
+ * `organization_id`, so the figure mixes every client in the tenant into a
+ * single number. The per-client report that backs the Podenza contract
+ * (clause 7) must measure over `tickets` filtered by organization and by
+ * `sla_applies`, never through this function.
  */
 export async function getSLAComplianceRate(
   client: SupabaseClient,
   tenantId: string,
   dateRange: { from: string; to: string },
 ): Promise<ServiceResult<{
-  compliance_rate: number;
+  compliance_rate: number | null;
   total: number;
   met: number;
   breached: number;
@@ -476,7 +488,8 @@ export async function getSLAComplianceRate(
   }
 
   const total = met + breached;
-  const complianceRate = total > 0 ? Math.round((met / total) * 10000) / 100 : 100;
+  const complianceRate =
+    total > 0 ? Math.round((met / total) * 10000) / 100 : null;
 
   return {
     data: {
