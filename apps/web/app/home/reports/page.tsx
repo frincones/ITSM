@@ -195,6 +195,7 @@ async function ReportsPage({ searchParams }: PageProps) {
     <GestionSoporteClient
       reportDate={reportDate}
       organizationName={organizationName}
+      organizationId={organizationId}
       metrics={metrics}
       lists={lists}
     />
