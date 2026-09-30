@@ -59,6 +59,7 @@ const STATUS_OPTIONS = [
   { value: 'in_progress', label: 'In Progress' },
   { value: 'pending', label: 'Pending' },
   { value: 'detenido', label: 'Detenido' },
+  { value: 'esperando_ventana', label: 'Esperando ventana' },
   { value: 'testing', label: 'Testing' },
   { value: 'resolved', label: 'Resolved' },
   { value: 'closed', label: 'Closed' },

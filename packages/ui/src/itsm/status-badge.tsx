@@ -15,6 +15,7 @@ export type TicketStatus =
   | 'in_progress'
   | 'pending'
   | 'detenido'
+  | 'esperando_ventana'
   | 'testing'
   | 'resolved'
   | 'reopened'
@@ -53,6 +54,11 @@ const STATUS_CONFIG: Record<
     label: 'Pending',
     color: 'text-gray-700 dark:text-gray-300',
     bg: 'bg-gray-50 dark:bg-gray-500/20',
+  },
+  esperando_ventana: {
+    label: 'Esperando ventana',
+    color: 'text-indigo-700 dark:text-indigo-300',
+    bg: 'bg-indigo-50 dark:bg-indigo-500/20',
   },
   detenido: {
     label: 'Detenido',

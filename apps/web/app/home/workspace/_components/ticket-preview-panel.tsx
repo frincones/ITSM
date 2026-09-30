@@ -74,6 +74,7 @@ const STATUS_OPTIONS: Array<{ value: TicketStatus; label: string }> = [
   { value: 'in_progress', label: 'En Progreso' },
   { value: 'pending', label: 'Pendiente' },
   { value: 'detenido', label: 'Detenido' },
+  { value: 'esperando_ventana', label: 'Esperando ventana' },
   { value: 'testing', label: 'Testing' },
   { value: 'resolved', label: 'Resuelto' },
   { value: 'closed', label: 'Cerrado' },
