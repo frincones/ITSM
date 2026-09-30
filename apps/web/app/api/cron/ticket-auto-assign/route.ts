@@ -1,23 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+import { resolveDefaultAssignee } from '~/lib/services/assignment.service';
 import { notifyTicketAssigned } from '~/lib/services/notify.service';
 
 /**
- * Vercel Cron Job — Round-Robin Auto-Assign
+ * Cron Job — Default-Owner Auto-Assign
  *
- * Finds every unassigned ticket (non-terminal status) across tenants and
- * assigns it to one of the TDX staff agents in strict rotation order.
+ * Safety net for unassigned tickets in an open state. Real-time assignment
+ * happens in createTicket and the inbound-email service; this catches
+ * anything those paths missed (a failed fire-and-forget, a row inserted by
+ * import or direct SQL).
  *
- * Rotation strategy: pick whichever eligible agent was assigned longest
- * ago (or has never been assigned). After assigning, bump that agent's
- * "last assigned" timestamp in-memory so the next iteration rotates to
- * a different agent. This intentionally ignores historical open-ticket
- * counts — so a bulk import concentrated on one person doesn't starve
- * the other agents.
+ * Replaces the previous round-robin rotation, which spread tickets across
+ * every active agent regardless of which client they belonged to. Each
+ * client has a dedicated owner instead (organizations.default_agent_id), so
+ * a Podenza ticket never lands on the person who handles Prosuministros —
+ * see assignment.service.ts for the resolution order.
  *
- * Eligible assignees per tenant = agents.role IN (admin, supervisor, agent)
- * AND is_active, excluding the admin@novadesk.com service account.
+ * A client with no owner configured leaves its tickets unassigned, which is
+ * visible in the queue. That is intentional: guessing an owner is worse.
+ *
+ * Deliberately does NOT touch status or first_response_at for tickets that
+ * are already past 'new'. Being assigned is not a response to the client.
  */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -31,7 +36,6 @@ export async function GET(request: NextRequest) {
     { auth: { persistSession: false } },
   );
 
-  // 1. Every tenant that has at least one unassigned ticket in an open state.
   const TERMINAL_STATUSES = ['closed', 'cancelled', 'resolved'];
   const { data: unassigned, error: unassignedError } = await svc
     .from('tickets')
@@ -51,117 +55,93 @@ export async function GET(request: NextRequest) {
   }
 
   if (!unassigned || unassigned.length === 0) {
-    return NextResponse.json({ ok: true, assigned: 0, message: 'No unassigned tickets' });
-  }
-
-  // Group by tenant so agents are scoped correctly.
-  const byTenant = new Map<string, typeof unassigned>();
-  for (const t of unassigned) {
-    const list = byTenant.get(t.tenant_id) ?? [];
-    list.push(t);
-    byTenant.set(t.tenant_id, list);
+    return NextResponse.json({
+      ok: true,
+      assigned: 0,
+      message: 'No unassigned tickets',
+    });
   }
 
   let assignedCount = 0;
   const assignmentLog: Array<{ ticket: string; agent: string }> = [];
+  const unresolved: string[] = [];
 
-  for (const [tenantId, tickets] of byTenant.entries()) {
-    // 2. Find eligible TDX staff for this tenant. System/service accounts
-    // like Admin NovaDesk should not pick up tickets, so they are excluded
-    // by email. Any other admin/supervisor/agent on an active account is
-    // fair game.
-    const EXCLUDED_EMAILS = ['admin@novadesk.com'];
-    const { data: allAgents } = await svc
-      .from('agents')
-      .select('id, user_id, email, name, role')
-      .eq('tenant_id', tenantId)
-      .eq('is_active', true)
-      .in('role', ['admin', 'supervisor', 'agent'])
-      .order('name', { ascending: true });
+  // Cache the resolved assignee per (tenant, organization) — the default is
+  // stable within a run, so this keeps the query count flat regardless of how
+  // many tickets the batch picks up.
+  const cache = new Map<
+    string,
+    Awaited<ReturnType<typeof resolveDefaultAssignee>>
+  >();
 
-    const agents = (allAgents ?? []).filter(
-      (a) => !EXCLUDED_EMAILS.includes(a.email.toLowerCase()),
+  for (const t of unassigned) {
+    const cacheKey = `${t.tenant_id}:${t.organization_id ?? '-'}`;
+    if (!cache.has(cacheKey)) {
+      cache.set(
+        cacheKey,
+        await resolveDefaultAssignee(svc, t.tenant_id, t.organization_id),
+      );
+    }
+    const assignee = cache.get(cacheKey) ?? null;
+
+    // No default configured, or it points at an inactive agent. Leave the
+    // ticket unassigned — that is visible in the queue, whereas silently
+    // handing it to an arbitrary agent is not.
+    if (!assignee) {
+      unresolved.push(t.ticket_number);
+      continue;
+    }
+
+    const { error: updateError } = await svc
+      .from('tickets')
+      .update({
+        assigned_agent_id: assignee.agentId,
+        // Only flip to "assigned" when the ticket is still fresh.
+        ...(t.status === 'new' ? { status: 'assigned' } : {}),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', t.id);
+
+    if (updateError) {
+      console.error(
+        '[auto-assign] failed to assign',
+        t.ticket_number,
+        updateError.message,
+      );
+      continue;
+    }
+
+    assignedCount++;
+    assignmentLog.push({ ticket: t.ticket_number, agent: assignee.name });
+
+    notifyTicketAssigned({
+      tenantId: t.tenant_id,
+      ticketNumber: t.ticket_number,
+      ticketId: t.id,
+      title: t.title,
+      type: t.type,
+      urgency: t.urgency,
+      status: t.status,
+      assignedAgentId: assignee.agentId,
+      agentUserId: assignee.userId ?? undefined,
+      agentEmail: assignee.email,
+      agentName: assignee.name,
+    }).catch(() => {});
+  }
+
+  if (unresolved.length > 0) {
+    console.warn(
+      '[auto-assign] no default assignee resolved for',
+      unresolved.length,
+      'ticket(s):',
+      unresolved.join(', '),
     );
-    if (agents.length === 0) continue;
-
-    // 3. Load the tenant's rotation cursor (shared with createTicket). We
-    // advance it locally per assignment in this batch, then persist the
-    // final value once at the end. Pure rotation — no dependency on the
-    // historical open-ticket count.
-    const { data: tenantRow } = await svc
-      .from('tenants')
-      .select('settings')
-      .eq('id', tenantId)
-      .maybeSingle();
-
-    const settings =
-      ((tenantRow as { settings: Record<string, unknown> } | null)?.settings as
-        | Record<string, unknown>
-        | null) ?? {};
-    let cursor =
-      typeof settings.round_robin_last_agent_id === 'string'
-        ? settings.round_robin_last_agent_id
-        : null;
-
-    // 4. Assign each ticket, rotating through agents in alphabetical order.
-    for (const t of tickets) {
-      const lastIdx = agents.findIndex((a) => a.id === cursor);
-      const nextIdx = lastIdx === -1 ? 0 : (lastIdx + 1) % agents.length;
-      const best = agents[nextIdx];
-      if (!best) continue;
-
-      const { error: updateError } = await svc
-        .from('tickets')
-        .update({
-          assigned_agent_id: best.id,
-          // Only flip to "assigned" when the ticket is still fresh.
-          ...(t.status === 'new' ? { status: 'assigned' } : {}),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', t.id);
-
-      if (updateError) {
-        console.error(
-          '[auto-assign] failed to assign',
-          t.ticket_number,
-          updateError.message,
-        );
-        continue;
-      }
-
-      cursor = best.id;
-      assignedCount++;
-      assignmentLog.push({ ticket: t.ticket_number, agent: best.name });
-
-      // Fire-and-forget notify the newly assigned agent.
-      notifyTicketAssigned({
-        tenantId,
-        ticketNumber: t.ticket_number,
-        ticketId: t.id,
-        title: t.title,
-        type: t.type,
-        urgency: t.urgency,
-        status: t.status,
-        assignedAgentId: best.id,
-        agentUserId: best.user_id ?? undefined,
-        agentEmail: best.email,
-        agentName: best.name,
-      }).catch(() => {});
-    }
-
-    // Persist the final cursor for this tenant so the next batch (and any
-    // ticket created via createTicket between runs) picks up where we left.
-    if (cursor && cursor !== settings.round_robin_last_agent_id) {
-      await svc
-        .from('tenants')
-        .update({ settings: { ...settings, round_robin_last_agent_id: cursor } })
-        .eq('id', tenantId);
-    }
   }
 
   return NextResponse.json({
     ok: true,
     assigned: assignedCount,
     assignments: assignmentLog,
+    unresolved,
   });
 }
