@@ -3,23 +3,52 @@ import { createClient } from '@supabase/supabase-js';
 
 import { notifyEmail, notifyInApp } from '~/lib/services/notify.service';
 import { queueNpsForTicket } from '~/lib/services/nps.service';
+import {
+  businessMinutesBetween,
+  resolveCalendarForTicket,
+  type BusinessCalendar,
+} from '~/lib/services/calendar.service';
 
 /**
- * Vercel Cron Job — Testing Strike Process
+ * Cron Job — Testing Strike Process
  *
  * Schedule: hourly (`0 * * * *`) — matches Freshdesk/Zendesk supervisor-rule cadence.
  *
- * Tickets parked in 'testing' accumulate strikes at 5/10/15 days:
- *   S1 (5 d)  → reminder email + in-app to requester
- *   S2 (10 d) → final warning to requester AND agent/manager
- *   S3 (15 d) → auto-transition to 'resolved' (not 'closed', so CSAT still
- *               runs and the customer can still reopen through the portal)
+ * Tickets parked in 'testing' accumulate strikes at 2/4/5 BUSINESS days:
+ *   S1 (2 d) → reminder email + in-app to requester
+ *   S2 (4 d) → final warning to requester AND agent/manager
+ *   S3 (5 d) → auto-transition to 'resolved' (not 'closed', so CSAT still
+ *              runs and the customer can still reopen through the portal)
  *
  * Client replies do NOT reset the counter. Only an explicit status change
  * out of 'testing' resets strikes (DB trigger) — per product decision.
+ *
+ * ── Why business days, and why five ────────────────────────────────────────
+ *
+ * The thresholds used to be 120/240/360 wall-clock hours — 5, 10 and 15
+ * calendar days. The Podenza contract sets the tacit-acceptance point at five
+ * BUSINESS days (cl. 3: "Si PODENZA no se pronuncia dentro de los cinco (5)
+ * días hábiles siguientes a dicha comunicación, el ticket se entenderá aceptado
+ * y cerrado"), so auto-resolving at 15 calendar days was giving away ten days
+ * of closure TDX was entitled to take.
+ *
+ * Note this moves in the CLIENT's favour relative to a naive reading: five
+ * business days spanning a weekend and a holiday is more elapsed time than five
+ * calendar days. "Días hábiles" excludes both, and the calendar knows the
+ * Colombian holidays (migration 00052).
+ *
+ * Tickets whose client has no calendar at all fall back to calendar days, which
+ * preserves the previous behaviour rather than silently accelerating closure.
  */
 
-const STRIKE_HOURS = [120, 240, 360] as const; // 5 d, 10 d, 15 d
+/** Business minutes per threshold, at 9 working hours a day (08:00-17:00). */
+const BUSINESS_MINUTES_PER_DAY = 9 * 60;
+const STRIKE_BUSINESS_DAYS = [2, 4, 5] as const;
+const STRIKE_MINUTES = STRIKE_BUSINESS_DAYS.map(
+  (d) => d * BUSINESS_MINUTES_PER_DAY,
+);
+/** Fallback when no calendar exists: the previous wall-clock thresholds. */
+const STRIKE_FALLBACK_HOURS = [120, 240, 360] as const;
 const AUTO_CLOSE_STRIKE = 3;
 
 export async function GET(request: NextRequest) {
@@ -56,6 +85,28 @@ export async function GET(request: NextRequest) {
   }
 
   const now = Date.now();
+
+  // One calendar lookup per (tenant, organization) per run.
+  const calendarCache = new Map<string, BusinessCalendar | null>();
+
+  async function calendarFor(
+    tenantId: string,
+    organizationId: string | null,
+  ): Promise<BusinessCalendar | null> {
+    const key = `${tenantId}:${organizationId ?? '-'}`;
+    if (!calendarCache.has(key)) {
+      calendarCache.set(
+        key,
+        await resolveCalendarForTicket(
+          svc,
+          tenantId,
+          organizationId,
+          new Date(now),
+        ),
+      );
+    }
+    return calendarCache.get(key) ?? null;
+  }
   let strike1 = 0;
   let strike2 = 0;
   let autoClosed = 0;
@@ -65,14 +116,26 @@ export async function GET(request: NextRequest) {
       ?.testing_entered_at;
     if (!enteredAtStr) continue;
 
-    const ageHours = (now - new Date(enteredAtStr).getTime()) / 3_600_000;
+    const enteredAt = new Date(enteredAtStr);
     const currentStrikes = t.testing_strikes ?? 0;
+
+    const calendar = await calendarFor(t.tenant_id, t.organization_id ?? null);
 
     // Which strike threshold has been crossed but not yet recorded?
     let nextStrike = 0;
-    if (ageHours >= STRIKE_HOURS[0] && currentStrikes < 1) nextStrike = 1;
-    if (ageHours >= STRIKE_HOURS[1] && currentStrikes < 2) nextStrike = 2;
-    if (ageHours >= STRIKE_HOURS[2] && currentStrikes < 3) nextStrike = 3;
+
+    if (calendar) {
+      const elapsed = businessMinutesBetween(calendar, enteredAt, new Date(now));
+      if (elapsed >= STRIKE_MINUTES[0]! && currentStrikes < 1) nextStrike = 1;
+      if (elapsed >= STRIKE_MINUTES[1]! && currentStrikes < 2) nextStrike = 2;
+      if (elapsed >= STRIKE_MINUTES[2]! && currentStrikes < 3) nextStrike = 3;
+    } else {
+      const ageHours = (now - enteredAt.getTime()) / 3_600_000;
+      if (ageHours >= STRIKE_FALLBACK_HOURS[0] && currentStrikes < 1) nextStrike = 1;
+      if (ageHours >= STRIKE_FALLBACK_HOURS[1] && currentStrikes < 2) nextStrike = 2;
+      if (ageHours >= STRIKE_FALLBACK_HOURS[2] && currentStrikes < 3) nextStrike = 3;
+    }
+
     if (nextStrike === 0) continue;
 
     const nowIso = new Date().toISOString();
@@ -134,14 +197,16 @@ export async function GET(request: NextRequest) {
       .eq('id', t.id);
 
     if (t.requester_email) {
-      const hoursRemaining =
-        STRIKE_HOURS[AUTO_CLOSE_STRIKE - 1]! - STRIKE_HOURS[nextStrike - 1]!;
-      const daysRemaining = Math.round(hoursRemaining / 24);
+      // Business days left before auto-resolve, in the same unit as the
+      // thresholds so the number the client reads matches the rule applied.
+      const daysRemaining =
+        STRIKE_BUSINESS_DAYS[AUTO_CLOSE_STRIKE - 1]! -
+        STRIKE_BUSINESS_DAYS[nextStrike - 1]!;
       await notifyEmail(
         t.requester_email,
         nextStrike === 1
           ? `Recordatorio: confirma el ticket ${t.ticket_number}`
-          : `Último aviso: el ticket ${t.ticket_number} se cerrará en ${daysRemaining} días`,
+          : `Último aviso: el ticket ${t.ticket_number} se cerrará en ${daysRemaining} días hábiles`,
         strikeReminderEmail({
           ticketNumber: t.ticket_number,
           title: t.title ?? '',
@@ -226,7 +291,7 @@ function strikeReminderEmail(p: {
     ? `Último aviso — ${p.ticketNumber}`
     : `Recordatorio — ${p.ticketNumber}`;
   const intro = isFinal
-    ? `Tu ticket lleva 10 días en <strong>Testing</strong>. Si no confirmas el resultado en los próximos ${p.daysRemaining} días, lo cerraremos automáticamente.`
+    ? `Tu ticket lleva varios días en <strong>Testing</strong>. Si no confirmas el resultado en los próximos ${p.daysRemaining} días hábiles, lo cerraremos automáticamente.`
     : `Tu ticket está en <strong>Testing</strong> hace 5 días esperando tu confirmación. Valida la solución o coméntanos si algo no quedó como esperabas.`;
 
   return baseTemplate({

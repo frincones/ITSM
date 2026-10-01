@@ -9,6 +9,7 @@ import {
   BookOpen,
   ShoppingBag,
   Workflow,
+  FileBarChart,
   BarChart3,
   Settings,
 } from 'lucide-react';
@@ -79,6 +80,13 @@ const routes = [
         label: 'common:routes.reports',
         path: '/home/reports',
         Icon: <BarChart3 className={iconClasses} />,
+      },
+      {
+        // Contractual report (clause 7), scoped to a billing cycle rather than
+        // a day — see /home/reports/ciclo.
+        label: 'common:routes.cycleReport',
+        path: '/home/reports/ciclo',
+        Icon: <FileBarChart className={iconClasses} />,
       },
     ],
   },

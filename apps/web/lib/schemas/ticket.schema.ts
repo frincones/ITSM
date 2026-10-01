@@ -30,6 +30,7 @@ export const ticketStatusEnum = z.enum([
   'in_progress',
   'pending',
   'detenido',
+  'esperando_ventana',
   'testing',
   'resolved',
   'reopened',

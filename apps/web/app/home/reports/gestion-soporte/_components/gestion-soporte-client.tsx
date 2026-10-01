@@ -36,6 +36,7 @@ type TicketLists = Record<keyof Metrics, TicketSummary[]>;
 interface Props {
   reportDate: string;
   organizationName: string;
+  organizationId?: string | null;
   metrics: Metrics;
   lists: TicketLists;
 }
@@ -97,6 +98,7 @@ function urgencyIcon(urgency: string) {
 export function GestionSoporteClient({
   reportDate,
   organizationName,
+  organizationId,
   metrics,
   lists,
 }: Props) {
@@ -177,6 +179,15 @@ export function GestionSoporteClient({
             Resumen y detalle diario
             {organizationName ? ` — ${organizationName}` : ''}
           </p>
+          {/* This report is the daily operational view. The contractual one
+              (clause 7: quota, SLA compliance, credits) is scoped to a billing
+              cycle, so it lives on its own route. */}
+          <a
+            href={`/home/reports/ciclo${organizationId ? `?org=${organizationId}` : ''}`}
+            className="mt-1 inline-block text-sm text-primary hover:underline"
+          >
+            Ver reporte mensual de servicio (contrato) →
+          </a>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">

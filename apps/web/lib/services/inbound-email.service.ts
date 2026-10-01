@@ -13,6 +13,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { assignAndNotify } from '~/lib/services/assignment.service';
+
 /** Raw "inbound email" as returned by Resend's API / webhook. */
 export interface InboundEmail {
   email_id: string;
@@ -80,74 +82,6 @@ export function cleanEmailReply(body: string): string {
   cleaned = cleaned.replace(/NovaDesk ITSM — AI-First[\s\S]*/i, '').trim();
   cleaned = cleaned.replace(/\s+$/, '').trim();
   return cleaned || body.trim();
-}
-
-// ── Round-robin (cursor-based rotation, identical to webhook helper) ────
-
-async function assignViaRoundRobin(
-  svc: SupabaseClient,
-  ticketId: string,
-  tenantId: string,
-): Promise<void> {
-  const EXCLUDED = ['admin@novadesk.com'];
-  const { data: all } = await svc
-    .from('agents')
-    .select('id, user_id, email, name, role')
-    .eq('tenant_id', tenantId)
-    .eq('is_active', true)
-    .in('role', ['admin', 'supervisor', 'agent'])
-    .order('name', { ascending: true });
-  const agents = ((all ?? []) as Array<{ id: string; email: string; user_id: string | null; name: string }>).filter(
-    (a) => !EXCLUDED.includes(a.email.toLowerCase()),
-  );
-  if (agents.length === 0) return;
-
-  const { data: tenant } = await svc
-    .from('tenants')
-    .select('settings')
-    .eq('id', tenantId)
-    .maybeSingle();
-  const settings =
-    ((tenant as { settings: Record<string, unknown> } | null)?.settings as
-      | Record<string, unknown>
-      | null) ?? {};
-  const lastAgentId =
-    typeof settings.round_robin_last_agent_id === 'string'
-      ? settings.round_robin_last_agent_id
-      : null;
-  const lastIdx = agents.findIndex((a) => a.id === lastAgentId);
-  const nextIdx = lastIdx === -1 ? 0 : (lastIdx + 1) % agents.length;
-  const best = agents[nextIdx];
-  if (!best) return;
-
-  await svc
-    .from('tenants')
-    .update({
-      settings: { ...settings, round_robin_last_agent_id: best.id },
-    })
-    .eq('id', tenantId);
-
-  await svc
-    .from('tickets')
-    .update({
-      assigned_agent_id: best.id,
-      status: 'assigned',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', ticketId);
-
-  await svc
-    .from('ticket_followers')
-    .upsert(
-      {
-        tenant_id: tenantId,
-        ticket_id: ticketId,
-        agent_id: best.id,
-        added_reason: 'assignment',
-        is_auto: true,
-      },
-      { onConflict: 'ticket_id,agent_id', ignoreDuplicates: true },
-    );
 }
 
 // ── Main entry point ────────────────────────────────────────────────────
@@ -250,12 +184,16 @@ export async function createTicketFromInboundEmail(
     return { ok: false, error: error?.message ?? 'insert failed', email_id };
   }
 
-  // 5. Round-robin assign (awaited — Vercel serverless kills
+  // 5. Assign to the default owner (awaited — Vercel serverless kills
   // unawaited background work).
   try {
-    await assignViaRoundRobin(svc, (ticket as { id: string }).id, org.tenant_id);
+    await assignAndNotify(svc, {
+      ticketId: (ticket as { id: string }).id,
+      tenantId: org.tenant_id,
+      organizationId: org.id,
+    });
   } catch (e) {
-    console.error('[InboundEmail] round-robin failed:', e);
+    console.error('[InboundEmail] default assignment failed:', e);
   }
 
   return {

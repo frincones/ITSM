@@ -70,6 +70,12 @@ import { PortalConversationTab } from './portal-conversation-tab';
 import { PortalActivityTab } from './portal-activity-tab';
 import { FollowersPanel, type FollowerRow } from './followers-panel';
 import { AiCopilotPanel } from './ai-copilot-panel';
+import { Clause4Commitments } from './clause4-commitments';
+import { PauseReasonDialog } from './pause-reason-dialog';
+import {
+  REASON_REQUIRED_STATUSES,
+  type SlaPauseReason,
+} from '~/lib/services/support-contract.service';
 import { Bot, Sparkles, Lightbulb, MessageCircle, Activity } from 'lucide-react';
 import { getSupabaseBrowserClient } from '@kit/supabase/browser-client';
 
@@ -124,6 +130,12 @@ interface Ticket {
   closed_at?: string | null;
   sla_due_date?: string | null;
   sla_breached?: boolean;
+  mitigation_due_at?: string | null;
+  mitigation_at?: string | null;
+  mitigation_note?: string | null;
+  correction_plan_at?: string | null;
+  correction_committed_date?: string | null;
+  correction_plan_note?: string | null;
   requester_email?: string | null;
   assigned_agent?: Agent | null;
   assigned_group?: Group | null;
@@ -220,6 +232,9 @@ export function TicketDetailClient({
   currentAgentId = null,
 }: TicketDetailClientProps) {
   const isClient = userRole === 'client';
+  const [pendingPauseStatus, setPendingPauseStatus] = useState<string | null>(
+    null,
+  );
   const isAdmin = userRole === 'admin';
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -295,11 +310,31 @@ export function TicketDetailClient({
 
   // ---- Handlers ----
 
-  function handleStatusChange(newStatus: string) {
+  function applyStatus(newStatus: string, pauseReason?: SlaPauseReason) {
     setCurrentStatus(newStatus);
     startTransition(async () => {
-      await changeTicketStatus(ticket.id, newStatus as TicketStatus);
+      await changeTicketStatus(
+        ticket.id,
+        newStatus as TicketStatus,
+        pauseReason,
+      );
     });
+  }
+
+  function handleStatusChange(newStatus: string) {
+    // detenido / backlog / esperando_ventana need an explicit justification
+    // before the SLA clock may pause, so the move waits on the dialog. Every
+    // other status applies straight away — pending and testing carry an
+    // implicit reason the trigger infers on its own (migration 00048).
+    if (
+      REASON_REQUIRED_STATUSES.includes(
+        newStatus as (typeof REASON_REQUIRED_STATUSES)[number],
+      )
+    ) {
+      setPendingPauseStatus(newStatus);
+      return;
+    }
+    applyStatus(newStatus);
   }
 
   function handlePriorityChange(newUrgency: string) {
@@ -771,6 +806,28 @@ export function TicketDetailClient({
               </div>
             )}
           </div>
+
+          <PauseReasonDialog
+            targetStatus={pendingPauseStatus}
+            onCancel={() => setPendingPauseStatus(null)}
+            onConfirm={(reason) => {
+              const target = pendingPauseStatus;
+              setPendingPauseStatus(null);
+              if (target) applyStatus(target, reason);
+            }}
+          />
+
+          <Clause4Commitments
+            ticketId={ticket.id}
+            urgency={ticket.urgency}
+            mitigationDueAt={ticket.mitigation_due_at ?? null}
+            mitigationAt={ticket.mitigation_at ?? null}
+            mitigationNote={ticket.mitigation_note ?? null}
+            correctionPlanAt={ticket.correction_plan_at ?? null}
+            correctionCommittedDate={ticket.correction_committed_date ?? null}
+            correctionPlanNote={ticket.correction_plan_note ?? null}
+            readOnly={isClient}
+          />
 
           <Separator />
 
