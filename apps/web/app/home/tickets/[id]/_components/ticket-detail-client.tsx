@@ -128,8 +128,10 @@ interface Ticket {
   first_response_at?: string | null;
   resolved_at?: string | null;
   closed_at?: string | null;
+  sla_applies?: boolean;
   sla_due_date?: string | null;
   sla_breached?: boolean;
+  sla_target_minutes?: number | null;
   mitigation_due_at?: string | null;
   mitigation_at?: string | null;
   mitigation_note?: string | null;
@@ -776,7 +778,11 @@ export function TicketDetailClient({
             <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">
               SLA
             </h3>
-            {ticket.sla_due_date ? (
+            {/* Gated on sla_applies, NOT on sla_due_date. 70 legacy rows
+                carry a stale deadline while owing no SLA (migration 00061),
+                and reading the date as proof of an SLA would show a warranty
+                ticket a 2025 due date it never had. */}
+            {ticket.sla_applies && ticket.sla_due_date ? (
               <div
                 className={`rounded-lg border p-3 ${
                   ticket.sla_breached
@@ -791,7 +797,10 @@ export function TicketDetailClient({
                   />
                 </div>
                 <p className="text-sm text-gray-700 dark:text-gray-300">
-                  Due: {formatDate(ticket.sla_due_date)}
+                  Vence: {formatDate(ticket.sla_due_date)}
+                  {ticket.sla_target_minutes
+                    ? ` · objetivo ${ticket.sla_target_minutes / 60}h hábiles`
+                    : ''}
                 </p>
               </div>
             ) : (
@@ -799,7 +808,7 @@ export function TicketDetailClient({
                 <div className="flex items-center gap-2">
                   <Clock className="h-4 w-4 text-gray-500" />
                   <span className="text-sm text-gray-600 dark:text-gray-400">
-                    No SLA assigned
+                    Sin SLA contractual
                   </span>
                 </div>
               </div>
