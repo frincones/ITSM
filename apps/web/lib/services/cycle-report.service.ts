@@ -231,52 +231,31 @@ export async function getCycleReport(
 }
 
 /**
- * Daily ticket counts for the cycle, from ticket_status_history.
+ * Tickets opened and closed per day within the cycle.
  *
- * Reads the history table rather than tickets.created_at because that is what
- * "cuántos tickets se atendieron por día" actually asks: movement, not just
- * arrivals. Opened and closed are counted separately.
+ * Delegates to SQL rather than querying ticket_status_history from here. The
+ * previous TypeScript version is why the chart once drew 12 tickets opened on
+ * a date that had not happened yet: the plausibility guard that excludes
+ * corrupted import rows lives in SQL, so a figure computed here bypassed it
+ * and the report disagreed with itself — quota said 11 while the chart drew 25.
  *
- * Only meaningful from the service start date onward — roughly 80% of the
- * historical rows are Excel imports whose created_at is the spreadsheet date,
- * so earlier daily counts are noise.
+ * Every contractual figure goes through the same functions for that reason.
  */
 export async function getDailyActivity(
   client: SupabaseClient,
-  organizationId: string,
-  cycleStart: string,
-  cycleEnd: string,
+  contractId: string,
+  at?: string,
 ): Promise<Array<{ date: string; opened: number; closed: number }>> {
-  const { data } = await client
-    .from('ticket_status_history')
-    .select('to_status, from_status, changed_at')
-    .eq('organization_id', organizationId)
-    .gte('changed_at', `${cycleStart}T00:00:00-05:00`)
-    .lte('changed_at', `${cycleEnd}T23:59:59-05:00`)
-    .order('changed_at', { ascending: true });
+  const { data, error } = await client.rpc('support_cycle_daily_activity', {
+    p_contract_id: contractId,
+    ...(at ? { p_at: at } : {}),
+  });
 
-  const byDay = new Map<string, { opened: number; closed: number }>();
+  if (error || !data) return [];
 
-  for (const row of (data ?? []) as Array<{
-    to_status: string;
-    from_status: string | null;
-    changed_at: string;
-  }>) {
-    const day = new Date(row.changed_at).toLocaleDateString('en-CA', {
-      timeZone: 'America/Bogota',
-    });
-    const entry = byDay.get(day) ?? { opened: 0, closed: 0 };
-
-    // from_status NULL is the creation row written by the trigger.
-    if (row.from_status === null) entry.opened++;
-    if (row.to_status === 'closed' || row.to_status === 'resolved') {
-      entry.closed++;
-    }
-
-    byDay.set(day, entry);
-  }
-
-  return [...byDay.entries()]
-    .map(([date, v]) => ({ date, ...v }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+  return (data as unknown as Array<{
+    day: string;
+    opened: number;
+    closed: number;
+  }>).map((r) => ({ date: r.day, opened: r.opened, closed: r.closed }));
 }
