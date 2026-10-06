@@ -1,0 +1,33 @@
+-- ═══════════════════════════════════════════════════════════════
+-- MIGRATION 00047: TICKET STATUS 'esperando_ventana'
+-- ═══════════════════════════════════════════════════════════════
+-- A fix can be ready while the deploy has to wait for an agreed maintenance
+-- window (typically at night, so the client's service isn't interrupted).
+-- Until now that time was recorded as 'in_progress', which inflates our own
+-- MTTR — we looked like we spent 8 hours working on something that was
+-- already solved.
+--
+-- The name mirrors the exact wording of the Podenza support contract,
+-- clause 4: "No se computan como incumplimiento los tiempos afectados por
+-- fuerza mayor, dependencias de terceros, ventanas de mantenimiento
+-- acordadas [...]". Keeping the status name aligned with the contractual
+-- exemption means the monthly report can cite the clause verbatim.
+--
+-- Note: this only affects resolution-time metrics. The contractual SLA is a
+-- RESPONSE SLA (clause 4: "NO a tiempo de resolución"), and by the time a
+-- ticket reaches this status the response clock has long since stopped.
+--
+-- Separate migration because ALTER TYPE ... ADD VALUE and the first use of
+-- the new value should not share a transaction — same pattern as 00025,
+-- 00026, 00027 and 00031.
+
+ALTER TYPE ticket_status ADD VALUE IF NOT EXISTS 'esperando_ventana';
+
+-- ═══════════════════════════════════════════════════════════════
+-- ROLLBACK
+-- ═══════════════════════════════════════════════════════════════
+-- Postgres has no DROP VALUE for enums. To reverse, migrate any rows using
+-- the value back to 'in_progress' and leave the unused label in place:
+--
+--   UPDATE tickets SET status = 'in_progress' WHERE status = 'esperando_ventana';
+-- ═══════════════════════════════════════════════════════════════

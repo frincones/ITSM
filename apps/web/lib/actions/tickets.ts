@@ -27,6 +27,12 @@ import {
   notifyTicketResolved,
 } from '~/lib/services/notify.service';
 
+import { assignAndNotify } from '~/lib/services/assignment.service';
+import {
+  NON_PAUSING_REASON,
+  REASON_REQUIRED_STATUSES,
+  type SlaPauseReason,
+} from '~/lib/services/support-contract.service';
 import { queueNpsForTicket } from '~/lib/services/nps.service';
 
 import {
@@ -95,119 +101,17 @@ async function requireAuthUser(client: ReturnType<typeof getSupabaseServerClient
   return { agent, user, isClient, error: null } as const;
 }
 
-/**
- * Round-robin assignment for a single freshly-created ticket.
- *
- * Uses a per-tenant cursor in `tenants.settings.round_robin_last_agent_id`
- * to rotate strictly through the eligible agents in alphabetical order.
- * This ignores the historical ticket distribution — a bulk import that
- * concentrated hundreds of tickets on one person can't starve the others.
- *
- * Skips the admin@novadesk.com service account so only real agents get
- * picked. Invoked fire-and-forget from createTicket so a failure never
- * blocks the ticket insert.
- */
-async function autoAssignRoundRobin(
-  client: ReturnType<typeof getSupabaseServerClient>,
-  ticketId: string,
-  tenantId: string,
-): Promise<void> {
-  const EXCLUDED_EMAILS = ['admin@novadesk.com'];
-
-  const { data: allAgents } = await client
-    .from('agents')
-    .select('id, user_id, email, name, role')
-    .eq('tenant_id', tenantId)
-    .eq('is_active', true)
-    .in('role', ['admin', 'supervisor', 'agent'])
-    .order('name', { ascending: true });
-
-  const agents = (allAgents ?? []).filter(
-    (a: { email: string }) => !EXCLUDED_EMAILS.includes(a.email.toLowerCase()),
-  );
-  if (agents.length === 0) return;
-
-  // Read the rotation cursor. Next agent = the one right after the cursor
-  // in the (alphabetically) sorted list, wrapping around at the end.
-  const { data: tenant } = await client
-    .from('tenants')
-    .select('settings')
-    .eq('id', tenantId)
-    .maybeSingle();
-
-  const settings =
-    ((tenant as { settings: Record<string, unknown> } | null)?.settings as
-      | Record<string, unknown>
-      | null) ?? {};
-  const lastAgentId =
-    typeof settings.round_robin_last_agent_id === 'string'
-      ? settings.round_robin_last_agent_id
-      : null;
-
-  const lastIdx = agents.findIndex((a: { id: string }) => a.id === lastAgentId);
-  const nextIdx = lastIdx === -1 ? 0 : (lastIdx + 1) % agents.length;
-  const best = agents[nextIdx];
-  if (!best) return;
-
-  // Advance the cursor (fire-and-forget — a stale cursor just risks one
-  // duplicate pick, not a correctness issue).
-  void client
-    .from('tenants')
-    .update({
-      settings: { ...settings, round_robin_last_agent_id: best.id },
-    })
-    .eq('id', tenantId)
-    .then(() => {});
-
-  await client
-    .from('tickets')
-    .update({
-      assigned_agent_id: best.id,
-      status: 'assigned',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', ticketId);
-
-  // Auto-follow the newly-assigned agent.
-  addFollower(client, {
-    tenantId,
-    ticketId,
-    agentId: best.id,
-    reason: 'assignment',
-  }).catch(() => {});
-
-  // Notify the freshly-assigned agent
-  const { notifyTicketAssigned } = await import('~/lib/services/notify.service');
-  const { data: t } = await client
-    .from('tickets')
-    .select('ticket_number, title, type, urgency, status')
-    .eq('id', ticketId)
-    .maybeSingle();
-  if (t) {
-    notifyTicketAssigned({
-      tenantId,
-      ticketNumber: t.ticket_number,
-      ticketId,
-      title: t.title,
-      type: t.type,
-      urgency: t.urgency,
-      status: t.status,
-      assignedAgentId: best.id,
-      agentUserId: best.user_id ?? undefined,
-      agentEmail: best.email,
-      agentName: best.name,
-    }).catch(() => {});
-  }
-}
-
 /** Valid status transitions map. */
 const VALID_TRANSITIONS: Record<string, string[]> = {
   new: ['backlog', 'assigned', 'in_progress', 'pending', 'detenido', 'testing', 'closed', 'cancelled'],
   backlog: ['new', 'assigned', 'in_progress', 'pending', 'detenido', 'testing', 'closed', 'cancelled'],
   assigned: ['backlog', 'in_progress', 'pending', 'detenido', 'testing', 'closed', 'cancelled'],
-  in_progress: ['backlog', 'pending', 'detenido', 'testing', 'resolved', 'closed', 'cancelled'],
+  in_progress: ['backlog', 'pending', 'detenido', 'esperando_ventana', 'testing', 'resolved', 'closed', 'cancelled'],
   pending: ['backlog', 'in_progress', 'detenido', 'testing', 'resolved', 'closed', 'cancelled'],
   detenido: ['backlog', 'in_progress', 'pending', 'testing', 'resolved', 'closed', 'cancelled'],
+  // A fix that is ready but waiting on an agreed deploy window. Leaves to
+  // resolved once deployed, or back to in_progress if the deploy fails.
+  esperando_ventana: ['in_progress', 'detenido', 'testing', 'resolved', 'closed', 'cancelled'],
   testing: ['backlog', 'in_progress', 'pending', 'detenido', 'resolved', 'closed', 'cancelled'],
   resolved: ['closed', 'in_progress', 'reopened'],
   reopened: ['assigned', 'in_progress', 'pending', 'detenido', 'testing', 'resolved', 'closed', 'cancelled'],
@@ -324,8 +228,8 @@ export async function createTicket(
     }
 
     // Auto-follow: if the creator is a TDX staff agent, they become the
-    // first follower so they keep getting updates even after the round-
-    // robin reassigns the ticket to someone else.
+    // first follower so they keep getting updates even after the ticket is
+    // assigned to the client's default owner.
     if (agent && !isClient) {
       addFollower(client, {
         tenantId,
@@ -349,10 +253,14 @@ export async function createTicket(
       agentEmail: agentEmailForNotify,
     }).catch(() => {});
 
-    // Real-time round-robin: assign the brand-new ticket to the TDX staff
-    // member with the fewest open tickets right now. This replaces the
-    // every-5-minute cron we can't run on Hobby.
-    autoAssignRoundRobin(client, ticket.id, tenantId).catch(() => {});
+    // Assign to the configured default owner (per-client override first,
+    // then the tenant default). Fire-and-forget so a failure never blocks
+    // the ticket insert — an unassigned ticket is visible and recoverable.
+    assignAndNotify(client, {
+      ticketId: ticket.id,
+      tenantId,
+      organizationId: ticket.organization_id ?? null,
+    }).catch(() => {});
 
     revalidatePath('/home/tickets');
     return { data: ticket, error: null };
@@ -539,6 +447,16 @@ export async function assignTicket(
 export async function changeTicketStatus(
   ticketId: string,
   newStatus: z.infer<typeof ticketStatusEnum>,
+  /**
+   * Why the SLA clock should pause, for the statuses that require it
+   * (detenido / backlog / esperando_ventana — see REASON_REQUIRED_STATUSES).
+   *
+   * Omitting it on one of those is not an error: the trigger records
+   * 'priorizacion_interna', which does NOT pause the clock. That fail-closed
+   * default is intentional — an unjustified pause must not hand us deadline we
+   * cannot defend to the client.
+   */
+  pauseReason?: SlaPauseReason | null,
 ): Promise<ActionResult> {
   try {
     ticketStatusEnum.parse(newStatus);
@@ -623,8 +541,32 @@ export async function changeTicketStatus(
       updatePayload.resolved_at = null;
     }
 
-    // first_response_at: set on first transition away from 'new'
-    if (existing.status === 'new' && !existing.first_response_at) {
+    // first_response_at — see also the authoritative stamp in addFollowup.
+    //
+    // This used to fire on ANY first transition away from 'new', which meant an
+    // agent merely moving a ticket to 'assigned' or 'in_progress' recorded a
+    // "response". That INFLATES SLA compliance: the contract defines the
+    // response as acknowledgement, classification, diagnosis and communication
+    // of the plan (cl. 4) — all of which require actually telling the client
+    // something. Reporting 96% and having the client produce their own email
+    // trail showing 80% is how service credits get owed (cl. 5).
+    //
+    // What remains are the two transitions that cannot happen without the
+    // client having been told: a solution cannot be delivered without
+    // communicating it. Everything else — assigned, in_progress, pending,
+    // testing, backlog, detenido, esperando_ventana — is internal movement and
+    // no longer counts.
+    //
+    // Consequence worth knowing: a response given only by phone or WhatsApp,
+    // with nothing logged, leaves first_response_at NULL and the ticket reads
+    // as unanswered. That is deliberate. The contract measures response in the
+    // single channel (cl. 4), and a response with no record is one we could
+    // not prove if the client disputed it. Log it as a public reply.
+    const COMMUNICATES_TO_CLIENT = ['resolved', 'closed'];
+    if (
+      !existing.first_response_at &&
+      COMMUNICATES_TO_CLIENT.includes(newStatus)
+    ) {
       updatePayload.first_response_at = now;
     }
 
@@ -648,6 +590,24 @@ export async function changeTicketStatus(
     }
     if (customChanged) {
       updatePayload.custom_fields = nextCustom;
+    }
+
+    // Hand the pause reason to the log_ticket_status_change trigger, which
+    // reads it from a transaction-local setting. Going through the DB rather
+    // than passing an argument means the reason is captured no matter which
+    // path caused the change — UI, cron, direct SQL or MCP (00048/00049).
+    if (REASON_REQUIRED_STATUSES.includes(
+      newStatus as (typeof REASON_REQUIRED_STATUSES)[number],
+    )) {
+      const { error: tagError } = await client.rpc('set_pause_reason', {
+        p_reason: pauseReason ?? NON_PAUSING_REASON,
+      });
+      // A failed tag is not fatal: the trigger then falls back to
+      // 'priorizacion_interna', which does not pause. Erring against us is the
+      // safe direction.
+      if (tagError) {
+        console.warn('[changeTicketStatus] pause reason not tagged:', tagError.message);
+      }
     }
 
     const { data: ticket, error } = await client
@@ -1351,5 +1311,170 @@ export async function unfollowTicket(
     return { data: { ticketId, agentId: targetAgentId }, error: null };
   } catch (err) {
     return { data: null, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 11. Clause-4 commitments — P0 mitigation & P0/P1 correction plan
+// ---------------------------------------------------------------------------
+// Contract cl. 4 carries two duties beyond the response SLA:
+//   · P0      → a mitigation or temporary solution by the close of the same
+//               business day
+//   · P0 + P1 → a correction plan WITH a committed date, inside the response
+//               window
+//
+// Both are recorded, not inferred. An agent states that the commitment was
+// communicated to the client, and the timestamp of that statement is the
+// evidence we can produce if the client disputes it later. Nothing derives
+// these from status changes: a status change is not a promise to a client.
+
+/**
+ * Records that a mitigation or temporary solution was delivered to the client.
+ *
+ * Only for severities that carry the duty — `mitigation_due_at` being set is
+ * what marks that, and it is stamped at ticket creation from the contract's
+ * targets. The note is mandatory: it is the evidence of what was delivered.
+ */
+export async function recordMitigation(
+  ticketId: string,
+  note: string,
+): Promise<ActionResult> {
+  try {
+    const trimmed = note.trim();
+    if (!trimmed) {
+      return {
+        data: null,
+        error: 'Describe la mitigación entregada — es la evidencia del cumplimiento',
+      };
+    }
+
+    const client = getSupabaseServerClient();
+    const { agent, user, error: authError } = await requireAgent(client);
+    if (authError || !agent) {
+      return { data: null, error: authError ?? 'Unauthorized' };
+    }
+    // Clients must not be able to record TDX's own commitments.
+    if (agent.role === 'readonly') return { data: null, error: 'Unauthorized' };
+
+    const { data: ticket, error: tErr } = await client
+      .from('tickets')
+      .select('id, mitigation_due_at, mitigation_at')
+      .eq('id', ticketId)
+      .is('deleted_at', null)
+      .maybeSingle();
+
+    if (tErr || !ticket) return { data: null, error: 'Ticket not found' };
+
+    if (!ticket.mitigation_due_at) {
+      return {
+        data: null,
+        error:
+          'Este ticket no tiene compromiso de mitigación (solo aplica a severidad crítica bajo contrato con SLA)',
+      };
+    }
+
+    // First delivery is the one the contract measures. Re-recording would
+    // overwrite the evidence of whether we met the deadline.
+    if (ticket.mitigation_at) {
+      return {
+        data: null,
+        error: 'La mitigación ya fue registrada y no puede reescribirse',
+      };
+    }
+
+    const { data: updated, error: uErr } = await client
+      .from('tickets')
+      .update({
+        mitigation_at: new Date().toISOString(),
+        mitigation_note: trimmed,
+        updated_by: user.id,
+      })
+      .eq('id', ticketId)
+      .select('id, mitigation_at, mitigation_due_at')
+      .single();
+
+    if (uErr) return { data: null, error: uErr.message };
+
+    revalidatePath(`/home/tickets/${ticketId}`);
+    return { data: updated, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Records the correction plan and the date committed to the client (P0/P1).
+ *
+ * Unlike the mitigation, this one may be updated: a committed date can
+ * legitimately move, and the contract does not forbid re-committing. Each
+ * change lands in audit_logs, so the history of what was promised stays
+ * reconstructible.
+ */
+export async function recordCorrectionPlan(
+  ticketId: string,
+  committedDate: string,
+  note: string,
+): Promise<ActionResult> {
+  try {
+    const trimmed = note.trim();
+    if (!trimmed) {
+      return {
+        data: null,
+        error: 'Describe el plan de corrección — es la evidencia del compromiso',
+      };
+    }
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(committedDate)) {
+      return { data: null, error: 'Fecha comprometida inválida (formato YYYY-MM-DD)' };
+    }
+
+    const client = getSupabaseServerClient();
+    const { agent, user, error: authError } = await requireAgent(client);
+    if (authError || !agent) {
+      return { data: null, error: authError ?? 'Unauthorized' };
+    }
+    if (agent.role === 'readonly') return { data: null, error: 'Unauthorized' };
+
+    const { data: ticket, error: tErr } = await client
+      .from('tickets')
+      .select('id, urgency')
+      .eq('id', ticketId)
+      .is('deleted_at', null)
+      .maybeSingle();
+
+    if (tErr || !ticket) return { data: null, error: 'Ticket not found' };
+
+    if (!['critical', 'high'].includes(ticket.urgency)) {
+      return {
+        data: null,
+        error:
+          'El plan de corrección con fecha comprometida solo aplica a severidad crítica o alta (contrato cl. 4)',
+      };
+    }
+
+    const { data: updated, error: uErr } = await client
+      .from('tickets')
+      .update({
+        correction_plan_at: new Date().toISOString(),
+        correction_committed_date: committedDate,
+        correction_plan_note: trimmed,
+        updated_by: user.id,
+      })
+      .eq('id', ticketId)
+      .select('id, correction_plan_at, correction_committed_date')
+      .single();
+
+    if (uErr) return { data: null, error: uErr.message };
+
+    revalidatePath(`/home/tickets/${ticketId}`);
+    return { data: updated, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    };
   }
 }

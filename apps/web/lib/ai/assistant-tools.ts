@@ -210,7 +210,7 @@ export function buildAssistantTools(ctx: ToolContext) {
         status: z
           .array(z.string())
           .optional()
-          .describe('Estados a incluir. Si el usuario dice "abiertos" usa ["new","assigned","in_progress","pending","testing","detenido","backlog"].'),
+          .describe('Estados a incluir. Si el usuario dice "abiertos" usa ["new","assigned","in_progress","pending","testing","detenido","esperando_ventana","backlog"].'),
         type: z.string().optional(),
         urgency: z.string().optional().describe('low | medium | high | critical'),
         organization: z.string().optional().describe('Nombre o UUID del cliente.'),
@@ -648,7 +648,7 @@ export function buildAssistantTools(ctx: ToolContext) {
           if (t.status === 'pending') s.pending++;
           if (t.status === 'resolved') s.resolved++;
           if (t.status === 'closed') s.closed++;
-          if (['new', 'assigned', 'in_progress', 'pending', 'testing', 'detenido'].includes(t.status)) s.open++;
+          if (['new', 'assigned', 'in_progress', 'pending', 'testing', 'detenido', 'esperando_ventana'].includes(t.status)) s.open++;
         }
 
         return {
@@ -836,7 +836,7 @@ export function buildAssistantTools(ctx: ToolContext) {
       inputSchema: z.object({
         ticket_number: z.string(),
         status: z
-          .enum(['new', 'assigned', 'in_progress', 'pending', 'detenido', 'testing', 'resolved', 'closed', 'cancelled', 'backlog'])
+          .enum(['new', 'assigned', 'in_progress', 'pending', 'detenido', 'esperando_ventana', 'testing', 'resolved', 'closed', 'cancelled', 'backlog'])
           .optional(),
         urgency: z.enum(['low', 'medium', 'high', 'critical']).optional(),
         type: z.enum(['incident', 'request', 'warranty', 'support', 'backlog', 'desarrollo_pendiente']).optional(),
@@ -952,7 +952,7 @@ export function buildAssistantTools(ctx: ToolContext) {
           .eq('tenant_id', ctx.tenantId)
           .eq('assigned_agent_id', fromId)
           .is('deleted_at', null)
-          .in('status', ['new', 'assigned', 'in_progress', 'pending', 'testing', 'detenido'])
+          .in('status', ['new', 'assigned', 'in_progress', 'pending', 'testing', 'detenido', 'esperando_ventana'])
           .select('id');
         if (error) return { success: false, error: error.message };
         return { success: true, count: (data as { id: string }[] | null)?.length ?? 0 };

@@ -272,7 +272,9 @@ export async function exportReport(
       csvRows.push('SLA Compliance Rate,Total,Met,Breached');
       csvRows.push(
         [
-          `${slaResult.data.compliance_rate}%`,
+          slaResult.data.compliance_rate === null
+            ? 'sin datos'
+            : `${slaResult.data.compliance_rate}%`,
           slaResult.data.total,
           slaResult.data.met,
           slaResult.data.breached,

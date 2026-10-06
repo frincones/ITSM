@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getSupabaseServerClient } from '@kit/supabase/server-client';
 
-import { checkSLABreach } from '~/lib/services/sla.service';
 import { triggerNotification } from '~/lib/services/notification.service';
 
 // ---------------------------------------------------------------------------
@@ -10,52 +9,94 @@ import { triggerNotification } from '~/lib/services/notification.service';
 // ---------------------------------------------------------------------------
 
 /**
- * Vercel Cron Job — SLA Monitoring
+ * Cron Job — SLA Monitoring
  *
- * Schedule: every minute (`* * * * *`)
+ * Schedule: every 15 minutes inside the contract window, Mon-Fri 08:00-16:59
+ * America/Bogota (see migration 00054). Outside those hours the SLA clock is
+ * not running, so there is nothing a run could discover.
  *
  * Flow:
- *   1. Find all open tickets with an SLA due date.
- *   2. For each ticket, check if it is breached or approaching breach.
- *   3. For breached tickets: mark `sla_breached = true`, trigger escalation.
- *   4. For warning tickets: send warning notifications.
- *   5. Execute SLA level actions (notify, escalate, reassign).
+ *   1. Ask the database for tickets breaching or approaching their response
+ *      deadline (sla_tickets_at_risk).
+ *   2. Mark newly breached tickets and notify.
+ *   3. Send a warning once per ticket per window for those approaching.
+ *
+ * ── What changed, and why it matters ────────────────────────────────────────
+ *
+ * This endpoint previously did nothing at all. It was never scheduled in
+ * pg_cron, and its query filtered on `sla_due_date IS NOT NULL` against a
+ * column that was NULL on every row because nothing ever computed it.
+ *
+ * Three correctness fixes came with wiring it up:
+ *
+ *   · Scope. It selected every open ticket with a due date. The contractual
+ *     SLA is a RESPONSE SLA, so what matters is first_response_at, not status:
+ *     an answered ticket is settled even while it stays open for weeks, and an
+ *     unanswered one is at risk regardless of status. It now also requires
+ *     sla_applies, so a client without a support contract can never appear.
+ *
+ *   · Pause credit. The contract suspends the clock while a ticket waits on
+ *     the client (cl. 4). The deadline is now the stamped one plus the paused
+ *     BUSINESS minutes — see migration 00054 for why business rather than wall
+ *     minutes.
+ *
+ *   · Warning threshold. checkSLABreach() warned a flat 30 minutes out, which
+ *     is most of the runway on a 4h P0 target and meaningless on a 48h P2 one.
+ *     It is now a fraction of the target (75% elapsed).
+ *
+ * The configurable-escalation branch was also removed: it queried
+ * `sla_escalation_levels`, a table that does not exist in any migration (the
+ * real one is `sla_levels`, part of the unused pre-contract SLA model). That
+ * query always errored and always fell through to the default notification, so
+ * configurable escalation has never actually worked. Rather than leave a call
+ * to a phantom table in place, escalation goes through triggerNotification —
+ * and if per-level actions are wanted later they should hang off
+ * organization_support_contracts, which is the model that reflects the
+ * contract.
  */
+
+interface AtRiskTicket {
+  ticket_id: string;
+  tenant_id: string;
+  organization_id: string | null;
+  ticket_number: string;
+  title: string;
+  urgency: string;
+  status: string;
+  assigned_agent_id: string | null;
+  requester_email: string | null;
+  already_breached: boolean;
+  target_minutes: number | null;
+  paused_minutes: number;
+  effective_due_at: string;
+  risk: 'breached' | 'warning';
+}
+
+/** Don't re-warn the same ticket within this window. */
+const WARNING_COOLDOWN_MINUTES = 60;
+
 export async function GET(request: NextRequest) {
-  // Verify the request is from Vercel Cron
   const authHeader = request.headers.get('authorization');
 
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401 },
-    );
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   try {
     const client = getSupabaseServerClient();
 
-    // Fetch all open tickets with SLA due dates that are not yet breached
-    const { data: tickets, error: fetchError } = await client
-      .from('tickets')
-      .select(
-        'id, tenant_id, status, urgency, priority, sla_due_date, sla_breached, created_at, first_response_at, assigned_agent_id, assigned_group_id, title, requester_email',
-      )
-      .is('deleted_at', null)
-      .not('sla_due_date', 'is', null)
-      .not('status', 'in', '("closed","cancelled","resolved")')
-      .order('sla_due_date', { ascending: true })
-      .limit(500);
+    const { data, error } = await client.rpc('sla_tickets_at_risk', {
+      p_warn_fraction: 0.75,
+    });
 
-    if (fetchError) {
-      console.error('[cron/sla-check] Fetch error:', fetchError.message);
-      return NextResponse.json(
-        { error: fetchError.message },
-        { status: 500 },
-      );
+    if (error) {
+      console.error('[cron/sla-check] rpc error:', error.message);
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    if (!tickets || tickets.length === 0) {
+    const tickets = (data ?? []) as unknown as AtRiskTicket[];
+
+    if (tickets.length === 0) {
       return NextResponse.json({
         ok: true,
         checked: 0,
@@ -68,87 +109,64 @@ export async function GET(request: NextRequest) {
     let warningCount = 0;
 
     for (const ticket of tickets) {
-      const slaStatus = checkSLABreach({
-        sla_due_date: ticket.sla_due_date,
-        sla_breached: ticket.sla_breached,
-        status: ticket.status,
-      });
+      const payload = {
+        ticket: ticket as unknown as Record<string, unknown>,
+        metadata: {
+          effective_due_at: ticket.effective_due_at,
+          paused_minutes: ticket.paused_minutes,
+          target_minutes: ticket.target_minutes,
+        },
+      };
 
-      // ----- BREACHED -----
-      if (slaStatus.breached && !ticket.sla_breached) {
+      if (ticket.risk === 'breached') {
+        // Already-flagged breaches need no second notification — the flag is
+        // what makes this idempotent across runs.
+        if (ticket.already_breached) continue;
+
         breachedCount++;
 
-        // Mark ticket as breached
         await client
           .from('tickets')
           .update({
             sla_breached: true,
             updated_at: new Date().toISOString(),
           })
-          .eq('id', ticket.id)
+          .eq('id', ticket.ticket_id)
           .eq('tenant_id', ticket.tenant_id);
 
-        // Load SLA escalation levels for this ticket's priority/urgency
-        const { data: slaLevels } = await client
-          .from('sla_escalation_levels')
-          .select('*')
-          .eq('tenant_id', ticket.tenant_id)
-          .eq('trigger_type', 'breach')
-          .order('level', { ascending: true })
-          .limit(5);
+        await triggerNotification(
+          client,
+          ticket.tenant_id,
+          'sla.breached',
+          payload,
+        );
 
-        if (slaLevels && slaLevels.length > 0) {
-          for (const level of slaLevels) {
-            await executeSLAAction(client, ticket, level);
-          }
-        } else {
-          // Default escalation: notify assigned agent and group members
-          await triggerNotification(client, ticket.tenant_id, 'sla.breached', {
-            ticket: ticket as unknown as Record<string, unknown>,
-          });
-        }
+        continue;
       }
 
       // ----- WARNING -----
-      if (slaStatus.warning && !ticket.sla_breached) {
-        warningCount++;
+      const since = new Date(
+        Date.now() - WARNING_COOLDOWN_MINUTES * 60_000,
+      ).toISOString();
 
-        // Check if we already sent a warning for this ticket recently
-        const { data: recentWarning } = await client
-          .from('notification_queue')
-          .select('id')
-          .eq('tenant_id', ticket.tenant_id)
-          .eq('channel', 'in_app')
-          .like('body', `%${ticket.id}%sla%warning%`)
-          .gte('created_at', new Date(Date.now() - 30 * 60_000).toISOString())
-          .limit(1)
-          .maybeSingle();
+      const { data: recent } = await client
+        .from('notification_queue')
+        .select('id')
+        .eq('tenant_id', ticket.tenant_id)
+        .like('body', `%${ticket.ticket_id}%`)
+        .gte('created_at', since)
+        .limit(1)
+        .maybeSingle();
 
-        if (!recentWarning) {
-          // Load warning-level escalation actions
-          const { data: warningLevels } = await client
-            .from('sla_escalation_levels')
-            .select('*')
-            .eq('tenant_id', ticket.tenant_id)
-            .eq('trigger_type', 'warning')
-            .order('level', { ascending: true })
-            .limit(3);
+      if (recent) continue;
 
-          if (warningLevels && warningLevels.length > 0) {
-            for (const level of warningLevels) {
-              await executeSLAAction(client, ticket, level);
-            }
-          } else {
-            // Default: send in-app warning notification
-            await triggerNotification(client, ticket.tenant_id, 'sla.warning', {
-              ticket: ticket as unknown as Record<string, unknown>,
-              metadata: {
-                minutes_remaining: slaStatus.minutesRemaining,
-              },
-            });
-          }
-        }
-      }
+      warningCount++;
+      await triggerNotification(
+        client,
+        ticket.tenant_id,
+        'sla.warning',
+        payload,
+      );
     }
 
     return NextResponse.json({
@@ -163,110 +181,5 @@ export async function GET(request: NextRequest) {
       { error: err instanceof Error ? err.message : 'Internal server error' },
       { status: 500 },
     );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-interface SLAEscalationLevel {
-  id: string;
-  tenant_id: string;
-  level: number;
-  trigger_type: string;
-  action: string; // 'notify' | 'escalate' | 'reassign'
-  config: Record<string, unknown>;
-}
-
-/**
- * Executes an SLA escalation action based on the level configuration.
- */
-async function executeSLAAction(
-  client: ReturnType<typeof getSupabaseServerClient>,
-  ticket: Record<string, unknown>,
-  level: SLAEscalationLevel,
-): Promise<void> {
-  const tenantId = ticket.tenant_id as string;
-
-  switch (level.action) {
-    case 'notify': {
-      const eventType =
-        level.trigger_type === 'breach' ? 'sla.breached' : 'sla.warning';
-
-      await triggerNotification(client, tenantId, eventType, {
-        ticket,
-        metadata: {
-          escalation_level: level.level,
-        },
-      });
-      break;
-    }
-
-    case 'escalate': {
-      const groupId = level.config.group_id as string | undefined;
-
-      if (groupId) {
-        await client
-          .from('tickets')
-          .update({
-            assigned_group_id: groupId,
-            assigned_agent_id: null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', ticket.id as string)
-          .eq('tenant_id', tenantId);
-
-        // Notify the new group
-        await triggerNotification(client, tenantId, 'ticket.escalated', {
-          ticket: {
-            ...ticket,
-            assigned_group_id: groupId,
-            assigned_agent_id: null,
-          },
-          metadata: {
-            escalation_level: level.level,
-            reason: 'SLA breach escalation',
-          },
-        });
-      }
-      break;
-    }
-
-    case 'reassign': {
-      const agentId = level.config.agent_id as string | undefined;
-
-      if (agentId) {
-        await client
-          .from('tickets')
-          .update({
-            assigned_agent_id: agentId,
-            status: 'assigned',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', ticket.id as string)
-          .eq('tenant_id', tenantId);
-
-        // Notify the new agent
-        await triggerNotification(client, tenantId, 'ticket.reassigned', {
-          ticket: {
-            ...ticket,
-            assigned_agent_id: agentId,
-            status: 'assigned',
-          },
-          metadata: {
-            escalation_level: level.level,
-            reason: 'SLA breach reassignment',
-          },
-        });
-      }
-      break;
-    }
-
-    default:
-      console.warn(
-        `[cron/sla-check] Unknown SLA action: ${level.action}`,
-      );
-      break;
   }
 }
