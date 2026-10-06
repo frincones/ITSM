@@ -100,15 +100,9 @@ async function CycleReportPage({ searchParams }: PageProps) {
 
   const report = await getCycleReport(client, organizationId, at);
 
-  const daily =
-    report?.usage
-      ? await getDailyActivity(
-          client,
-          organizationId,
-          report.usage.cycle_start,
-          report.usage.cycle_end,
-        )
-      : [];
+  const daily = report
+    ? await getDailyActivity(client, report.contractId, at)
+    : [];
 
   return (
     <CycleReportClient
