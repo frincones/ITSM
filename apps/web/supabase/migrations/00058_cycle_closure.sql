@@ -229,9 +229,11 @@ BEGIN
 
   -- A closed cycle answers from its snapshot. Recomputing would let a later
   -- reclassification move a number that has already been invoiced.
+  -- Columns are alias-qualified because RETURNS TABLE turns cycle_start into a
+  -- PL/pgSQL OUT variable, which would otherwise be ambiguous with the column.
   SELECT * INTO v_closure
-  FROM support_cycle_closures
-  WHERE contract_id = p_contract_id AND cycle_start = v_cycle.cycle_start;
+  FROM support_cycle_closures c
+  WHERE c.contract_id = p_contract_id AND c.cycle_start = v_cycle.cycle_start;
 
   IF v_closure.id IS NOT NULL THEN
     RETURN QUERY SELECT
@@ -320,8 +322,8 @@ BEGIN
   END IF;
 
   SELECT * INTO v_existing
-  FROM support_cycle_closures
-  WHERE contract_id = p_contract_id AND cycle_start = v_cycle.cycle_start;
+  FROM support_cycle_closures c
+  WHERE c.contract_id = p_contract_id AND c.cycle_start = v_cycle.cycle_start;
 
   IF v_existing.id IS NOT NULL AND NOT p_force THEN
     RAISE EXCEPTION 'El ciclo % ya fue cerrado el %. Usa p_force := true para reemplazar el snapshot.',
@@ -333,8 +335,8 @@ BEGIN
   SELECT * INTO v_usage  FROM support_cycle_usage(p_contract_id, v_cycle.cycle_start);
   SELECT * INTO v_comp   FROM support_cycle_compliance(p_contract_id, v_cycle.cycle_start);
 
-  DELETE FROM support_cycle_closures
-  WHERE contract_id = p_contract_id AND cycle_start = v_cycle.cycle_start;
+  DELETE FROM support_cycle_closures c
+  WHERE c.contract_id = p_contract_id AND c.cycle_start = v_cycle.cycle_start;
 
   INSERT INTO support_cycle_closures (
     tenant_id, contract_id, organization_id,
