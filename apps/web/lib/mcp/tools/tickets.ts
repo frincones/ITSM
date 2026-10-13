@@ -57,7 +57,7 @@ const listInput = PaginationInput.extend({
 
 registry.register({
   name: 'tickets_list',
-  description: 'List tickets in the tenant with filters, pagination, and sorting. Returns summary fields only — use tickets.get for full detail.',
+  description: 'List tickets in the tenant with filters, pagination, and sorting. Returns summary fields only — use tickets_get for full detail.',
   scope: 'tickets:read',
   inputSchema: listInput,
   meta: { since: '1.0.0', tags: ['tickets', 'read'] },
@@ -150,7 +150,7 @@ registry.register({
     if (input.include_followups) {
       const { data } = await ctx.supabase
         .from('ticket_followups')
-        .select('id, content, content_html, is_private, author_agent_id, author_contact_id, source, created_at')
+        .select('id, content, content_html, is_private, author_id, author_type, created_at')
         .eq('tenant_id', ctx.tenantId)
         .eq('ticket_id', ticketId)
         .order('created_at', { ascending: true });
@@ -187,7 +187,7 @@ registry.register({
 
 registry.register({
   name: 'tickets_search',
-  description: 'Search tickets by title and description using case-insensitive substring match. For semantic search use kb.search against the knowledge base.',
+  description: 'Search tickets by title and description using case-insensitive substring match. For semantic search use kb_search against the knowledge base.',
   scope: 'tickets:read',
   inputSchema: z.object({
     query: z.string().min(2).max(200),
@@ -233,7 +233,8 @@ const createInput = z.object({
 
 registry.register({
   name: 'tickets_create',
-  description: 'Create a new ticket. Auto-assignment, AI classification, and follower notifications run via the existing trigger/workflow chain — this tool does not bypass them.',
+  description:
+    'Create a ticket. The database assigns ticket_number, computes priority from urgency+impact, and records the creation in the status history. NOTE: round-robin auto-assignment, AI classification, SLA stamping and follower notifications do NOT run on this path yet — the ticket is created unassigned and unclassified. Assign it explicitly with tickets_assign if an owner is required.',
   scope: 'tickets:write',
   inputSchema: createInput,
   meta: { since: '1.0.0', tags: ['tickets', 'write'] },
@@ -265,6 +266,9 @@ registry.register({
         tags: input.tags,
         status: 'new',
         channel: 'api',
+        // Nullable here (unlike ticket_followups.author_id), so a key with no
+        // actor can still file tickets — it just won't carry a creator.
+        created_by: ctx.caller.userId,
       })
       .select(TICKET_DETAIL_COLUMNS)
       .single();
@@ -291,7 +295,7 @@ const updateInput = z.object({
 
 registry.register({
   name: 'tickets_update',
-  description: 'Update mutable fields on a ticket. For status transitions use tickets.transition_status. For assignment use tickets.assign.',
+  description: 'Update mutable fields on a ticket. For status transitions use tickets_transition_status. For assignment use tickets_assign.',
   scope: 'tickets:write',
   inputSchema: updateInput,
   meta: { since: '1.0.0', tags: ['tickets', 'write'] },
@@ -354,10 +358,13 @@ registry.register({
         content: input.content,
         content_html: input.content_html ?? null,
         is_private: input.is_private,
-        author_agent_id: ctx.caller.agentId,
-        source: 'api',
+        // author_id is a NOT NULL FK to auth.users, so it must be the acting
+        // agent's user id — not the agent id. requireActorUserId() turns a
+        // key without an actor into a clear 403 instead of a Postgres 23502.
+        author_id: ctx.requireActorUserId(),
+        author_type: 'agent',
       })
-      .select('id, content, is_private, source, created_at')
+      .select('id, content, is_private, author_id, author_type, created_at')
       .single();
 
     if (error) throw new Error(error.message);
@@ -451,8 +458,8 @@ registry.register({
         ticket_id: input.ticket_id,
         content: input.resolution_note,
         is_private: true,
-        author_agent_id: ctx.caller.agentId,
-        source: 'api',
+        author_id: ctx.requireActorUserId(),
+        author_type: 'agent',
       });
     }
 
