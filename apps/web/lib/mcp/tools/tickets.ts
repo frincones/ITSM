@@ -20,7 +20,15 @@ import {
   severityLevelEnum,
 } from '~/lib/schemas/ticket.schema';
 
+import {
+  addFollowup as domainAddFollowup,
+  assignTicket as domainAssignTicket,
+  changeTicketStatus as domainChangeStatus,
+  createTicket as domainCreateTicket,
+} from '~/lib/domain/tickets.domain';
+
 import type { MCPContext } from '../context';
+import { toDomainContext, unwrap } from '../domain-bridge';
 import { notFound } from '../errors';
 import { registry } from '../registry';
 import {
@@ -228,53 +236,52 @@ const createInput = z.object({
   category_id: z.string().uuid().optional(),
   requester_id: z.string().uuid().optional(),
   requester_email: z.string().email().optional(),
+  assigned_agent_id: z.string().uuid().optional(),
   tags: z.array(z.string().trim().min(1)).default([]),
 });
 
 registry.register({
   name: 'tickets_create',
   description:
-    'Create a ticket. The database assigns ticket_number, computes priority from urgency+impact, and records the creation in the status history. NOTE: round-robin auto-assignment, AI classification, SLA stamping and follower notifications do NOT run on this path yet — the ticket is created unassigned and unclassified. Assign it explicitly with tickets_assign if an owner is required.',
+    'Create a ticket. Runs the same pipeline as the web UI: the database assigns ticket_number and computes priority from urgency+impact, then the ticket is auto-assigned to the organization default owner, the creator is added as a follower, and the creation notification is sent. Pass assigned_agent_id to skip auto-assignment and set the owner explicitly.',
   scope: 'tickets:write',
   inputSchema: createInput,
   meta: { since: '1.0.0', tags: ['tickets', 'write'] },
   async handler(ctx, input) {
-    // If the key is org-scoped, force the new ticket into one of the
-    // allowed orgs. If caller specified one, it must be in the allowlist.
+    // When the key is org-scoped and the caller named no organization, we
+    // can only infer one if the allowlist is unambiguous.
     const orgFilter = ctx.resolveOrgFilter(
       input.organization_id ? [input.organization_id] : null,
     );
-    const organization_id = input.organization_id
-      ? (orgFilter && orgFilter.includes(input.organization_id)
-          ? input.organization_id
-          : (() => { throw new Error('organization_id is outside the API key allowlist'); })())
-      : (orgFilter && orgFilter.length === 1 ? orgFilter[0] : null);
+    const inferredOrg =
+      input.organization_id ??
+      (orgFilter && orgFilter.length === 1 ? orgFilter[0] : null);
 
-    const { data, error } = await ctx.supabase
-      .from('tickets')
-      .insert({
-        tenant_id: ctx.tenantId,
-        title: input.title,
-        description: input.description,
-        type: input.type,
-        urgency: input.urgency,
-        impact: input.impact,
-        organization_id,
-        category_id: input.category_id ?? null,
-        requester_id: input.requester_id ?? null,
-        requester_email: input.requester_email ?? null,
-        tags: input.tags,
-        status: 'new',
-        channel: 'api',
-        // Nullable here (unlike ticket_followups.author_id), so a key with no
-        // actor can still file tickets — it just won't carry a creator.
-        created_by: ctx.caller.userId,
-      })
-      .select(TICKET_DETAIL_COLUMNS)
-      .single();
-
-    if (error) throw new Error(error.message);
-    return { ticket: data };
+    // The domain layer owns the allowlist check, side effects and errors.
+    return {
+      ticket: unwrap(
+        await domainCreateTicket(
+          toDomainContext(ctx),
+          {
+            title: input.title,
+            description: input.description,
+            type: input.type,
+            urgency: input.urgency,
+            impact: input.impact,
+            organization_id: inferredOrg,
+            category_id: input.category_id ?? null,
+            requester_id: input.requester_id ?? null,
+            requester_email: input.requester_email ?? null,
+            assigned_agent_id: input.assigned_agent_id ?? null,
+            tags: input.tags,
+            channel: 'api',
+          },
+          // An API caller is not a person browsing the app, so there is no
+          // "creator" to subscribe unless the key names an acting agent.
+          { autoFollowCreator: !!ctx.caller.agentId },
+        ),
+      ),
+    };
   },
 });
 
@@ -332,43 +339,21 @@ const addCommentInput = z.object({
 
 registry.register({
   name: 'tickets_add_comment',
-  description: 'Add a public or private followup (comment) to a ticket.',
+  description:
+    'Add a followup (comment) to a ticket. A public comment is the authoritative first response and stamps first_response_at, which feeds SLA compliance — use is_private: true for internal notes that should not count as answering the client. Requires the API key to name an acting agent, since every comment records an author.',
   scope: 'tickets:comment',
   inputSchema: addCommentInput,
   meta: { since: '1.0.0', tags: ['tickets', 'write'] },
   async handler(ctx, input) {
-    // Verify the ticket exists in this tenant + org allowlist.
-    let qCheck = ctx.supabase
-      .from('tickets')
-      .select('id, organization_id')
-      .eq('tenant_id', ctx.tenantId)
-      .eq('id', input.ticket_id)
-      .is('deleted_at', null);
-    const orgFilter = ctx.resolveOrgFilter();
-    if (orgFilter) qCheck = qCheck.in('organization_id', orgFilter);
-    const { data: ticket, error: checkErr } = await qCheck.maybeSingle();
-    if (checkErr) throw new Error(checkErr.message);
-    if (!ticket) throw notFound('Ticket');
-
-    const { data, error } = await ctx.supabase
-      .from('ticket_followups')
-      .insert({
-        tenant_id: ctx.tenantId,
-        ticket_id: input.ticket_id,
-        content: input.content,
-        content_html: input.content_html ?? null,
-        is_private: input.is_private,
-        // author_id is a NOT NULL FK to auth.users, so it must be the acting
-        // agent's user id — not the agent id. requireActorUserId() turns a
-        // key without an actor into a clear 403 instead of a Postgres 23502.
-        author_id: ctx.requireActorUserId(),
-        author_type: 'agent',
-      })
-      .select('id, content, is_private, author_id, author_type, created_at')
-      .single();
-
-    if (error) throw new Error(error.message);
-    return { followup: data };
+    return {
+      followup: unwrap(
+        await domainAddFollowup(toDomainContext(ctx), input.ticket_id, {
+          content: input.content,
+          content_html: input.content_html ?? null,
+          is_private: input.is_private,
+        }),
+      ),
+    };
   },
 });
 
@@ -384,36 +369,20 @@ const assignInput = z.object({
 
 registry.register({
   name: 'tickets_assign',
-  description: 'Assign a ticket to an agent and/or group. Pass null to unassign.',
+  description:
+    'Assign a ticket to an agent and/or group, and subscribe the new assignee to the ticket. Pass null to unassign. Does not change the status — use tickets_transition_status for that.',
   scope: 'tickets:assign',
   inputSchema: assignInput,
   meta: { since: '1.0.0', tags: ['tickets', 'write'] },
   async handler(ctx, input) {
-    const patch: Record<string, unknown> = {};
-    if (input.assigned_agent_id !== undefined) patch.assigned_agent_id = input.assigned_agent_id;
-    if (input.assigned_group_id !== undefined) patch.assigned_group_id = input.assigned_group_id;
-    if (Object.keys(patch).length === 0) {
-      throw new Error('Provide assigned_agent_id and/or assigned_group_id');
-    }
-    // If becoming assigned for the first time, move from 'new' to 'assigned'.
-    if (input.assigned_agent_id || input.assigned_group_id) {
-      patch.status = 'assigned';
-    }
-
-    let q = ctx.supabase
-      .from('tickets')
-      .update(patch)
-      .eq('tenant_id', ctx.tenantId)
-      .eq('id', input.ticket_id)
-      .is('deleted_at', null);
-
-    const orgFilter = ctx.resolveOrgFilter();
-    if (orgFilter) q = q.in('organization_id', orgFilter);
-
-    const { data, error } = await q.select(TICKET_DETAIL_COLUMNS).maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!data) throw notFound('Ticket');
-    return { ticket: data };
+    return {
+      ticket: unwrap(
+        await domainAssignTicket(toDomainContext(ctx), input.ticket_id, {
+          agentId: input.assigned_agent_id,
+          groupId: input.assigned_group_id,
+        }),
+      ),
+    };
   },
 });
 
@@ -425,45 +394,52 @@ const transitionInput = z.object({
   ticket_id: z.string().uuid(),
   status: ticketStatusEnum,
   resolution_note: z.string().max(10_000).optional(),
+  /**
+   * Contractual justification for pausing the SLA clock. Required in spirit
+   * for detenido / backlog / esperando_ventana: omitting it records
+   * 'priorizacion_interna', which is logged but does NOT pause, because an
+   * unjustified pause is a deadline we could not defend to the client.
+   */
+  pause_reason: z
+    .enum([
+      'espera_cliente_info',
+      'espera_cliente_validacion',
+      'dependencia_tercero',
+      'ventana_mantenimiento',
+      'fuerza_mayor',
+      'priorizacion_interna',
+    ])
+    .optional(),
 });
 
 registry.register({
   name: 'tickets_transition_status',
-  description: 'Change a ticket status. Valid transitions are enforced by the database. Optionally attach a resolution note as a private followup.',
+  description:
+    'Change a ticket status. Only transitions valid from the current status are accepted (a rejected one returns a conflict naming both states). Running this applies the same side effects as the web UI: resolved/closed timestamps, reopen counting, testing-stage tracking, SLA pause tagging, status notifications to the assignee, and the NPS survey on resolved/closed. Pass pause_reason when moving to detenido, backlog or esperando_ventana — omitting it records a reason that does NOT pause the SLA clock.',
   scope: 'tickets:write',
   inputSchema: transitionInput,
   meta: { since: '1.0.0', tags: ['tickets', 'write'] },
   async handler(ctx, input) {
-    const patch: Record<string, unknown> = { status: input.status };
-    if (input.status === 'resolved') patch.resolved_at = new Date().toISOString();
-    if (input.status === 'closed') patch.closed_at = new Date().toISOString();
+    const domainCtx = toDomainContext(ctx);
 
-    let q = ctx.supabase
-      .from('tickets')
-      .update(patch)
-      .eq('tenant_id', ctx.tenantId)
-      .eq('id', input.ticket_id)
-      .is('deleted_at', null);
+    const ticket = unwrap(
+      await domainChangeStatus(domainCtx, input.ticket_id, input.status, {
+        pauseReason: input.pause_reason ?? null,
+      }),
+    );
 
-    const orgFilter = ctx.resolveOrgFilter();
-    if (orgFilter) q = q.in('organization_id', orgFilter);
-
-    const { data, error } = await q.select(TICKET_DETAIL_COLUMNS).maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!data) throw notFound('Ticket');
-
+    // Attach the resolution note after the transition so a rejected
+    // transition never leaves an orphan note behind.
     if (input.resolution_note) {
-      await ctx.supabase.from('ticket_followups').insert({
-        tenant_id: ctx.tenantId,
-        ticket_id: input.ticket_id,
-        content: input.resolution_note,
-        is_private: true,
-        author_id: ctx.requireActorUserId(),
-        author_type: 'agent',
-      });
+      unwrap(
+        await domainAddFollowup(domainCtx, input.ticket_id, {
+          content: input.resolution_note,
+          is_private: true,
+        }),
+      );
     }
 
-    return { ticket: data };
+    return { ticket };
   },
 });
 
