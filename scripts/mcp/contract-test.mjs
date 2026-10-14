@@ -420,16 +420,48 @@ async function suiteWrites(isolated) {
         ticket_id: ticketId, content: 'Contract harness comment.', is_private: false,
       });
       check('tickets_add_comment succeeds', !!commented);
+      // Migration 00064: the comment must carry a real author, otherwise
+      // ticket_followups.author_id (NOT NULL FK to auth.users) would have
+      // rejected it. A null here means the key has no acting agent.
+      check('comment is attributed to the key\'s acting agent',
+        !!commented?.followup?.author_id,
+        `author_id=${commented?.followup?.author_id ?? 'null'}`);
 
+      // Target a status that is reachable from both 'new' and 'assigned',
+      // because the ticket may already have been auto-assigned by the
+      // deferred default-owner chain by the time we get here.
       const moved = await callTool('tickets_transition_status', {
-        ticket_id: ticketId, status: 'assigned',
+        ticket_id: ticketId, status: 'in_progress',
       });
       check('tickets_transition_status succeeds', !!moved);
+      check('transition actually changed the status',
+        moved?.ticket?.status === 'in_progress', `got ${moved?.ticket?.status}`);
+
+      // A transition the map forbids must be refused as a conflict, not
+      // silently applied — there is no DB constraint behind this.
+      try {
+        await callTool('tickets_transition_status', {
+          ticket_id: ticketId, status: 'in_progress',
+        });
+        check('rejects a transition the map forbids', false, 'self-transition accepted');
+      } catch (e) {
+        check('rejects a transition the map forbids', e.rpc?.code === -32005,
+          `got ${e.rpc?.code}`);
+      }
 
       const updated = await callTool('tickets_update', {
         ticket_id: ticketId, title: `[contract-test] updated ${stamp}`,
       });
       check('tickets_update succeeds', !!updated);
+      check('tickets_update applied the change',
+        updated?.ticket?.title === `[contract-test] updated ${stamp}`,
+        `got ${updated?.ticket?.title}`);
+
+      // Every tickets_* tool should take the same identifier name.
+      const byLegacyId = await callTool('tickets_update', {
+        id: ticketId, urgency: 'medium',
+      });
+      check('tickets_update still accepts the legacy `id`', !!byLegacyId);
 
       // Writing outside the allowlist must be refused outright.
       try {

@@ -29,7 +29,7 @@ import {
 
 import type { MCPContext } from '../context';
 import { toDomainContext, unwrap } from '../domain-bridge';
-import { notFound } from '../errors';
+import { invalidParams, notFound } from '../errors';
 import { registry } from '../registry';
 import {
   PaginationInput,
@@ -290,7 +290,12 @@ registry.register({
 // ---------------------------------------------------------------------------
 
 const updateInput = z.object({
-  id: z.string().uuid(),
+  // Accepts `ticket_id` for consistency with every other tickets_* tool,
+  // and keeps `id` working for existing callers. One of the two is
+  // required — enforced by the refinement below, since neither can be
+  // marked required on its own.
+  ticket_id: z.string().uuid().optional(),
+  id: z.string().uuid().optional(),
   title: z.string().trim().min(1).max(255).optional(),
   description: z.string().trim().min(1).max(10_000).optional(),
   type: ticketTypeEnum.optional(),
@@ -298,6 +303,9 @@ const updateInput = z.object({
   impact: severityLevelEnum.optional(),
   category_id: z.string().uuid().nullable().optional(),
   tags: z.array(z.string().trim().min(1)).optional(),
+}).refine((v) => !!(v.ticket_id ?? v.id), {
+  message: 'ticket_id is required',
+  path: ['ticket_id'],
 });
 
 registry.register({
@@ -307,13 +315,20 @@ registry.register({
   inputSchema: updateInput,
   meta: { since: '1.0.0', tags: ['tickets', 'write'] },
   async handler(ctx, input) {
-    const { id, ...patch } = input;
+    const { ticket_id, id, ...patch } = input;
+    const targetId = ticket_id ?? id;
+
+    // An update with no mutable field would quietly succeed and return the
+    // untouched row, which reads as "it worked" to an agent.
+    if (Object.keys(patch).length === 0) {
+      throw invalidParams('Provide at least one field to update');
+    }
 
     let q = ctx.supabase
       .from('tickets')
       .update(patch)
       .eq('tenant_id', ctx.tenantId)
-      .eq('id', id)
+      .eq('id', targetId)
       .is('deleted_at', null);
 
     const orgFilter = ctx.resolveOrgFilter();
