@@ -112,6 +112,9 @@ export const ALL_SCOPES = [
   // Separate from kb:write: publishing an article with is_public makes it
   // visible to customers in the portal.
   'kb:publish',
+  // Separate from organizations:write: deactivating a client takes its
+  // portal offline for every one of its users immediately.
+  'organizations:deactivate',
 ] as const;
 
 export type Scope = (typeof ALL_SCOPES)[number];
