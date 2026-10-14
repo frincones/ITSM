@@ -109,6 +109,9 @@ export const ALL_SCOPES = [
   // changes what happens to live tickets from the next event onward. A key
   // can draft and edit automation without being able to switch it on.
   'automation:activate',
+  // Separate from kb:write: publishing an article with is_public makes it
+  // visible to customers in the portal.
+  'kb:publish',
 ] as const;
 
 export type Scope = (typeof ALL_SCOPES)[number];
