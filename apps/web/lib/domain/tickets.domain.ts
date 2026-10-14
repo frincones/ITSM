@@ -22,6 +22,8 @@
 
 import 'server-only';
 
+import { after } from 'next/server';
+
 import { assignAndNotify } from '~/lib/services/assignment.service';
 import {
   notifyTicketCreated,
@@ -98,6 +100,29 @@ export const CLIENT_ALLOWED_STATUSES = [
  * trail showing the real figure is how service credits get owed (cl. 5).
  */
 const COMMUNICATES_TO_CLIENT = ['resolved', 'closed'];
+
+/**
+ * Runs a side effect without blocking the response, but in a way that
+ * survives a serverless environment.
+ *
+ * A bare `void promise` is NOT enough on Vercel: the function freezes as soon
+ * as the handler returns, so anything still in flight is killed. That is why
+ * a ticket created over MCP came back unassigned even with a default owner
+ * configured, while the same code worked from the UI (where the Node server
+ * stays alive between requests).
+ *
+ * `after()` registers the work with the platform so it completes after the
+ * response is sent. It throws outside a request scope (cron scripts, tests,
+ * direct invocations), so we fall back to fire-and-forget there — those
+ * callers are long-lived processes where it already worked.
+ */
+function runAfterResponse(work: () => Promise<unknown>): void {
+  try {
+    after(() => work().catch(() => {}));
+  } catch {
+    void work().catch(() => {});
+  }
+}
 
 // ---------------------------------------------------------------------------
 // createTicket
@@ -229,17 +254,20 @@ export async function createTicket(
 
   // Creator auto-follow: staff keep receiving updates even after the ticket
   // is reassigned to the client's default owner.
-  if (autoFollowCreator && actor.agentId) {
-    void addFollower(client, {
+  // Captured before the closure: narrowing from the `if` does not survive
+  // into a deferred callback.
+  const creatorAgentId = actor.agentId;
+  if (autoFollowCreator && creatorAgentId) {
+    runAfterResponse(() => addFollower(client, {
       tenantId: actor.tenantId,
       ticketId: ticket.id,
-      agentId: actor.agentId,
+      agentId: creatorAgentId,
       reason: 'creator',
-    }).catch(() => {});
+    }));
   }
 
   if (notify) {
-    void notifyTicketCreated({
+    runAfterResponse(() => notifyTicketCreated({
       tenantId: actor.tenantId,
       ticketNumber: ticket.ticket_number,
       ticketId: ticket.id,
@@ -250,17 +278,17 @@ export async function createTicket(
       requesterEmail: ticket.requester_email ?? undefined,
       agentUserId: actor.userId ?? undefined,
       agentEmail: actor.email ?? undefined,
-    }).catch(() => {});
+    }));
   }
 
   // Default-owner assignment (per-client override first, then the tenant
   // default). Skipped when the caller already named an assignee.
   if (autoAssign && !fields.assigned_agent_id) {
-    void assignAndNotify(client, {
+    runAfterResponse(() => assignAndNotify(client, {
       ticketId: ticket.id,
       tenantId: actor.tenantId,
       organizationId: ticket.organization_id ?? null,
-    }).catch(() => {});
+    }));
   }
 
   return ok(ticket as Record<string, unknown>);
@@ -413,7 +441,7 @@ export async function changeTicketStatus(
 
     const notifyFn =
       newStatus === 'resolved' ? notifyTicketResolved : notifyTicketStatusChanged;
-    void notifyFn({
+    runAfterResponse(() => notifyFn({
       tenantId: actor.tenantId,
       ticketNumber: ticket.ticket_number,
       ticketId: ticket.id,
@@ -425,7 +453,7 @@ export async function changeTicketStatus(
       agentUserId: assigneeUserId,
       agentEmail: assigneeEmail,
       assignedAgentId: ticket.assigned_agent_id ?? undefined,
-    }).catch(() => {});
+    }));
   }
 
   // Queue the NPS survey on terminal transitions. The csat-dispatcher cron
@@ -436,13 +464,13 @@ export async function changeTicketStatus(
     existing.status !== newStatus &&
     ticket.requester_email
   ) {
-    void queueNpsForTicket({
+    runAfterResponse(() => queueNpsForTicket({
       tenantId: actor.tenantId,
       ticketId: ticket.id,
       recipientEmail: ticket.requester_email,
       organizationId: ticket.organization_id,
       agentId: ticket.assigned_agent_id,
-    }).catch(() => {});
+    }));
   }
 
   return ok(ticket as Record<string, unknown>);
@@ -578,13 +606,14 @@ export async function assignTicket(
   if (!ticket) return fail('Ticket not found', 'not_found');
 
   // Keep the new assignee in the follower list so they receive updates.
-  if (assignment.agentId) {
-    void addFollower(client, {
+  const assigneeId = assignment.agentId;
+  if (assigneeId) {
+    runAfterResponse(() => addFollower(client, {
       tenantId: actor.tenantId,
       ticketId,
-      agentId: assignment.agentId,
+      agentId: assigneeId,
       reason: 'assignment',
-    }).catch(() => {});
+    }));
   }
 
   return ok(ticket as Record<string, unknown>);
