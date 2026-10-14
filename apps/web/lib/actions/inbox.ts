@@ -8,10 +8,10 @@ import {
   addMessage,
   getConversation,
   resolveConversation as resolveConversationService,
-  linkConversationToTicket,
 } from '~/lib/services/inbox.service';
 import { processInboxMessage } from '~/lib/ai/agents/inbox';
 import { getAdapter } from '~/lib/integrations/registry';
+import { createTicketFromConversation as domainCreateTicketFromConversation } from '~/lib/domain/inbox.domain';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -278,114 +278,53 @@ export async function createTicketFromConversation(
       return { data: null, error: authError ?? 'Unauthorized' };
     }
 
-    // Fetch conversation
-    const { data: conversation, error: convError } = await getConversation(
-      client,
+    // The ticket insert, the conversation link and the AI summary all live
+    // in the domain layer so the MCP tool runs this exact path. Note this
+    // used to insert `source: 'inbox'` directly — a column that does not
+    // exist on tickets (the real one is `channel`), which is why every call
+    // failed and no conversation in production ever got a ticket.
+    const result = await domainCreateTicketFromConversation(
+      {
+        actor: {
+          tenantId: agent.tenant_id,
+          agentId: agent.id,
+          userId: user.id,
+          role: agent.role,
+          email: agent.email,
+          organizationIds: null,
+          channel: 'ui',
+        },
+        client,
+      },
       conversationId,
+      {},
+      {
+        classify: async (transcript) => {
+          const { data: conversation } = await getConversation(client, conversationId);
+          const channelType = conversation?.channel?.channel_type ?? 'email';
+          const aiChannel = channelType.startsWith('email') ? 'email' : channelType;
+
+          const { data } = await processInboxMessage({
+            channel: aiChannel as never,
+            from: conversation?.subject ?? 'Unknown',
+            subject: conversation?.subject ?? undefined,
+            body: transcript,
+            tenantId: agent.tenant_id,
+          });
+
+          return data ?? null;
+        },
+      },
     );
 
-    if (convError || !conversation) {
-      return { data: null, error: convError ?? 'Conversation not found' };
-    }
-
-    if (conversation.tenant_id !== agent.tenant_id) {
-      return { data: null, error: 'Conversation not found' };
-    }
-
-    // Already linked?
-    if (conversation.ticket_id) {
-      return { data: null, error: 'Conversation is already linked to a ticket' };
-    }
-
-    // Fetch recent messages for AI context
-    const { data: messages } = await client
-      .from('inbox_messages')
-      .select('content_text, direction, sender_type, created_at')
-      .eq('conversation_id', conversationId)
-      .order('created_at', { ascending: true })
-      .limit(20);
-
-    const messageBody = (messages ?? [])
-      .map((m: any) => `[${m.direction}] ${m.content_text ?? ''}`)
-      .join('\n');
-
-    // Run AI classification
-    const channelType = conversation.channel?.channel_type ?? 'email';
-    const aiChannel = channelType.startsWith('email') ? 'email' : channelType;
-
-    const { data: classification } = await processInboxMessage({
-      channel: aiChannel as any,
-      from: conversation.subject ?? 'Unknown',
-      subject: conversation.subject ?? undefined,
-      body: messageBody,
-      tenantId: agent.tenant_id,
-    });
-
-    // Build ticket payload
-    const ticketData: Record<string, unknown> = {
-      tenant_id: agent.tenant_id,
-      created_by: user.id,
-      status: 'new',
-      title: classification?.suggested_ticket?.title ?? conversation.subject ?? 'Conversation ticket',
-      description: classification?.suggested_ticket?.description ?? messageBody.slice(0, 2000),
-      type: classification?.suggested_ticket?.type ?? 'request',
-      urgency: classification?.urgency ?? 'medium',
-      source: 'inbox',
-    };
-
-    // If conversation has an assigned agent/group, carry over
-    if (conversation.assigned_agent_id) {
-      ticketData.assigned_agent_id = conversation.assigned_agent_id;
-      ticketData.status = 'assigned';
-    }
-
-    if (conversation.assigned_group_id) {
-      ticketData.assigned_group_id = conversation.assigned_group_id;
-    }
-
-    // Fetch channel defaults
-    if (conversation.channel) {
-      const { data: channelData } = await client
-        .from('inbox_channels')
-        .select('default_category_id, default_group_id')
-        .eq('id', conversation.channel_id)
-        .single();
-
-      if (channelData?.default_category_id && !ticketData.category_id) {
-        ticketData.category_id = channelData.default_category_id;
-      }
-
-      if (channelData?.default_group_id && !ticketData.assigned_group_id) {
-        ticketData.assigned_group_id = channelData.default_group_id;
-      }
-    }
-
-    // Create ticket
-    const { data: ticket, error: ticketError } = await client
-      .from('tickets')
-      .insert(ticketData)
-      .select()
-      .single();
-
-    if (ticketError) {
-      return { data: null, error: ticketError.message };
-    }
-
-    // Link conversation to ticket
-    await linkConversationToTicket(client, conversationId, ticket.id);
-
-    // Store AI classification on conversation
-    if (classification) {
-      await client
-        .from('inbox_conversations')
-        .update({ ai_summary: classification.summary })
-        .eq('id', conversationId);
+    if (result.error !== null) {
+      return { data: null, error: result.error };
     }
 
     revalidatePath('/home/inbox');
     revalidatePath('/home/tickets');
     revalidatePath(`/home/inbox/${conversationId}`);
-    return { data: ticket, error: null };
+    return { data: result.data, error: null };
   } catch (err) {
     return {
       data: null,
