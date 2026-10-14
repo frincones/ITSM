@@ -119,6 +119,7 @@ export const ALL_SCOPES = [
   // decision that records who authorised the work.
   'changes:approve',
   'reports:read',
+  'catalog:read',
 ] as const;
 
 export type Scope = (typeof ALL_SCOPES)[number];
