@@ -97,6 +97,12 @@ export const ALL_SCOPES = [
   'metrics:read',
   'audit:read',
   'webhooks:manage',
+  'inbox:read',
+  'inbox:write',
+  // Separate from inbox:write on purpose: a reply with internal=false is
+  // DELIVERED to the customer over WhatsApp or email. A key can be allowed
+  // to triage and assign conversations without being able to speak to them.
+  'inbox:reply',
 ] as const;
 
 export type Scope = (typeof ALL_SCOPES)[number];
