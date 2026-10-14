@@ -118,6 +118,7 @@ export const ALL_SCOPES = [
   // Separate from changes:write: approving a change is a governance
   // decision that records who authorised the work.
   'changes:approve',
+  'reports:read',
 ] as const;
 
 export type Scope = (typeof ALL_SCOPES)[number];
