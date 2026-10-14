@@ -211,7 +211,6 @@ export async function createTicket(
         organization_id: enforcedOrgId ?? validated.organization_id ?? null,
         requester_email: validated.requester_email ?? null,
         requester_id: validated.requester_id ?? null,
-        channel: 'web',
       },
       {
         enforcedOrganizationId: enforcedOrgId,

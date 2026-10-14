@@ -119,8 +119,23 @@ export interface CreateTicketFields {
   assigned_group_id?: string | null;
   tags?: string[];
   custom_fields?: Record<string, unknown>;
-  channel?: string;
+  /**
+   * Must be a member of the ticket_channel Postgres enum — a free string
+   * fails the insert at runtime. Omit to accept the column default
+   * ('portal'). Typed as a union so a bad value is a compile error.
+   */
+  channel?: TicketChannel;
 }
+
+/** Mirrors the ticket_channel enum declared in migration 00004. */
+export type TicketChannel =
+  | 'portal'
+  | 'email'
+  | 'whatsapp'
+  | 'phone'
+  | 'api'
+  | 'ai_agent'
+  | 'web_widget';
 
 export interface CreateTicketOptions {
   /**
@@ -199,7 +214,11 @@ export async function createTicket(
       tags: fields.tags ?? [],
       custom_fields: fields.custom_fields ?? {},
       status: 'new',
-      channel: fields.channel ?? (actor.channel === 'ui' ? 'web' : 'api'),
+      // ticket_channel is a Postgres enum: portal | email | whatsapp | phone
+      // | api | ai_agent | web_widget. Anything else fails the insert, so we
+      // leave it unset when the caller named no channel and let the column
+      // default ('portal') stand — which is what the UI path did before.
+      ...(fields.channel ? { channel: fields.channel } : {}),
       created_by: actor.userId,
     })
     .select()
