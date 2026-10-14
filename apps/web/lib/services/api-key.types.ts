@@ -103,6 +103,12 @@ export const ALL_SCOPES = [
   // DELIVERED to the customer over WhatsApp or email. A key can be allowed
   // to triage and assign conversations without being able to speak to them.
   'inbox:reply',
+  'automation:read',
+  'automation:write',
+  // Separate from automation:write on purpose: enabling a workflow or rule
+  // changes what happens to live tickets from the next event onward. A key
+  // can draft and edit automation without being able to switch it on.
+  'automation:activate',
 ] as const;
 
 export type Scope = (typeof ALL_SCOPES)[number];
