@@ -45,13 +45,13 @@ import {
   invalidParams,
   methodNotFound,
   rateLimited,
-  unauthorized,
 } from '~/lib/mcp/errors';
 import { zodToJsonSchema } from '~/lib/mcp/json-schema';
 import {
-  MCP_PROTOCOL_VERSION,
   MCP_SERVER_NAME,
   MCP_SERVER_VERSION,
+  SUPPORTED_PROTOCOL_VERSIONS,
+  negotiateProtocolVersion,
   registry,
 } from '~/lib/mcp/server';
 import {
@@ -68,6 +68,10 @@ export const maxDuration = 60;
 
 // Header used by Streamable HTTP. Spec: visible ASCII chars 0x21–0x7E.
 const SESSION_HEADER = 'Mcp-Session-Id';
+
+// Clients must echo the negotiated version on every post-initialize request
+// (spec 2025-06-18 §Transport). Node lowercases inbound header names.
+const PROTOCOL_HEADER = 'mcp-protocol-version';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -140,6 +144,23 @@ function clientAcceptsSse(req: NextRequest): boolean {
 }
 
 /**
+ * Validates the `MCP-Protocol-Version` header that clients must send on every
+ * request after `initialize` (required from spec 2025-06-18).
+ *
+ * Returns null when acceptable, or the version string we cannot speak.
+ * Absent is acceptable: pre-2025-06-18 clients never send it, and the spec
+ * tells servers to assume 2025-03-26 in that case.
+ */
+function unsupportedProtocolHeader(req: NextRequest): string | null {
+  const header = req.headers.get(PROTOCOL_HEADER);
+  if (!header) return null;
+  const value = header.trim();
+  return (SUPPORTED_PROTOCOL_VERSIONS as readonly string[]).includes(value)
+    ? null
+    : value;
+}
+
+/**
  * JSON-RPC 2.0 spec § 4.1: a Notification is a Request object WITHOUT
  * an `id` member. Detection is purely by `id` presence — the method name
  * is irrelevant (`notifications/*` is just a convention).
@@ -168,21 +189,25 @@ function sseFrame(payload: unknown): string {
 // Method dispatchers
 // ---------------------------------------------------------------------------
 
-async function handleInitialize(): Promise<unknown> {
+async function handleInitialize(params: unknown): Promise<unknown> {
+  // Echo the highest version we share with the client instead of a constant.
+  const requested = (params as { protocolVersion?: unknown } | null)
+    ?.protocolVersion;
+
   return {
-    protocolVersion: MCP_PROTOCOL_VERSION,
+    protocolVersion: negotiateProtocolVersion(requested),
     serverInfo: {
       name: MCP_SERVER_NAME,
       version: MCP_SERVER_VERSION,
     },
     capabilities: {
+      // Only advertise what we actually implement: declaring empty
+      // `resources`/`prompts` makes clients render dead sections and probe
+      // endpoints that return nothing. They come back in Phase 4.
       tools: { listChanged: false },
-      resources: {},
-      prompts: {},
-      logging: {},
     },
     instructions:
-      'NovaDesk ITSM MCP server. Tools are namespaced by resource (tickets.*, kb.*, ...). Authenticate with Bearer <api_key>. See /api/mcp/manifest for the full public catalog.',
+      'NovaDesk ITSM MCP server. Tool names are flat and underscore-separated, grouped by resource: tickets_list, tickets_get, kb_search, organizations_list, metrics_daily, and so on. Call tools/list for the authoritative catalog with JSON Schemas. Authenticate with `Authorization: Bearer <api_key>`; every key is scoped to one tenant and may be restricted to specific organizations. GET /api/mcp/manifest returns the same catalog without authentication.',
   };
 }
 
@@ -237,6 +262,24 @@ async function executeRpc(
     };
   }
 
+  // Reject a protocol version we cannot speak before doing any work. We skip
+  // this on `initialize` itself, where the version travels in the params and
+  // is negotiated rather than asserted.
+  if (rpc.method !== 'initialize') {
+    const bad = unsupportedProtocolHeader(req);
+    if (bad) {
+      return {
+        response: buildError(
+          id,
+          JsonRpcErrorCode.InvalidRequest,
+          `Unsupported MCP-Protocol-Version '${bad}'`,
+          { supported: SUPPORTED_PROTOCOL_VERSIONS },
+        ),
+        httpStatus: 400,
+      };
+    }
+  }
+
   // Methods that don't require auth.
   if (rpc.method === 'ping') {
     return { response: { jsonrpc: '2.0', id, result: {} }, httpStatus: 200 };
@@ -244,7 +287,7 @@ async function executeRpc(
 
   if (rpc.method === 'initialize') {
     return {
-      response: { jsonrpc: '2.0', id, result: await handleInitialize() },
+      response: { jsonrpc: '2.0', id, result: await handleInitialize(rpc.params) },
       httpStatus: 200,
     };
   }
@@ -294,10 +337,13 @@ async function executeRpc(
     };
   }
 
-  // Build the tool execution context.
+  // Build the tool execution context. The acting identity comes from the
+  // key's configured actor agent, so writes are attributable to a real
+  // person exactly as UI writes are.
   const callerMeta: McpCallerMeta = {
     apiKeyId: verified.id,
-    agentId: null,
+    agentId: verified.actor_agent_id,
+    userId: verified.actor_user_id,
     channel: 'mcp',
     ip,
     userAgent,
@@ -338,8 +384,11 @@ async function executeRpc(
         isError: false,
       };
     } else if (rpc.method === 'resources/list' || rpc.method === 'prompts/list') {
-      // Reserved for the next iteration. Return empty lists so MCP clients
-      // that probe these don't error out.
+      // We no longer advertise these capabilities on initialize, so a
+      // spec-compliant client will not call them. Older clients probe
+      // unconditionally, so keep answering an empty list rather than an
+      // error — cheaper than a failed handshake. Real resources and prompts
+      // arrive in Phase 4.
       result = rpc.method === 'resources/list' ? { resources: [] } : { prompts: [] };
     } else {
       throw methodNotFound(rpc.method);

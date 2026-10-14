@@ -26,8 +26,18 @@ export type McpChannel = 'mcp' | 'rest' | 'internal';
 export interface McpCallerMeta {
   /** API key id when authenticated via key, null for internal callers. */
   apiKeyId: string | null;
-  /** Agent id when authenticated via JWT, null for API-key callers. */
+  /**
+   * The agent whose identity this call acts under: resolved from
+   * api_keys.actor_agent_id for key callers, or the JWT subject for
+   * session callers. Null only when a key has no usable actor.
+   */
   agentId: string | null;
+  /**
+   * The acting agent's auth.users id. Needed by every table whose author
+   * column is a NOT NULL FK to auth.users (ticket_followups.author_id,
+   * ticket_tasks, ticket_solutions, kb_articles...).
+   */
+  userId: string | null;
   channel: McpChannel;
   ip: string | null;
   userAgent: string | null;
@@ -51,6 +61,17 @@ export interface MCPContext {
 
   /** Returns an organization filter array AND-merged with caller-provided ids. */
   resolveOrgFilter(requestedIds?: string[] | null): string[] | null;
+
+  /**
+   * Returns the acting user's auth.users id, or throws Forbidden with an
+   * actionable message when the key has no usable actor.
+   *
+   * Tools that write to a table with a NOT NULL author FK MUST call this
+   * instead of reading `caller.userId` directly, so the failure is a clear
+   * 403 ("this key has no acting agent") rather than a Postgres 23502
+   * surfacing as an opaque -32603 internal error.
+   */
+  requireActorUserId(): string;
 }
 
 export interface MCPContextInit {
@@ -77,6 +98,16 @@ export function buildContext(init: MCPContextInit): MCPContext {
       if (!hasScope(init.scopes, scope)) {
         throw forbidden(`Scope '${scope}' required`);
       }
+    },
+
+    requireActorUserId() {
+      const userId = init.caller.userId;
+      if (!userId) {
+        throw forbidden(
+          'This API key has no acting agent, so it cannot perform writes that record an author. Assign an active agent to the key (api_keys.actor_agent_id) and retry.',
+        );
+      }
+      return userId;
     },
 
     resolveOrgFilter(requestedIds?: string[] | null) {

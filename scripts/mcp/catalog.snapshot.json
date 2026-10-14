@@ -1,0 +1,184 @@
+{
+  "generatedAt": "2026-10-13T16:42:40.152Z",
+  "count": 31,
+  "tools": [
+    {
+      "name": "agents_get",
+      "scope": "agents:read",
+      "required": [
+        "id"
+      ]
+    },
+    {
+      "name": "agents_list",
+      "scope": "agents:read",
+      "required": []
+    },
+    {
+      "name": "assets_get",
+      "scope": "assets:read",
+      "required": []
+    },
+    {
+      "name": "assets_list",
+      "scope": "assets:read",
+      "required": []
+    },
+    {
+      "name": "audit_list",
+      "scope": "audit:read",
+      "required": []
+    },
+    {
+      "name": "audit_mcp_calls",
+      "scope": "audit:read",
+      "required": []
+    },
+    {
+      "name": "changes_get",
+      "scope": "changes:read",
+      "required": []
+    },
+    {
+      "name": "changes_list",
+      "scope": "changes:read",
+      "required": []
+    },
+    {
+      "name": "contacts_get",
+      "scope": "contacts:read",
+      "required": []
+    },
+    {
+      "name": "contacts_list",
+      "scope": "contacts:read",
+      "required": []
+    },
+    {
+      "name": "contacts_upsert",
+      "scope": "contacts:write",
+      "required": [
+        "email"
+      ]
+    },
+    {
+      "name": "kb_get_article",
+      "scope": "kb:read",
+      "required": []
+    },
+    {
+      "name": "kb_list_categories",
+      "scope": "kb:read",
+      "required": []
+    },
+    {
+      "name": "kb_search",
+      "scope": "kb:search",
+      "required": [
+        "query"
+      ]
+    },
+    {
+      "name": "metrics_daily",
+      "scope": "metrics:read",
+      "required": []
+    },
+    {
+      "name": "metrics_ticket_summary",
+      "scope": "metrics:read",
+      "required": []
+    },
+    {
+      "name": "organizations_get",
+      "scope": "organizations:read",
+      "required": []
+    },
+    {
+      "name": "organizations_list",
+      "scope": "organizations:read",
+      "required": []
+    },
+    {
+      "name": "problems_create",
+      "scope": "problems:write",
+      "required": [
+        "title"
+      ]
+    },
+    {
+      "name": "problems_get",
+      "scope": "problems:read",
+      "required": []
+    },
+    {
+      "name": "problems_list",
+      "scope": "problems:read",
+      "required": []
+    },
+    {
+      "name": "slas_get_breaches",
+      "scope": "slas:read",
+      "required": []
+    },
+    {
+      "name": "slas_list",
+      "scope": "slas:read",
+      "required": []
+    },
+    {
+      "name": "tickets_add_comment",
+      "scope": "tickets:comment",
+      "required": [
+        "ticket_id",
+        "content"
+      ]
+    },
+    {
+      "name": "tickets_assign",
+      "scope": "tickets:assign",
+      "required": [
+        "ticket_id"
+      ]
+    },
+    {
+      "name": "tickets_create",
+      "scope": "tickets:write",
+      "required": [
+        "title",
+        "description"
+      ]
+    },
+    {
+      "name": "tickets_get",
+      "scope": "tickets:read",
+      "required": []
+    },
+    {
+      "name": "tickets_list",
+      "scope": "tickets:read",
+      "required": []
+    },
+    {
+      "name": "tickets_search",
+      "scope": "tickets:read",
+      "required": [
+        "query"
+      ]
+    },
+    {
+      "name": "tickets_transition_status",
+      "scope": "tickets:write",
+      "required": [
+        "ticket_id",
+        "status"
+      ]
+    },
+    {
+      "name": "tickets_update",
+      "scope": "tickets:write",
+      "required": [
+        "id"
+      ]
+    }
+  ]
+}

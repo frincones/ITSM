@@ -12,6 +12,12 @@ import { tool } from 'ai';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
+import {
+  changeTicketStatus as domainChangeStatus,
+  createTicket as domainCreateTicket,
+} from '~/lib/domain/tickets.domain';
+import type { DomainContext } from '~/lib/domain/types';
+
 export interface ToolContext {
   svc: SupabaseClient;
   tenantId: string;
@@ -21,6 +27,29 @@ export interface ToolContext {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * Adapts the assistant's ToolContext into a DomainContext so writes run the
+ * same pipeline as the UI and the MCP server.
+ *
+ * channel is 'internal': the actor is a signed-in agent driving the in-app
+ * copilot, not an external integration. The role is reported as 'agent'
+ * because reaching this route already required a staff agent record.
+ */
+function toAssistantDomainContext(ctx: ToolContext): DomainContext {
+  return {
+    actor: {
+      tenantId: ctx.tenantId,
+      agentId: ctx.agentId ?? null,
+      userId: ctx.userId,
+      role: 'agent',
+      email: null,
+      organizationIds: null,
+      channel: 'internal',
+    },
+    client: ctx.svc,
+  };
+}
 
 function escapeIlike(s: string): string {
   return s.replace(/[%_\\]/g, (c) => `\\${c}`);
@@ -124,6 +153,13 @@ async function enrichTickets(ctx: ToolContext, tickets: TicketRow[]) {
 
 const TICKET_COLS =
   'id, ticket_number, title, status, type, urgency, requester_email, requester_id, assigned_agent_id, organization_id, created_at, closed_at, resolved_at';
+
+/**
+ * Maximum tickets a single bulk_close call will touch. Each one now runs the
+ * full close pipeline (notification + NPS), so this bounds both the blast
+ * radius of a mistaken instruction and the wall-clock time of one tool call.
+ */
+const BULK_CLOSE_LIMIT = 50;
 
 export function buildAssistantTools(ctx: ToolContext) {
   const tools = {
@@ -808,24 +844,27 @@ export function buildAssistantTools(ctx: ToolContext) {
           orgId = await resolveOrgId(ctx, organization);
           if (!orgId) return { success: false, error: `No se encontró cliente "${organization}".` };
         }
-        const { data, error } = await ctx.svc
-          .from('tickets')
-          .insert({
-            tenant_id: ctx.tenantId,
+
+        // Goes through the domain layer so a ticket the assistant files is
+        // indistinguishable from one filed in the UI: auto-assigned to the
+        // organization's default owner, creator subscribed, notification
+        // sent. The previous bare insert skipped all three.
+        const result = await domainCreateTicket(
+          toAssistantDomainContext(ctx),
+          {
             title: title.slice(0, 255),
             description,
             type,
             urgency,
-            status: 'new',
-            channel: 'ai_agent',
+            impact: 'medium',
             organization_id: orgId,
             requester_email: requester_email ?? null,
-            created_by: ctx.userId,
-          })
-          .select('ticket_number, title')
-          .single();
-        if (error) return { success: false, error: error.message };
-        const t = data as { ticket_number: string; title: string };
+            channel: 'ai_agent',
+          },
+        );
+
+        if (result.error !== null) return { success: false, error: result.error };
+        const t = result.data as { ticket_number: string; title: string };
         return { success: true, ticket_number: t.ticket_number, title: t.title };
       },
     }),
@@ -844,7 +883,8 @@ export function buildAssistantTools(ctx: ToolContext) {
       }),
       execute: async ({ ticket_number, status, urgency, type, assignee }) => {
         const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-        if (status) updates.status = status;
+        // Plain attribute edits are a straight UPDATE; a status change is
+        // not, so it is routed through the domain layer separately below.
         if (urgency) updates.urgency = urgency;
         if (type) updates.type = type;
         if (assignee) {
@@ -853,19 +893,46 @@ export function buildAssistantTools(ctx: ToolContext) {
           else if (aid) updates.assigned_agent_id = aid;
           else return { success: false, error: `No se encontró agente "${assignee}".` };
         }
-        if (status === 'resolved') updates.resolved_at = new Date().toISOString();
-        if (status === 'closed') updates.closed_at = new Date().toISOString();
 
         const { data, error } = await ctx.svc
           .from('tickets')
           .update(updates)
           .eq('ticket_number', ticket_number.toUpperCase())
           .eq('tenant_id', ctx.tenantId)
-          .select('ticket_number, status, urgency, type, assigned_agent_id')
+          .select('id, ticket_number, status, urgency, type, assigned_agent_id')
           .maybeSingle();
         if (error) return { success: false, error: error.message };
         if (!data) return { success: false, error: 'Ticket no encontrado.' };
-        return { success: true, ticket: data };
+
+        let current = data as {
+          id: string;
+          ticket_number: string;
+          status: string;
+          urgency: string;
+          type: string;
+          assigned_agent_id: string | null;
+        };
+
+        if (status && status !== current.status) {
+          const moved = await domainChangeStatus(
+            toAssistantDomainContext(ctx),
+            current.id,
+            status,
+          );
+          if (moved.error !== null) {
+            // The attribute edits above already landed; report the partial
+            // outcome rather than implying nothing happened.
+            return {
+              success: false,
+              error: moved.error,
+              partial: { updated_fields: Object.keys(updates), status_unchanged: current.status },
+            };
+          }
+          current = { ...current, ...(moved.data as Record<string, unknown>) } as typeof current;
+        }
+
+        const { id: _id, ...ticket } = current;
+        return { success: true, ticket };
       },
     }),
 
@@ -914,6 +981,7 @@ export function buildAssistantTools(ctx: ToolContext) {
           .maybeSingle();
         if (!t) return { success: false, error: 'Ticket no encontrado.' };
         const id = (t as { id: string }).id;
+
         await ctx.svc.from('ticket_solutions').insert({
           tenant_id: ctx.tenantId,
           ticket_id: id,
@@ -921,15 +989,17 @@ export function buildAssistantTools(ctx: ToolContext) {
           status: 'approved',
           proposed_by: ctx.userId,
         });
-        const { error } = await ctx.svc
-          .from('tickets')
-          .update({
-            status: 'resolved',
-            resolved_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', id);
-        if (error) return { success: false, error: error.message };
+
+        // Through the domain layer: validates the transition from the
+        // current status, stamps resolved_at and first_response_at, notifies
+        // the assignee and queues the NPS survey. The previous bare UPDATE
+        // did none of that and could resolve from an illegal state.
+        const result = await domainChangeStatus(
+          toAssistantDomainContext(ctx),
+          id,
+          'resolved',
+        );
+        if (result.error !== null) return { success: false, error: result.error };
         return { success: true, ticket_number };
       },
     }),
@@ -967,13 +1037,13 @@ export function buildAssistantTools(ctx: ToolContext) {
         older_than_days: z.number().int().min(0).optional().describe('Solo los más viejos que N días.'),
       }),
       execute: async ({ from_status, older_than_days }) => {
+        // Select first, then close one by one through the domain layer. The
+        // previous single bulk UPDATE was faster but skipped the NPS survey
+        // and the close notification for every ticket it touched, and could
+        // close from a state the transition map forbids.
         let q = ctx.svc
           .from('tickets')
-          .update({
-            status: 'closed',
-            closed_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
+          .select('id, ticket_number')
           .eq('tenant_id', ctx.tenantId)
           .eq('status', from_status)
           .is('deleted_at', null);
@@ -981,9 +1051,31 @@ export function buildAssistantTools(ctx: ToolContext) {
           const cutoff = new Date(Date.now() - older_than_days * 86400000).toISOString();
           q = q.lt('created_at', cutoff);
         }
-        const { data, error } = await q.select('id');
+        // Hard cap: a runaway bulk close is hard to undo, and the assistant
+        // should report back rather than churn through hundreds of tickets.
+        const { data, error } = await q.limit(BULK_CLOSE_LIMIT);
         if (error) return { success: false, error: error.message };
-        return { success: true, count: (data as { id: string }[] | null)?.length ?? 0 };
+
+        const candidates = (data as { id: string; ticket_number: string }[] | null) ?? [];
+        const domainCtx = toAssistantDomainContext(ctx);
+        const closed: string[] = [];
+        const failed: Array<{ ticket_number: string; error: string }> = [];
+
+        for (const t of candidates) {
+          const r = await domainChangeStatus(domainCtx, t.id, 'closed');
+          if (r.error !== null) failed.push({ ticket_number: t.ticket_number, error: r.error });
+          else closed.push(t.ticket_number);
+        }
+
+        return {
+          success: true,
+          count: closed.length,
+          closed,
+          ...(failed.length ? { failed } : {}),
+          ...(candidates.length === BULK_CLOSE_LIMIT
+            ? { note: `Se procesó el máximo de ${BULK_CLOSE_LIMIT} tickets por llamada; vuelve a ejecutar para continuar.` }
+            : {}),
+        };
       },
     }),
   };
