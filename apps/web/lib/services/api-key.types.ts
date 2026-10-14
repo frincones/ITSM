@@ -115,6 +115,9 @@ export const ALL_SCOPES = [
   // Separate from organizations:write: deactivating a client takes its
   // portal offline for every one of its users immediately.
   'organizations:deactivate',
+  // Separate from changes:write: approving a change is a governance
+  // decision that records who authorised the work.
+  'changes:approve',
 ] as const;
 
 export type Scope = (typeof ALL_SCOPES)[number];

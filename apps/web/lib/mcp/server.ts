@@ -34,6 +34,7 @@ import { __inboxToolsLoaded } from './tools/inbox';
 import { __automationToolsLoaded } from './tools/automation';
 import { __kbWriteToolsLoaded } from './tools/kb-write';
 import { __organizationsWriteToolsLoaded } from './tools/organizations-write';
+import { __changesWriteToolsLoaded } from './tools/changes-write';
 
 // The bundler must believe these markers are observed. Without this array
 // the imports above can still be eliminated under aggressive tree-shaking.
@@ -53,6 +54,7 @@ const _toolModulesLoaded = [
   __automationToolsLoaded,
   __kbWriteToolsLoaded,
   __organizationsWriteToolsLoaded,
+  __changesWriteToolsLoaded,
 ];
 if (_toolModulesLoaded.some((v) => v !== true)) {
   throw new Error('MCP tool module markers misconfigured');
