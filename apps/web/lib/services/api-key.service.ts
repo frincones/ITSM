@@ -160,6 +160,10 @@ export async function verifyApiKey(
     rate_limit_rpm: row.rate_limit_rpm ?? 60,
     organization_ids: row.organization_ids ?? null,
     environment: row.environment,
+    // Present once migration 00064 is applied. Optional chaining keeps this
+    // working against the pre-00064 function, which returns neither column.
+    actor_agent_id: row.actor_agent_id ?? null,
+    actor_user_id: row.actor_user_id ?? null,
   };
 }
 

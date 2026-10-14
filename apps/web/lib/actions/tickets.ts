@@ -20,20 +20,19 @@ import {
 } from '~/lib/schemas/ticket.schema';
 
 import {
-  notifyTicketCreated,
   notifyTicketAssigned,
-  notifyTicketStatusChanged,
   notifyTicketCommented,
-  notifyTicketResolved,
 } from '~/lib/services/notify.service';
 
-import { assignAndNotify } from '~/lib/services/assignment.service';
+// createTicket and changeTicketStatus — including their transition rules,
+// timestamping and side-effect fan-out — now live in the domain layer so the
+// MCP tools and internal AI agents execute the same path as the UI.
 import {
-  NON_PAUSING_REASON,
-  REASON_REQUIRED_STATUSES,
-  type SlaPauseReason,
-} from '~/lib/services/support-contract.service';
-import { queueNpsForTicket } from '~/lib/services/nps.service';
+  createTicket as domainCreateTicket,
+  changeTicketStatus as domainChangeStatus,
+} from '~/lib/domain/tickets.domain';
+
+import { type SlaPauseReason } from '~/lib/services/support-contract.service';
 
 import {
   addFollower,
@@ -101,23 +100,9 @@ async function requireAuthUser(client: ReturnType<typeof getSupabaseServerClient
   return { agent, user, isClient, error: null } as const;
 }
 
-/** Valid status transitions map. */
-const VALID_TRANSITIONS: Record<string, string[]> = {
-  new: ['backlog', 'assigned', 'in_progress', 'pending', 'detenido', 'testing', 'closed', 'cancelled'],
-  backlog: ['new', 'assigned', 'in_progress', 'pending', 'detenido', 'testing', 'closed', 'cancelled'],
-  assigned: ['backlog', 'in_progress', 'pending', 'detenido', 'testing', 'closed', 'cancelled'],
-  in_progress: ['backlog', 'pending', 'detenido', 'esperando_ventana', 'testing', 'resolved', 'closed', 'cancelled'],
-  pending: ['backlog', 'in_progress', 'detenido', 'testing', 'resolved', 'closed', 'cancelled'],
-  detenido: ['backlog', 'in_progress', 'pending', 'testing', 'resolved', 'closed', 'cancelled'],
-  // A fix that is ready but waiting on an agreed deploy window. Leaves to
-  // resolved once deployed, or back to in_progress if the deploy fails.
-  esperando_ventana: ['in_progress', 'detenido', 'testing', 'resolved', 'closed', 'cancelled'],
-  testing: ['backlog', 'in_progress', 'pending', 'detenido', 'resolved', 'closed', 'cancelled'],
-  resolved: ['closed', 'in_progress', 'reopened'],
-  reopened: ['assigned', 'in_progress', 'pending', 'detenido', 'testing', 'resolved', 'closed', 'cancelled'],
-  closed: ['in_progress', 'backlog', 'reopened'],
-  cancelled: ['new', 'backlog'],
-};
+// The status transition map lives in lib/domain/tickets.domain.ts
+// (VALID_TRANSITIONS): one map, enforced for the UI, the MCP tools and
+// anything else that moves a ticket.
 
 // ---------------------------------------------------------------------------
 // 1. createTicket
@@ -204,66 +189,47 @@ export async function createTicket(
       forcedRequesterId = contactMatch?.id ?? null;
     }
 
-    const { data: ticket, error } = await client
-      .from('tickets')
-      .insert({
+    // The insert and its whole side-effect chain (creator auto-follow,
+    // creation notification, default-owner assignment) live in the domain
+    // layer so the MCP tools and internal AI agents run exactly this path
+    // instead of a reduced copy of it.
+    const result = await domainCreateTicket(
+      {
+        actor: {
+          tenantId,
+          agentId: agent?.id ?? null,
+          userId: user.id,
+          role: agent?.role ?? null,
+          email: agentEmailForNotify ?? null,
+          organizationIds: enforcedOrgId ? [enforcedOrgId] : null,
+          channel: 'ui',
+        },
+        client,
+      },
+      {
         ...validated,
-        organization_id: enforcedOrgId ?? validated.organization_id,
-        tenant_id: tenantId, // NEVER from frontend
-        // For clients, requester is forced server-side; for staff agents,
-        // we trust the validated form input.
-        requester_email: forcedRequesterEmail ?? validated.requester_email,
-        requester_id:
+        organization_id: enforcedOrgId ?? validated.organization_id ?? null,
+        requester_email: validated.requester_email ?? null,
+        requester_id: validated.requester_id ?? null,
+      },
+      {
+        enforcedOrganizationId: enforcedOrgId,
+        // For clients the requester is pinned server-side; staff agents may
+        // legitimately file on someone else's behalf.
+        forcedRequester:
           forcedRequesterEmail !== null
-            ? forcedRequesterId
-            : (validated.requester_id ?? null),
-        created_by: user.id,
-        status: 'new',
-      })
-      .select()
-      .single();
+            ? { email: forcedRequesterEmail, contactId: forcedRequesterId }
+            : null,
+        autoFollowCreator: !!agent && !isClient,
+      },
+    );
 
-    if (error) {
-      return { data: null, error: error.message };
+    if (result.error !== null) {
+      return { data: null, error: result.error };
     }
-
-    // Auto-follow: if the creator is a TDX staff agent, they become the
-    // first follower so they keep getting updates even after the ticket is
-    // assigned to the client's default owner.
-    if (agent && !isClient) {
-      addFollower(client, {
-        tenantId,
-        ticketId: ticket.id,
-        agentId: agent.id,
-        reason: 'creator',
-      }).catch(() => {});
-    }
-
-    // Fire-and-forget notification
-    notifyTicketCreated({
-      tenantId,
-      ticketNumber: ticket.ticket_number,
-      ticketId: ticket.id,
-      title: ticket.title,
-      type: ticket.type,
-      urgency: ticket.urgency,
-      status: ticket.status,
-      requesterEmail: ticket.requester_email ?? undefined,
-      agentUserId: user.id,
-      agentEmail: agentEmailForNotify,
-    }).catch(() => {});
-
-    // Assign to the configured default owner (per-client override first,
-    // then the tenant default). Fire-and-forget so a failure never blocks
-    // the ticket insert — an unassigned ticket is visible and recoverable.
-    assignAndNotify(client, {
-      ticketId: ticket.id,
-      tenantId,
-      organizationId: ticket.organization_id ?? null,
-    }).catch(() => {});
 
     revalidatePath('/home/tickets');
-    return { data: ticket, error: null };
+    return { data: result.data, error: null };
   } catch (err) {
     if (err instanceof z.ZodError) {
       return { data: null, error: err.errors.map((e) => e.message).join(', ') };
@@ -468,203 +434,35 @@ export async function changeTicketStatus(
       return { data: null, error: authError ?? 'Unauthorized' };
     }
 
-    // Clients can only set the statuses exposed in their UI picker.
-    // 'reopened' is intentionally included so customers can reopen a
-    // ticket they feel was closed prematurely — the common Zendesk /
-    // Freshdesk expectation.
-    const CLIENT_ALLOWED_STATUSES = [
-      'new',
-      'backlog',
-      'in_progress',
-      'pending',
-      'detenido',
-      'testing',
-      'resolved',
-      'reopened',
-      'closed',
-    ];
-    if (isClient && !CLIENT_ALLOWED_STATUSES.includes(newStatus)) {
-      return { data: null, error: 'Not allowed for client users' };
-    }
+    // Transition validation, timestamping, reopen counting, testing-stage
+    // tracking, pause-reason tagging, notifications and the NPS queue all
+    // live in the domain layer so MCP and internal agents run this exact
+    // path rather than a reduced copy of it.
+    const result = await domainChangeStatus(
+      {
+        actor: {
+          tenantId: agent.tenant_id,
+          agentId: agent.id,
+          userId: null,
+          role: isClient ? 'readonly' : agent.role,
+          email: agent.email,
+          organizationIds: null,
+          channel: 'ui',
+        },
+        client,
+      },
+      ticketId,
+      newStatus,
+      { pauseReason: pauseReason ?? null },
+    );
 
-    // Fetch current ticket
-    const { data: existing } = await client
-      .from('tickets')
-      .select('id, tenant_id, status, first_response_at, custom_fields, reopened_count')
-      .eq('id', ticketId)
-      .eq('tenant_id', agent.tenant_id)
-      .is('deleted_at', null)
-      .single();
-
-    if (!existing) {
-      return { data: null, error: 'Ticket not found' };
-    }
-
-    // Validate status transition
-    const allowed = VALID_TRANSITIONS[existing.status] ?? [];
-    if (!allowed.includes(newStatus)) {
-      return {
-        data: null,
-        error: `Invalid status transition from '${existing.status}' to '${newStatus}'`,
-      };
-    }
-
-    const now = new Date().toISOString();
-    const updatePayload: Record<string, unknown> = {
-      status: newStatus,
-      updated_at: now,
-    };
-
-    // Record relevant timestamps
-    if (newStatus === 'resolved') {
-      updatePayload.resolved_at = now;
-    }
-
-    if (newStatus === 'closed') {
-      updatePayload.closed_at = now;
-    }
-
-    // Reopen tracking: count every transition INTO 'reopened' so metrics
-    // can surface re-aperturas as a quality KPI. We only bump the counter
-    // on explicit reopen transitions — the inbound-email auto-reopen path
-    // sets the status directly and will run through here too.
-    if (
-      newStatus === 'reopened' &&
-      existing.status !== 'reopened'
-    ) {
-      updatePayload.last_reopened_at = now;
-      updatePayload.reopened_count =
-        ((existing as { reopened_count?: number | null }).reopened_count ?? 0) + 1;
-      // Clear terminal timestamps so SLA/metrics treat the ticket as
-      // active again rather than a stale closed one.
-      updatePayload.closed_at = null;
-      updatePayload.resolved_at = null;
-    }
-
-    // first_response_at — see also the authoritative stamp in addFollowup.
-    //
-    // This used to fire on ANY first transition away from 'new', which meant an
-    // agent merely moving a ticket to 'assigned' or 'in_progress' recorded a
-    // "response". That INFLATES SLA compliance: the contract defines the
-    // response as acknowledgement, classification, diagnosis and communication
-    // of the plan (cl. 4) — all of which require actually telling the client
-    // something. Reporting 96% and having the client produce their own email
-    // trail showing 80% is how service credits get owed (cl. 5).
-    //
-    // What remains are the two transitions that cannot happen without the
-    // client having been told: a solution cannot be delivered without
-    // communicating it. Everything else — assigned, in_progress, pending,
-    // testing, backlog, detenido, esperando_ventana — is internal movement and
-    // no longer counts.
-    //
-    // Consequence worth knowing: a response given only by phone or WhatsApp,
-    // with nothing logged, leaves first_response_at NULL and the ticket reads
-    // as unanswered. That is deliberate. The contract measures response in the
-    // single channel (cl. 4), and a response with no record is one we could
-    // not prove if the client disputed it. Log it as a public reply.
-    const COMMUNICATES_TO_CLIENT = ['resolved', 'closed'];
-    if (
-      !existing.first_response_at &&
-      COMMUNICATES_TO_CLIENT.includes(newStatus)
-    ) {
-      updatePayload.first_response_at = now;
-    }
-
-    // Track when the ticket entered / left the Testing stage so the daily
-    // "Nuevos Testing" metric can distinguish fresh transitions from the
-    // snapshot of every ticket ever sitting in testing.
-    const nextCustom: Record<string, unknown> = {
-      ...((existing.custom_fields as Record<string, unknown> | null) ?? {}),
-    };
-    let customChanged = false;
-    if (newStatus === 'testing' && existing.status !== 'testing') {
-      nextCustom.testing_entered_at = now;
-      // reset any previous result when re-entering testing
-      delete nextCustom.testing_result;
-      customChanged = true;
-    }
-    if (existing.status === 'testing' && newStatus !== 'testing') {
-      delete nextCustom.testing_entered_at;
-      delete nextCustom.testing_result;
-      customChanged = true;
-    }
-    if (customChanged) {
-      updatePayload.custom_fields = nextCustom;
-    }
-
-    // Hand the pause reason to the log_ticket_status_change trigger, which
-    // reads it from a transaction-local setting. Going through the DB rather
-    // than passing an argument means the reason is captured no matter which
-    // path caused the change — UI, cron, direct SQL or MCP (00048/00049).
-    if (REASON_REQUIRED_STATUSES.includes(
-      newStatus as (typeof REASON_REQUIRED_STATUSES)[number],
-    )) {
-      const { error: tagError } = await client.rpc('set_pause_reason', {
-        p_reason: pauseReason ?? NON_PAUSING_REASON,
-      });
-      // A failed tag is not fatal: the trigger then falls back to
-      // 'priorizacion_interna', which does not pause. Erring against us is the
-      // safe direction.
-      if (tagError) {
-        console.warn('[changeTicketStatus] pause reason not tagged:', tagError.message);
-      }
-    }
-
-    const { data: ticket, error } = await client
-      .from('tickets')
-      .update(updatePayload)
-      .eq('id', ticketId)
-      .eq('tenant_id', agent.tenant_id)
-      .select()
-      .single();
-
-    if (error) {
-      return { data: null, error: error.message };
-    }
-
-    // Resolve the ASSIGNEE (not the actor) so email + in-app reach the
-    // person responsible for the ticket.
-    let assigneeEmail: string | undefined;
-    let assigneeUserId: string | undefined;
-    if (ticket.assigned_agent_id) {
-      const { data: assignee } = await client
-        .from('agents')
-        .select('email, user_id')
-        .eq('id', ticket.assigned_agent_id)
-        .maybeSingle();
-      assigneeEmail = assignee?.email ?? undefined;
-      assigneeUserId = assignee?.user_id ?? undefined;
-    }
-
-    // Notify status change
-    const notifyFn = newStatus === 'resolved' ? notifyTicketResolved : notifyTicketStatusChanged;
-    notifyFn({
-      tenantId: agent.tenant_id, ticketNumber: ticket.ticket_number, ticketId: ticket.id,
-      title: ticket.title, type: ticket.type, urgency: ticket.urgency, status: newStatus,
-      requesterEmail: ticket.requester_email ?? undefined,
-      agentUserId: assigneeUserId, agentEmail: assigneeEmail,
-      assignedAgentId: ticket.assigned_agent_id ?? undefined,
-    }).catch(() => {});
-
-    // Queue NPS survey on terminal transitions. The csat-dispatcher cron
-    // sends the email ~5 minutes after this row is created.
-    if (
-      (newStatus === 'resolved' || newStatus === 'closed') &&
-      existing.status !== newStatus &&
-      ticket.requester_email
-    ) {
-      queueNpsForTicket({
-        tenantId: agent.tenant_id,
-        ticketId: ticket.id,
-        recipientEmail: ticket.requester_email,
-        organizationId: ticket.organization_id,
-        agentId: ticket.assigned_agent_id,
-      }).catch(() => {});
+    if (result.error !== null) {
+      return { data: null, error: result.error };
     }
 
     revalidatePath('/home/tickets');
     revalidatePath(`/home/tickets/${ticketId}`);
-    return { data: ticket, error: null };
+    return { data: result.data, error: null };
   } catch (err) {
     if (err instanceof z.ZodError) {
       return { data: null, error: err.errors.map((e) => e.message).join(', ') };

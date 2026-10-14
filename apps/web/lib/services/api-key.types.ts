@@ -38,6 +38,19 @@ export interface VerifiedApiKey {
   rate_limit_rpm: number;
   organization_ids: string[] | null;
   environment: ApiKeyEnvironment;
+  /**
+   * The agent this key acts as (api_keys.actor_agent_id). Writes are
+   * attributed to this agent so API-driven actions are auditable like UI
+   * actions. Null when the key predates actor attribution or its agent was
+   * deactivated — reads still work, writes to author-bearing tables fail.
+   */
+  actor_agent_id: string | null;
+  /**
+   * The acting agent's auth.users id (agents.user_id). Required by every
+   * table whose author column is a NOT NULL FK to auth.users, such as
+   * ticket_followups.author_id.
+   */
+  actor_user_id: string | null;
 }
 
 export interface CreateApiKeyInput {

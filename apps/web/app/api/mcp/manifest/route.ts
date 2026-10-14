@@ -19,6 +19,7 @@ import {
   MCP_PROTOCOL_VERSION,
   MCP_SERVER_NAME,
   MCP_SERVER_VERSION,
+  SUPPORTED_PROTOCOL_VERSIONS,
   registry,
 } from '~/lib/mcp/server';
 import { ALL_SCOPES } from '~/lib/services/api-key.types';
@@ -26,7 +27,23 @@ import { ALL_SCOPES } from '~/lib/services/api-key.types';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function GET() {
+export async function GET(request: Request) {
+  // Absolute endpoint, derived from the incoming request so the manifest is
+  // correct behind Vercel, a custom domain or a local tunnel alike.
+  const origin = (() => {
+    try {
+      const url = new URL(request.url);
+      const forwardedHost = request.headers.get('x-forwarded-host');
+      const forwardedProto = request.headers.get('x-forwarded-proto');
+      const host = forwardedHost ?? url.host;
+      const proto = forwardedProto ?? url.protocol.replace(':', '');
+      return `${proto}://${host}`;
+    } catch {
+      return '';
+    }
+  })();
+  const endpoint = `${origin}/api/mcp`;
+
   const tools = registry.list().map((t) => ({
     name: t.name,
     description: t.description,
@@ -43,13 +60,18 @@ export async function GET() {
         name: MCP_SERVER_NAME,
         version: MCP_SERVER_VERSION,
         protocolVersion: MCP_PROTOCOL_VERSION,
+        supportedProtocolVersions: SUPPORTED_PROTOCOL_VERSIONS,
       },
       transport: {
-        type: 'http',
-        url: '/api/mcp',
-        methods: ['POST'],
+        type: 'streamable-http',
+        url: endpoint,
+        // POST carries JSON-RPC; GET opens the server→client SSE channel.
+        methods: ['POST', 'GET'],
         contentType: 'application/json',
+        accept: 'application/json, text/event-stream',
         format: 'jsonrpc-2.0',
+        sessionHeader: 'Mcp-Session-Id',
+        protocolVersionHeader: 'MCP-Protocol-Version',
       },
       authentication: {
         scheme: 'bearer',
@@ -79,12 +101,26 @@ export async function GET() {
           },
         },
       ],
+      // Ready-to-paste client configuration. The URL must be absolute —
+      // a relative path is meaningless to an MCP client — so it is derived
+      // from the request host rather than hardcoded.
       clientConfigs: {
+        claudeCode: {
+          command: `claude mcp add --transport http novadesk ${endpoint} --header "Authorization: Bearer YOUR_API_KEY"`,
+        },
         claudeDesktop: {
           mcpServers: {
             novadesk: {
-              transport: 'http',
-              url: '/api/mcp',
+              type: 'http',
+              url: endpoint,
+              headers: { Authorization: 'Bearer YOUR_API_KEY' },
+            },
+          },
+        },
+        cursor: {
+          mcpServers: {
+            novadesk: {
+              url: endpoint,
               headers: { Authorization: 'Bearer YOUR_API_KEY' },
             },
           },
