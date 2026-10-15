@@ -239,10 +239,29 @@ registry.register({
   description:
     'The configured notification templates: which event sends on which channel, in which language, and whether it is active. Use it to explain why an event did or did not reach someone. Body templates are omitted; subjects are included.',
   scope: 'notifications:read',
-  inputSchema: z.object({}),
+  // A tool whose inputSchema has no properties serializes to
+  // `{type:"object",properties:{}}`, which fails Anthropic's tool-schema
+  // validation and makes the model drop the WHOLE server catalog — the same
+  // failure the ZodEffects case in json-schema.ts exists to avoid. The
+  // filters below are genuinely useful, and they also keep the schema
+  // non-empty.
+  inputSchema: z.object({
+    event_type: z
+      .string()
+      .trim()
+      .max(100)
+      .optional()
+      .describe('Only templates for this event, e.g. ticket_created.'),
+    active_only: z.boolean().default(false),
+  }),
   meta: { since: '1.9.0', tags: ['notifications', 'read'] },
-  async handler(ctx) {
-    return unwrap(await domainTemplates(toDomainContext(ctx)));
+  async handler(ctx, input) {
+    return unwrap(
+      await domainTemplates(toDomainContext(ctx), {
+        eventType: input.event_type ?? null,
+        activeOnly: input.active_only,
+      }),
+    );
   },
 });
 
