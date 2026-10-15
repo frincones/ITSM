@@ -189,12 +189,18 @@ async function suiteTransport() {
     badVersionHeader.status === 400 && bvBody?.error?.code === -32600,
     `HTTP ${badVersionHeader.status} ${JSON.stringify(bvBody?.error)}`);
 
-  // Capabilities must reflect what is actually implemented: advertising an
-  // empty resources/prompts object makes clients render dead sections.
+  // Capabilities must reflect what is actually implemented, in both
+  // directions: advertising what does not exist strands clients, and not
+  // advertising what does means they never ask for it.
   const caps = init.body?.result?.capabilities ?? {};
-  check('does not advertise unimplemented capabilities',
-    !('resources' in caps) && !('prompts' in caps),
-    `advertised: ${Object.keys(caps).join(', ')}`);
+  check('advertises the tools capability', !!caps.tools);
+  check('advertises resources now that they are implemented', 'resources' in caps);
+  check('advertises prompts now that they are implemented', 'prompts' in caps);
+  // No push channel exists, so promising subscriptions or list-change
+  // notifications would leave clients waiting for events that never come.
+  check('does not promise resource subscriptions it cannot deliver',
+    !caps.resources?.subscribe && !caps.resources?.listChanged,
+    JSON.stringify(caps.resources));
 
   // JSON-RPC 2.0 §4.1 notifications → HTTP 202, empty body.
   const notif = await rpc(null, null, { raw: { jsonrpc: '2.0', method: 'notifications/initialized' } });
@@ -377,6 +383,75 @@ async function suiteIsolation() {
   check('explicit foreign organization_id is ignored/intersected', leak.length === 0, `${leak.length} foreign rows returned`);
 
   return sandboxOnly && leak.length === 0;
+}
+
+async function suiteResourcesAndPrompts() {
+  if (!JSON_OUT) console.log('\n\x1b[1mResources and prompts\x1b[0m');
+
+  const templates = await rpc('resources/templates/list');
+  const tpl = templates.body?.result?.resourceTemplates ?? [];
+  check('resource templates are published', tpl.length > 0, `${tpl.length} templates`);
+  check('every template declares a uriTemplate and a name',
+    tpl.every((t) => typeof t.uriTemplate === 'string' && typeof t.name === 'string'));
+
+  const listed = await rpc('resources/list');
+  if (listed.body?.error) {
+    // A missing scope is a config fact, not a contract break.
+    warn('resources/list callable', false, listed.body.error.message);
+  } else {
+    const res = listed.body?.result?.resources ?? [];
+    check('resources/list returns an array', Array.isArray(res), typeof res);
+    check('every resource carries a uri and a name',
+      res.every((r) => typeof r.uri === 'string' && typeof r.name === 'string'));
+    check('resource uris use the declared scheme',
+      res.every((r) => r.uri.startsWith('novadesk://')),
+      res.find((r) => !r.uri.startsWith('novadesk://'))?.uri ?? '');
+  }
+
+  // An unknown scheme and an unknown id must fail differently: one is a
+  // malformed request, the other a missing resource.
+  const badScheme = await rpc('resources/read', { uri: 'file:///etc/passwd' });
+  check('rejects a foreign URI scheme',
+    badScheme.body?.error?.code === -32602,
+    JSON.stringify(badScheme.body?.error?.code));
+
+  const missing = await rpc('resources/read', {
+    uri: 'novadesk://kb/00000000-0000-4000-8000-000000000000',
+  });
+  check('unknown resource returns not-found, not a crash',
+    missing.body?.error?.code === -32004 || missing.body?.error?.code === -32002,
+    JSON.stringify(missing.body?.error?.code));
+
+  const prompts = await rpc('prompts/list');
+  const list = prompts.body?.result?.prompts ?? [];
+  check('prompts are published', list.length > 0, `${list.length} prompts`);
+  check('every prompt has a name and description',
+    list.every((p) => typeof p.name === 'string' && typeof p.description === 'string'));
+
+  if (list.length) {
+    const withRequired = list.find((p) => (p.arguments ?? []).some((a) => a.required));
+    if (withRequired) {
+      const noArgs = await rpc('prompts/get', { name: withRequired.name, arguments: {} });
+      check('prompts/get rejects missing required arguments',
+        noArgs.body?.error?.code === -32602,
+        JSON.stringify(noArgs.body?.error?.code));
+
+      const args = {};
+      for (const a of withRequired.arguments.filter((x) => x.required)) args[a.name] = 'TEST-VALUE';
+      const got = await rpc('prompts/get', { name: withRequired.name, arguments: args });
+      const msgs = got.body?.result?.messages ?? [];
+      check('prompts/get returns messages', msgs.length > 0, JSON.stringify(got.body?.error));
+      check('prompt messages carry a role and text content',
+        msgs.every((m) => (m.role === 'user' || m.role === 'assistant') && m.content?.type === 'text' && typeof m.content.text === 'string'));
+      check('prompt interpolates its arguments',
+        msgs.some((m) => m.content.text.includes('TEST-VALUE')));
+    }
+  }
+
+  const unknownPrompt = await rpc('prompts/get', { name: 'does_not_exist' });
+  check('unknown prompt is rejected',
+    unknownPrompt.body?.error?.code === -32602,
+    JSON.stringify(unknownPrompt.body?.error?.code));
 }
 
 async function suiteReads(tools) {
@@ -563,6 +638,7 @@ async function main() {
   if (authed) {
     const tools = await suiteCatalog();
     const isolated = await suiteIsolation();
+    await suiteResourcesAndPrompts();
     await suiteReads(tools);
     await suiteWrites(isolated);
   }

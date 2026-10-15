@@ -40,6 +40,12 @@ import { getSupabaseServerAdminClient } from '@kit/supabase/server-admin-client'
 import { recordMcpCall, type AuditStatus } from '~/lib/mcp/audit';
 import { buildContext, type McpCallerMeta } from '~/lib/mcp/context';
 import { resolveOrigin } from '~/lib/mcp/origin';
+import { getPrompt, listPrompts } from '~/lib/mcp/prompts';
+import {
+  listResourceTemplates,
+  listResources,
+  readResource,
+} from '~/lib/mcp/resources';
 import {
   JsonRpcErrorCode,
   McpError,
@@ -202,10 +208,12 @@ async function handleInitialize(params: unknown): Promise<unknown> {
       version: MCP_SERVER_VERSION,
     },
     capabilities: {
-      // Only advertise what we actually implement: declaring empty
-      // `resources`/`prompts` makes clients render dead sections and probe
-      // endpoints that return nothing. They come back in Phase 4.
+      // Advertise exactly what is implemented. `subscribe` and `listChanged`
+      // are both absent because there is no push channel yet — claiming
+      // either would have clients wait for notifications that never arrive.
       tools: { listChanged: false },
+      resources: {},
+      prompts: {},
     },
     instructions:
       'NovaDesk ITSM MCP server. Tool names are flat and underscore-separated, grouped by resource: tickets_list, tickets_get, kb_search, organizations_list, metrics_daily, and so on. Call tools/list for the authoritative catalog with JSON Schemas. Authenticate with `Authorization: Bearer <api_key>`; every key is scoped to one tenant and may be restricted to specific organizations. GET /api/mcp/manifest returns the same catalog without authentication.',
@@ -384,13 +392,30 @@ async function executeRpc(
         structuredContent: toolResult,
         isError: false,
       };
-    } else if (rpc.method === 'resources/list' || rpc.method === 'prompts/list') {
-      // We no longer advertise these capabilities on initialize, so a
-      // spec-compliant client will not call them. Older clients probe
-      // unconditionally, so keep answering an empty list rather than an
-      // error — cheaper than a failed handshake. Real resources and prompts
-      // arrive in Phase 4.
-      result = rpc.method === 'resources/list' ? { resources: [] } : { prompts: [] };
+    } else if (rpc.method === 'resources/list') {
+      result = { resources: await listResources(ctx) };
+    } else if (rpc.method === 'resources/templates/list') {
+      // Not scope-guarded: a template describes a URI shape, not data.
+      // Reading through one still goes through resources/read.
+      result = { resourceTemplates: listResourceTemplates() };
+    } else if (rpc.method === 'resources/read') {
+      const params = (rpc.params ?? {}) as { uri?: unknown };
+      if (typeof params.uri !== 'string' || !params.uri) {
+        throw invalidParams('resources/read requires { uri: string }');
+      }
+      toolName = `resources/read:${params.uri}`;
+      toolArgs = params;
+      result = { contents: await readResource(ctx, params.uri) };
+    } else if (rpc.method === 'prompts/list') {
+      result = { prompts: listPrompts() };
+    } else if (rpc.method === 'prompts/get') {
+      const params = (rpc.params ?? {}) as { name?: unknown; arguments?: unknown };
+      if (typeof params.name !== 'string' || !params.name) {
+        throw invalidParams('prompts/get requires { name: string, arguments?: object }');
+      }
+      toolName = `prompts/get:${params.name}`;
+      toolArgs = params.arguments;
+      result = getPrompt(params.name, (params.arguments ?? {}) as Record<string, unknown>);
     } else {
       throw methodNotFound(rpc.method);
     }
