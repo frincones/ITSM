@@ -31,6 +31,14 @@ import { __slasToolsLoaded } from './tools/slas';
 import { __metricsToolsLoaded } from './tools/metrics';
 import { __auditToolsLoaded } from './tools/audit';
 import { __inboxToolsLoaded } from './tools/inbox';
+import { __automationToolsLoaded } from './tools/automation';
+import { __kbWriteToolsLoaded } from './tools/kb-write';
+import { __organizationsWriteToolsLoaded } from './tools/organizations-write';
+import { __changesWriteToolsLoaded } from './tools/changes-write';
+import { __reportingToolsLoaded } from './tools/reporting';
+import { __operationsToolsLoaded } from './tools/operations';
+import { __ticketsExtendedToolsLoaded } from './tools/tickets-extended';
+import { __engagementToolsLoaded } from './tools/engagement';
 
 // The bundler must believe these markers are observed. Without this array
 // the imports above can still be eliminated under aggressive tree-shaking.
@@ -47,6 +55,14 @@ const _toolModulesLoaded = [
   __metricsToolsLoaded,
   __auditToolsLoaded,
   __inboxToolsLoaded,
+  __automationToolsLoaded,
+  __kbWriteToolsLoaded,
+  __organizationsWriteToolsLoaded,
+  __changesWriteToolsLoaded,
+  __reportingToolsLoaded,
+  __operationsToolsLoaded,
+  __ticketsExtendedToolsLoaded,
+  __engagementToolsLoaded,
 ];
 if (_toolModulesLoaded.some((v) => v !== true)) {
   throw new Error('MCP tool module markers misconfigured');

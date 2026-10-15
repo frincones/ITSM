@@ -103,6 +103,29 @@ export const ALL_SCOPES = [
   // DELIVERED to the customer over WhatsApp or email. A key can be allowed
   // to triage and assign conversations without being able to speak to them.
   'inbox:reply',
+  'automation:read',
+  'automation:write',
+  // Separate from automation:write on purpose: enabling a workflow or rule
+  // changes what happens to live tickets from the next event onward. A key
+  // can draft and edit automation without being able to switch it on.
+  'automation:activate',
+  // Separate from kb:write: publishing an article with is_public makes it
+  // visible to customers in the portal.
+  'kb:publish',
+  // Separate from organizations:write: deactivating a client takes its
+  // portal offline for every one of its users immediately.
+  'organizations:deactivate',
+  // Separate from changes:write: approving a change is a governance
+  // decision that records who authorised the work.
+  'changes:approve',
+  'reports:read',
+  'catalog:read',
+  'nps:read',
+  'portal:read',
+  'projects:read',
+  'projects:write',
+  'notifications:read',
+  'search:read',
 ] as const;
 
 export type Scope = (typeof ALL_SCOPES)[number];
