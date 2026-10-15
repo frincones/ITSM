@@ -15,6 +15,8 @@
 import { NextResponse } from 'next/server';
 
 import { zodToJsonSchema } from '~/lib/mcp/json-schema';
+import { listPrompts } from '~/lib/mcp/prompts';
+import { listResourceTemplates } from '~/lib/mcp/resources';
 import {
   MCP_PROTOCOL_VERSION,
   MCP_SERVER_NAME,
@@ -83,6 +85,10 @@ export async function GET(request: Request) {
       },
       scopes: ALL_SCOPES,
       tools,
+      // Resources and prompts are listed without their contents: the
+      // manifest is public, and reading a resource is scope-guarded.
+      resourceTemplates: listResourceTemplates(),
+      prompts: listPrompts(),
       examples: [
         {
           title: 'List tickets',

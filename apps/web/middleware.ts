@@ -13,7 +13,14 @@ const CSRF_SECRET_COOKIE = 'csrfSecret';
 const NEXT_ACTION_HEADER = 'next-action';
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|images|locales|assets|api/*).*)'],
+  // `.well-known` is excluded alongside the other public surfaces: the
+  // OAuth discovery documents must be readable by a client that has no
+  // session and no CSRF cookie, which is the whole point of them. Running
+  // the session middleware over them adds a Supabase round trip per fetch
+  // and risks a redirect on a path that must always answer with JSON.
+  matcher: [
+    '/((?!_next/static|_next/image|images|locales|assets|api/*|\\.well-known).*)',
+  ],
 };
 
 const getUser = (request: NextRequest, response: NextResponse) => {
