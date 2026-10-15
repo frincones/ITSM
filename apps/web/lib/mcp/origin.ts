@@ -35,3 +35,23 @@ export function resolveOrigin(request: Request): string {
 export function resolveResourceId(request: Request): string {
   return `${resolveOrigin(request)}/api/mcp`;
 }
+
+/**
+ * Same origin, resolved from the ambient request in a Server Component.
+ *
+ * A page has no Request object, but the consent screen must produce the
+ * exact same `resource` string as the metadata route handlers above — a
+ * one-character difference makes every token it issues fail the RFC 8707
+ * audience check. So both read the forwarded headers.
+ */
+export async function resolveRequestOrigin(): Promise<string> {
+  const { headers } = await import('next/headers');
+  const h = await headers();
+
+  const host = h.get('x-forwarded-host') ?? h.get('host') ?? '';
+  const proto = (h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https'))
+    .split(',')[0]!
+    .trim();
+
+  return host ? `${proto}://${host}` : '';
+}

@@ -21,7 +21,11 @@ import type { TypedSupabaseClient } from '~/lib/domain/types';
 import { forbidden } from './errors';
 import { hasScope } from '~/lib/services/api-key.types';
 
-export type McpChannel = 'mcp' | 'rest' | 'internal';
+// Mirrors the mcp_audit_log channel CHECK constraint. 'oauth' was added in
+// migration 00066: a call authenticated by an OAuth token is neither an API
+// key call nor an internal one, and auditing it as 'mcp' would lose the
+// distinction between a machine credential and a human-granted one.
+export type McpChannel = 'mcp' | 'rest' | 'internal' | 'oauth';
 
 export interface McpCallerMeta {
   /** API key id when authenticated via key, null for internal callers. */

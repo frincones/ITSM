@@ -61,7 +61,10 @@ export function asJson(value: Record<string, unknown>): Json {
 }
 
 /** Where a domain call came from. Mirrors McpChannel plus 'ui' and 'cron'. */
-export type DomainChannel = 'ui' | 'mcp' | 'rest' | 'internal' | 'cron';
+// 'oauth' is a call authenticated by an OAuth token rather than an API
+// key. It is an in-memory attribution only — no column stores it — so
+// adding it needs no migration.
+export type DomainChannel = 'ui' | 'mcp' | 'rest' | 'internal' | 'cron' | 'oauth';
 
 /**
  * The resolved identity performing an operation.

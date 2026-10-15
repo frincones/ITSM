@@ -47,9 +47,12 @@ export async function GET(request: Request) {
       // the audience of any token issued for it.
       resource,
 
-      // RFC 9728 §2 — issuers whose tokens this resource accepts. Empty
-      // until an authorization server exists; see the note above.
-      authorization_servers: [],
+      // RFC 9728 §2 — issuers whose tokens this resource accepts. The MCP
+      // spec requires at least one entry, and a client reads this to find
+      // where to authenticate. The app hosts its own: Supabase Auth
+      // advertises OAuth endpoints that return 404, so it cannot serve as
+      // the authorization server (see lib/oauth/oauth.service.ts).
+      authorization_servers: [origin],
 
       scopes_supported: ALL_SCOPES,
 
@@ -60,13 +63,14 @@ export async function GET(request: Request) {
       resource_name: 'NovaDesk ITSM',
       resource_documentation: `${origin}/api/mcp/manifest`,
 
-      // Non-standard, additive: tells a client what it can actually do today
-      // instead of leaving it to infer from an empty authorization_servers.
+      // Non-standard, additive: API keys remain a supported method
+      // alongside OAuth, and a client reading only the standard fields
+      // would not learn that.
       authorization_status: {
-        oauth: 'not_yet_available',
+        oauth: 'available',
         detail:
-          'OAuth discovery is published, but no authorization server is configured yet. Authenticate with an API key issued from the ITSM settings and sent as `Authorization: Bearer <key>`.',
-        supported_methods: ['api_key'],
+          'Authenticate with OAuth 2.1 (authorization code + PKCE) via the authorization server listed above, or with an API key issued from the ITSM settings. Both are sent as `Authorization: Bearer <token>`.',
+        supported_methods: ['oauth2', 'api_key'],
         api_key_format: 'nvd_{live|test}_{32 chars}',
       },
     },
