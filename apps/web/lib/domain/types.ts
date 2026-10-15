@@ -24,6 +24,42 @@ import 'server-only';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import type { Database } from '@kit/supabase/database';
+
+/**
+ * A Supabase client that knows the schema.
+ *
+ * Bare `SupabaseClient` resolves to `SupabaseClient<any>`, which silently
+ * accepts any table and any column — that is how six invented-column bugs
+ * compiled cleanly and then failed on first use in production. Binding the
+ * Database generic makes `.insert({ columnThatDoesNotExist: 1 })` a compile
+ * error instead of a runtime 400.
+ */
+export type TypedSupabaseClient = SupabaseClient<Database>;
+
+/** The shape a jsonb column accepts. */
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[];
+
+/**
+ * Narrows a plain object to the Json type a jsonb column expects.
+ *
+ * `Record<string, unknown>` is the natural shape to build a patch in, but
+ * `unknown` is wider than Json, so it is rejected on write. The values here
+ * come from a column that was already jsonb and from literals we control,
+ * so the assertion restates what is true rather than hiding a risk — and
+ * keeping it in one named place means the next person sees the reasoning
+ * instead of an unexplained cast at the call site.
+ */
+export function asJson(value: Record<string, unknown>): Json {
+  return value as Json;
+}
+
 /** Where a domain call came from. Mirrors McpChannel plus 'ui' and 'cron'. */
 export type DomainChannel = 'ui' | 'mcp' | 'rest' | 'internal' | 'cron';
 
@@ -59,7 +95,7 @@ export interface DomainActor {
 /** Everything a domain function needs: who is acting, and on what. */
 export interface DomainContext {
   actor: DomainActor;
-  client: SupabaseClient;
+  client: TypedSupabaseClient;
 }
 
 /** Uniform result shape. Mirrors the ActionResult used by Server Actions. */
@@ -120,13 +156,14 @@ export function resolveOrgScope(
 /** Throws nothing: returns the actor's auth user id or a typed failure. */
 export function requireUserId(
   actor: DomainActor,
-): { userId: string; error: null } | { userId: null; error: string } {
+): { ok: true; userId: string; error: null } | { ok: false; userId: null; error: string } {
   if (!actor.userId) {
     return {
+      ok: false,
       userId: null,
       error:
         'This caller has no acting user identity, so it cannot perform writes that record an author. Assign an active agent to the API key (api_keys.actor_agent_id) and retry.',
     };
   }
-  return { userId: actor.userId, error: null };
+  return { ok: true, userId: actor.userId, error: null };
 }

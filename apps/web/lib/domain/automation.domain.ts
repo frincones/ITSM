@@ -28,7 +28,9 @@ import 'server-only';
 // Automation is tenant-wide: workflows and rules are not scoped per
 // organization, so there is no org filter to apply here.
 import {
+  asJson,
   fail,
+  type Json,
   ok,
   type DomainContext,
   type DomainResult,
@@ -239,7 +241,7 @@ export async function createWorkflow(
       name: fields.name,
       description: fields.description ?? null,
       trigger_type: fields.trigger_type,
-      trigger_config: fields.trigger_config ?? {},
+      trigger_config: asJson(fields.trigger_config ?? {}),
       is_active: false,
       version: 1,
     })
@@ -393,7 +395,7 @@ export async function listWorkflowExecutions(
 // ---------------------------------------------------------------------------
 
 export interface ListRulesFilters {
-  rule_type?: string | null;
+  rule_type?: RuleType | null;
   is_active?: boolean | null;
   search?: string | null;
   page: number;
@@ -544,7 +546,7 @@ export async function createRule(
         rule_id: ruleId,
         field: c.field,
         operator: c.operator,
-        value: c.value,
+        value: c.value as Json,
         logical_group: c.logical_group ?? 0,
       })),
     );
@@ -559,7 +561,7 @@ export async function createRule(
       tenant_id: actor.tenantId,
       rule_id: ruleId,
       action_type: a.action_type,
-      config: a.config ?? {},
+      config: asJson(a.config ?? {}),
       execution_order: a.execution_order ?? i,
     })),
   );

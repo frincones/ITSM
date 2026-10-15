@@ -212,7 +212,9 @@ export async function getTicketSlaStatus(
 async function cycleCall(
   ctx: DomainContext,
   organizationId: string,
-  fn: string,
+  // Narrowed to the cycle functions this helper actually dispatches to:
+  // the client types rpc() against the known function names.
+  fn: 'support_cycle_usage' | 'support_cycle_compliance' | 'support_termination_risk',
   at?: string | null,
 ): Promise<DomainResult<unknown>> {
   if (!orgAllowed(ctx, organizationId)) {
@@ -397,7 +399,9 @@ export async function getTicketStats(
   const { data, error } = await query;
   if (error) return fail(error.message, 'internal');
 
-  const rows = (data ?? []) as Array<Record<string, string | null>>;
+  // Through unknown: the rows carry enum unions, which do not overlap with
+  // a plain string index signature even though the tallies only read keys.
+  const rows = (data ?? []) as unknown as Array<Record<string, string | null>>;
   const tally = (key: string) =>
     rows.reduce<Record<string, number>>((acc, r) => {
       const k = (r[key] ?? '(none)') as string;

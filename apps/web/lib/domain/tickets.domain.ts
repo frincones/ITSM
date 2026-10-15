@@ -39,6 +39,7 @@ import {
 import { addFollower } from '~/lib/services/ticket-followers.service';
 
 import {
+  asJson,
   fail,
   isClientActor,
   ok,
@@ -54,6 +55,21 @@ import {
 // Moved from lib/actions/tickets.ts unchanged. Exported so the MCP layer can
 // advertise valid targets in a tool description and the UI can build pickers
 // from the same map instead of duplicating it.
+
+/** Every status the ticket_status enum allows. */
+export type TicketStatus =
+  | 'new'
+  | 'backlog'
+  | 'assigned'
+  | 'in_progress'
+  | 'pending'
+  | 'detenido'
+  | 'esperando_ventana'
+  | 'testing'
+  | 'resolved'
+  | 'reopened'
+  | 'closed'
+  | 'cancelled';
 
 export const VALID_TRANSITIONS: Record<string, string[]> = {
   new: ['backlog', 'assigned', 'in_progress', 'pending', 'detenido', 'testing', 'closed', 'cancelled'],
@@ -128,12 +144,29 @@ function runAfterResponse(work: () => Promise<unknown>): void {
 // createTicket
 // ---------------------------------------------------------------------------
 
+/**
+ * Enum columns typed as unions rather than `string`.
+ *
+ * Mirrors the Postgres enums. Declaring these as `string` is what let
+ * `channel: 'web'` through — a value the ticket_channel enum does not
+ * contain, which would have failed every ticket created from the web form.
+ */
+export type TicketType =
+  | 'incident'
+  | 'request'
+  | 'warranty'
+  | 'support'
+  | 'backlog'
+  | 'desarrollo_pendiente';
+
+export type SeverityLevel = 'low' | 'medium' | 'high' | 'critical';
+
 export interface CreateTicketFields {
   title: string;
   description: string;
-  type: string;
-  urgency: string;
-  impact: string;
+  type: TicketType;
+  urgency: SeverityLevel;
+  impact: SeverityLevel;
   organization_id?: string | null;
   category_id?: string | null;
   subcategory_id?: string | null;
@@ -237,7 +270,7 @@ export async function createTicket(
       assigned_agent_id: fields.assigned_agent_id ?? null,
       assigned_group_id: fields.assigned_group_id ?? null,
       tags: fields.tags ?? [],
-      custom_fields: fields.custom_fields ?? {},
+      custom_fields: asJson(fields.custom_fields ?? {}),
       status: 'new',
       // ticket_channel is a Postgres enum: portal | email | whatsapp | phone
       // | api | ai_agent | web_widget. Anything else fails the insert, so we
@@ -317,7 +350,7 @@ export interface ChangeStatusOptions {
 export async function changeTicketStatus(
   ctx: DomainContext,
   ticketId: string,
-  newStatus: string,
+  newStatus: TicketStatus,
   options: ChangeStatusOptions = {},
 ): Promise<DomainResult<Record<string, unknown>>> {
   const { actor, client } = ctx;
@@ -458,16 +491,19 @@ export async function changeTicketStatus(
 
   // Queue the NPS survey on terminal transitions. The csat-dispatcher cron
   // sends the email a few minutes after this row appears.
+  // Captured before the closure: narrowing from the `if` does not survive
+  // into deferred work, and there is nobody to survey without an address.
+  const surveyRecipient = ticket.requester_email;
   if (
     queueNps &&
     (newStatus === 'resolved' || newStatus === 'closed') &&
     existing.status !== newStatus &&
-    ticket.requester_email
+    surveyRecipient
   ) {
     runAfterResponse(() => queueNpsForTicket({
       tenantId: actor.tenantId,
       ticketId: ticket.id,
-      recipientEmail: ticket.requester_email,
+      recipientEmail: surveyRecipient,
       organizationId: ticket.organization_id,
       agentId: ticket.assigned_agent_id,
     }));
@@ -503,7 +539,10 @@ export async function addFollowup(
   const { actor, client } = ctx;
 
   const resolved = requireUserId(actor);
-  if (resolved.error) return fail(resolved.error, 'forbidden');
+  // Narrow on the value, not the error: TypeScript discriminates this union
+  // by `userId`, so checking `error` leaves userId as `string | null` and the
+  // NOT NULL author column rejects it at the type level.
+  if (!resolved.ok) return fail(resolved.error, 'forbidden');
 
   let check = client
     .from('tickets')
