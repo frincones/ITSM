@@ -135,11 +135,15 @@ async function callTool(name, argsObj) {
 async function suiteTransport() {
   if (!JSON_OUT) console.log('\n\x1b[1mTransport / JSON-RPC envelope\x1b[0m');
 
+  // Authenticated: this server gates `initialize`, because Claude.ai only
+  // starts its OAuth flow after a 401 on the first request and ignores a
+  // WWW-Authenticate header on a 200. The unauthenticated behaviour is
+  // asserted in the authorization suite instead.
   const init = await rpc('initialize', {
     protocolVersion: '2025-03-26',
     capabilities: {},
     clientInfo: { name: 'contract-test', version: '1.0' },
-  }, { auth: false });
+  });
 
   check('initialize returns 200', init.status === 200, `got ${init.status}`);
   check('initialize carries Mcp-Session-Id', !!init.headers.get('mcp-session-id'));
@@ -156,7 +160,7 @@ async function suiteTransport() {
       protocolVersion: requested,
       capabilities: {},
       clientInfo: { name: 'negotiation-probe', version: '1.0' },
-    }, { auth: false });
+    });
     check(
       `echoes protocolVersion ${requested} back to a client that speaks it`,
       r.body?.result?.protocolVersion === requested,
@@ -167,7 +171,7 @@ async function suiteTransport() {
   // A client newer than us must get our ceiling, not an echo of its own ask.
   const future = await rpc('initialize', {
     protocolVersion: '2026-07-28', capabilities: {}, clientInfo: { name: 'future', version: '1' },
-  }, { auth: false });
+  });
   check('clamps a client newer than the server to our newest version',
     future.body?.result?.protocolVersion === SUPPORTED[0],
     `got ${future.body?.result?.protocolVersion}`);
@@ -210,6 +214,22 @@ async function suiteTransport() {
   const ping = await rpc('ping', null, { auth: false });
   check('ping responds without auth', ping.status === 200 && !ping.body?.error);
 
+  // The spec's flow begins with "MCP request without token -> 401 with
+  // WWW-Authenticate". A client's first request is initialize, so if that
+  // returns 200 the client concludes the server is open, never reads the
+  // resource metadata, and never starts OAuth. Claude.ai failed exactly
+  // this way, reporting only a generic "could not connect".
+  const initNoAuth = await rpc(
+    'initialize',
+    { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'probe', version: '0' } },
+    { auth: false },
+  );
+  check('initialize without a token → 401', initNoAuth.status === 401,
+    `got ${initNoAuth.status} — a 200 here stops any client from discovering OAuth`);
+  check('that 401 carries the discovery challenge',
+    !!initNoAuth.headers.get('www-authenticate'),
+    initNoAuth.headers.get('www-authenticate') ?? 'no header');
+
   const bad = await rpc(null, null, { raw: { jsonrpc: '1.0', id: 1, method: 'ping' } });
   check('rejects non-2.0 envelope', bad.body?.error?.code === -32600, JSON.stringify(bad.body?.error));
 
@@ -218,7 +238,7 @@ async function suiteTransport() {
 
   const sse = await rpc('initialize', {
     protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'sse', version: '1' },
-  }, { auth: false, accept: 'application/json, text/event-stream' });
+  }, { accept: 'application/json, text/event-stream' });
   check('honors Accept: text/event-stream on POST', sse.status === 200 && !!sse.body?.result);
 }
 
@@ -359,6 +379,13 @@ async function suiteAuth() {
   check('401 carries a WWW-Authenticate challenge', !!wwwAuth, `got ${wwwAuth ?? 'none'}`);
   check('challenge points at the metadata document',
     !!wwwAuth && wwwAuth.includes('resource_metadata=') && wwwAuth.includes('/.well-known/oauth-protected-resource'),
+    wwwAuth ?? '');
+  // RFC 9728 §3.1 again: the advertised URL should be the canonical one,
+  // carrying the resource path. Both forms are served, so a client works
+  // either way, but a challenge that disagrees with the spec is a trap for
+  // the next reader.
+  check('challenge advertises the path-based metadata URL',
+    !!wwwAuth && wwwAuth.includes(`/.well-known/oauth-protected-resource${resourcePath}`),
     wwwAuth ?? '');
 
   const noKeyCall = await rpc('tools/call', { name: 'tickets_list', arguments: {} }, { auth: false });
