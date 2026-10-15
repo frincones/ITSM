@@ -120,6 +120,12 @@ export const ALL_SCOPES = [
   'changes:approve',
   'reports:read',
   'catalog:read',
+  'nps:read',
+  'portal:read',
+  'projects:read',
+  'projects:write',
+  'notifications:read',
+  'search:read',
 ] as const;
 
 export type Scope = (typeof ALL_SCOPES)[number];
