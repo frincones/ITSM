@@ -22,7 +22,6 @@ import {
   validateAuthorizeRequest,
 } from '~/lib/oauth/authorize.service';
 import { resolveClient } from '~/lib/oauth/oauth.service';
-import { asOAuthClient } from '~/lib/oauth/oauth.types';
 
 export type ConsentResult =
   | { ok: true; redirectTo: string }
@@ -73,7 +72,7 @@ export async function submitConsentAction(input: {
 
   // Re-validate rather than trusting the form: the parameters made a round
   // trip through the browser, where they could have been edited.
-  const admin = asOAuthClient(getSupabaseServerAdminClient());
+  const admin = getSupabaseServerAdminClient();
   const params = new URLSearchParams(input.rawQuery);
   const validation = await validateAuthorizeRequest(
     admin,

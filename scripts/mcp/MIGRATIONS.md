@@ -1,7 +1,18 @@
-# Migraciones pendientes — MCP Platform
+# Migraciones — MCP Platform
 
-Registro de las migraciones que este trabajo acumula **sin ejecutar**. Se
-aplican al final, en una pasada controlada, revisando una por una.
+Registro de las migraciones que este trabajo acumuló. Se mantuvieron sin
+ejecutar durante el desarrollo y se aplicaron al final, en una pasada
+controlada, revisando una por una.
+
+> **TODAS APLICADAS — 15-oct-2026. No queda ninguna pendiente.**
+> 00064, 00065 y 00066 están en producción y verificadas. Las secciones de
+> abajo quedan como referencia de qué hace cada una y cómo revertirla.
+>
+> No confíes en este archivo sin verificar: lo que manda es la base de datos.
+> ```bash
+> curl -s "$SB_URL/rest/v1/oauth_clients?select=client_id&limit=1" >   -H "apikey: $SB_KEY" -H "Authorization: Bearer $SB_KEY"
+> # 404 = pendiente · 200 = ya aplicada
+> ```
 
 El código ya desplegado tolera que no estén aplicadas: `verifyApiKey` lee
 `actor_agent_id` / `actor_user_id` con `?? null`, así que contra la función
@@ -17,7 +28,7 @@ esas tablas y queda intacta.
 
 ---
 
-## 00064 — `mcp_actor_attribution`
+## 00064 — `mcp_actor_attribution` · ✅ APLICADA
 
 **Para qué va.** Hoy ninguna API key puede escribir en una tabla cuya columna
 de autor sea `NOT NULL REFERENCES auth.users(id)`. Es el caso de
@@ -71,7 +82,7 @@ SELECT k.id FROM api_keys k JOIN agents a ON a.id = k.actor_agent_id
 
 ---
 
-## 00065 — `mcp_rate_bucket_gc`
+## 00065 — `mcp_rate_bucket_gc` · ✅ APLICADA
 
 **Para qué va.** `increment_rate_bucket()` (00039) corre un `DELETE` sobre
 `mcp_rate_buckets` en **cada llamada autenticada**:
@@ -121,7 +132,7 @@ SELECT increment_rate_bucket('<api_key_uuid>'::uuid, 60);
 
 ---
 
-## 00066 — `oauth_authorization_server`
+## 00066 — `oauth_authorization_server` · ✅ APLICADA
 
 **Para qué va.** Habilita conectar el servidor MCP desde **Claude.ai** y otros
 clientes remotos, que no pueden usar API keys: exigen un flujo OAuth. Claude
@@ -219,9 +230,9 @@ rm scripts/mcp/oauth-schema-audit.mjs       # schema-audit.mjs ya las cubre
 ## Orden de aplicación
 
 ```
-00064_mcp_actor_attribution.sql    (primero: habilita las escrituras)
-00065_mcp_rate_bucket_gc.sql       (después: independiente)
-00066_oauth_authorization_server.sql  (último: depende de 00064)
+00064_mcp_actor_attribution.sql       ✅ ya aplicada
+00065_mcp_rate_bucket_gc.sql          ✅ ya aplicada
+00066_oauth_authorization_server.sql  ✅ ya aplicada
 ```
 
 00064 y 00065 son independientes entre sí; el orden solo refleja prioridad.

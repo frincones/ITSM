@@ -13,7 +13,7 @@
 
 import 'server-only';
 
-import type { OAuthSupabaseClient } from '~/lib/oauth/oauth.types';
+import type { TypedSupabaseClient } from '~/lib/domain/types';
 
 import {
   AUTH_CODE_TTL_SECONDS,
@@ -69,10 +69,10 @@ function buildErrorRedirect(
  * redirect_uri that has already been proven legitimate.
  */
 export async function validateAuthorizeRequest(
-  supabase: OAuthSupabaseClient,
+  supabase: TypedSupabaseClient,
   params: URLSearchParams,
   expectedResource: string,
-  resolveClientFn: (c: OAuthSupabaseClient, id: string) => Promise<ClientRecord | null>,
+  resolveClientFn: (c: TypedSupabaseClient, id: string) => Promise<ClientRecord | null>,
 ): Promise<AuthorizeValidation> {
   const clientId = params.get('client_id');
   const redirectUri = params.get('redirect_uri');
@@ -233,7 +233,7 @@ export async function validateAuthorizeRequest(
  * original request.
  */
 export async function issueAuthorizationCode(
-  supabase: OAuthSupabaseClient,
+  supabase: TypedSupabaseClient,
   approval: {
     request: AuthorizeRequest;
     userId: string;

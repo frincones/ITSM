@@ -17,8 +17,9 @@
 
 import { getSupabaseServerAdminClient } from '@kit/supabase/server-admin-client';
 
+import type { TypedSupabaseClient } from '~/lib/domain/types';
 import { recordMcpCall } from '~/lib/mcp/audit';
-import { asOAuthClient, type OAuthSupabaseClient } from '~/lib/oauth/oauth.types';
+
 import {
   canonicalResource,
   hashToken,
@@ -67,9 +68,7 @@ async function readParams(request: Request): Promise<Record<string, string>> {
 
 export async function POST(request: Request) {
   const params = await readParams(request);
-  // Cast at the boundary: the generated types predate migration 00066.
-  // See lib/oauth/oauth.types.ts — this disappears once it is applied.
-  const supabase = asOAuthClient(getSupabaseServerAdminClient());
+  const supabase = getSupabaseServerAdminClient();
 
   const grantType = params.grant_type;
   if (grantType === 'authorization_code') {
@@ -87,7 +86,7 @@ export async function POST(request: Request) {
 
 async function handleAuthorizationCode(
   request: Request,
-  supabase: OAuthSupabaseClient,
+  supabase: TypedSupabaseClient,
   params: Record<string, string>,
 ) {
   const { code, client_id, redirect_uri, code_verifier, resource } = params;
@@ -202,7 +201,7 @@ async function handleAuthorizationCode(
 
 async function handleRefreshToken(
   request: Request,
-  supabase: OAuthSupabaseClient,
+  supabase: TypedSupabaseClient,
   params: Record<string, string>,
 ) {
   const { refresh_token, client_id, scope } = params;

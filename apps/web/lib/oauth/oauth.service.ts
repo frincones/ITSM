@@ -21,7 +21,7 @@ import 'server-only';
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
-import type { OAuthSupabaseClient } from './oauth.types';
+import type { TypedSupabaseClient } from '~/lib/domain/types';
 
 import { ALL_SCOPES } from '~/lib/services/api-key.types';
 
@@ -155,7 +155,7 @@ export interface ClientRecord {
  * document's own client_id must equal the URL exactly.
  */
 export async function resolveClient(
-  client: OAuthSupabaseClient,
+  client: TypedSupabaseClient,
   clientId: string,
 ): Promise<ClientRecord | null> {
   const { data } = await client
@@ -255,7 +255,7 @@ export interface IssuedTokens {
  * key.
  */
 export async function issueTokens(
-  client: OAuthSupabaseClient,
+  client: TypedSupabaseClient,
   grant: {
     clientId: string;
     userId: string;
@@ -324,7 +324,7 @@ export async function issueTokens(
  * code is detected, which OAuth 2.1 §7.5 treats as evidence of compromise.
  */
 export async function revokeTokenFamily(
-  client: OAuthSupabaseClient,
+  client: TypedSupabaseClient,
   match: { refreshParentId?: string; userId?: string; clientId?: string },
 ): Promise<number> {
   let query = client

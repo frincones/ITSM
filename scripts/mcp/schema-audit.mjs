@@ -37,6 +37,28 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = join(__dirname, '..', '..');
 const DOMAIN_DIR = join(REPO, 'apps', 'web', 'lib', 'domain');
 
+// The OAuth modules write to oauth_* tables through the same Supabase client
+// and are just as exposed to an invented column. TypeScript will not catch
+// one: its excess-property check does not reach inside the .insert()
+// overloads, which is the whole reason this audit exists.
+const EXTRA_DIRS = [
+  join(REPO, 'apps', 'web', 'lib', 'oauth'),
+  join(REPO, 'apps', 'web', 'app', 'api', 'oauth'),
+  join(REPO, 'apps', 'web', 'app', 'oauth'),
+];
+
+/** Collects .ts/.tsx files recursively, so nested route folders are covered. */
+function collect(dir) {
+  if (!existsSync(dir)) return [];
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...collect(full));
+    else if (/\.tsx?$/.test(entry.name)) out.push(full);
+  }
+  return out;
+}
+
 const VERBOSE = process.argv.includes('--verbose');
 
 const SB_URL = process.env.SB_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -113,13 +135,16 @@ async function main() {
   }
 
   const schema = await liveColumns();
-  const files = readdirSync(DOMAIN_DIR).filter((f) => f.endsWith('.ts'));
+  const files = [
+    ...readdirSync(DOMAIN_DIR).filter((f) => f.endsWith('.ts')).map((f) => join(DOMAIN_DIR, f)),
+    ...EXTRA_DIRS.flatMap(collect),
+  ];
 
   const problems = [];
   let checked = 0;
 
-  for (const file of files) {
-    const path = join(DOMAIN_DIR, file);
+  for (const path of files) {
+    const file = path.slice(REPO.length + 1);
     const source = readFileSync(path, 'utf8');
 
     for (const write of extractWrites(source)) {
@@ -153,7 +178,7 @@ async function main() {
     }
   }
 
-  console.log(`\nSchema audit: ${checked} column references across ${files.length} domain modules.`);
+  console.log(`\nSchema audit: ${checked} column references across ${files.length} modules (domain + oauth).`);
 
   if (!problems.length) {
     console.log('No invented columns found.\n');

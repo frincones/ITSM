@@ -19,7 +19,6 @@ import { randomBytes } from 'node:crypto';
 import { getSupabaseServerAdminClient } from '@kit/supabase/server-admin-client';
 
 import { SUPPORTED_SCOPES, hashToken, oauthError } from '~/lib/oauth/oauth.service';
-import { asOAuthClient } from '~/lib/oauth/oauth.types';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -106,7 +105,7 @@ export async function POST(request: Request) {
     clientSecretHash = hashToken(clientSecret);
   }
 
-  const supabase = asOAuthClient(getSupabaseServerAdminClient());
+  const supabase = getSupabaseServerAdminClient();
   const { error } = await supabase.from('oauth_clients').insert({
     client_id: clientId,
     client_secret_hash: clientSecretHash,

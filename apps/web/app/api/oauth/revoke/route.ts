@@ -20,7 +20,6 @@
 import { getSupabaseServerAdminClient } from '@kit/supabase/server-admin-client';
 
 import { hashToken, oauthError, revokeTokenFamily } from '~/lib/oauth/oauth.service';
-import { asOAuthClient } from '~/lib/oauth/oauth.types';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -69,7 +68,7 @@ export async function POST(request: Request) {
 
   if (!token) return oauthError('invalid_request', 'token is required');
 
-  const supabase = asOAuthClient(getSupabaseServerAdminClient());
+  const supabase = getSupabaseServerAdminClient();
 
   const { data } = await supabase
     .from('oauth_tokens')

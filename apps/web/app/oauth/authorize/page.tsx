@@ -21,7 +21,6 @@ import { getSupabaseServerClient } from '@kit/supabase/server-client';
 import { resolveRequestOrigin } from '~/lib/mcp/origin';
 import { validateAuthorizeRequest } from '~/lib/oauth/authorize.service';
 import { resolveClient } from '~/lib/oauth/oauth.service';
-import { asOAuthClient } from '~/lib/oauth/oauth.types';
 
 import { ConsentScreen } from './_components/consent-screen';
 
@@ -121,7 +120,7 @@ export default async function AuthorizePage({
   // because behind Vercel the configured URL and the actual host can differ.
   const resource = `${await resolveRequestOrigin()}/api/mcp`;
 
-  const admin = asOAuthClient(getSupabaseServerAdminClient());
+  const admin = getSupabaseServerAdminClient();
   const validation = await validateAuthorizeRequest(admin, params, resource, resolveClient);
 
   if (validation.kind === 'render_error') {

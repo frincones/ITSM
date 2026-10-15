@@ -22,7 +22,6 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { verifyApiKey } from '~/lib/services/api-key.service';
 
 import { hashToken } from './oauth.service';
-import { asOAuthClient } from './oauth.types';
 
 export interface VerifiedCredential {
   /** 'mcp' for an API key, 'oauth' for a bearer token. Used in the audit. */
@@ -83,7 +82,7 @@ async function verifyOAuthAccessToken(
 ): Promise<VerifiedCredential | null> {
   // The audience check lives inside the function so it cannot be skipped by
   // a caller that forgets to compare.
-  const { data, error } = await asOAuthClient(supabase).rpc('verify_oauth_token', {
+  const { data, error } = await supabase.rpc('verify_oauth_token', {
     p_token_hash: hashToken(token),
     p_resource: resource,
   });
