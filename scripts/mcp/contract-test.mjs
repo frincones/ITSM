@@ -227,6 +227,31 @@ async function suiteAuth() {
 
   // RFC 9728 discovery: the document a client fetches after a 401 to learn
   // where to authenticate. Required by the MCP authorization spec.
+  // RFC 9728 §3.1: when the resource identifier has a path, the metadata
+  // lives at /.well-known/oauth-protected-resource<path> — the path is
+  // APPENDED after the well-known suffix, not placed before it. Claude.ai
+  // requests exactly that URL, and serving the document only at the root is
+  // what made the connection fail with "No se pudo conectar con ITSM":
+  // a 404 there aborts the flow before it starts.
+  const resourcePath = new URL(ENDPOINT).pathname;
+  const prmPathUrl = `${CFG.baseUrl.replace(/\/$/, '')}/.well-known/oauth-protected-resource${resourcePath}`;
+  const prmPathRes = await fetch(prmPathUrl, { signal: AbortSignal.timeout(20_000) }).catch(() => null);
+  const prmPath = prmPathRes?.ok ? await prmPathRes.json().catch(() => null) : null;
+
+  check('RFC 9728 path-based metadata is published', prmPathRes?.status === 200,
+    `HTTP ${prmPathRes?.status ?? 'unreachable'} at ${prmPathUrl}`);
+  check('path-based metadata names this exact resource',
+    prmPath?.resource === ENDPOINT, `${prmPath?.resource} vs ${ENDPOINT}`);
+
+  // A catch-all that answers for any path would hand out discovery metadata
+  // for resources this server does not serve.
+  const bogus = await fetch(
+    `${CFG.baseUrl.replace(/\/$/, '')}/.well-known/oauth-protected-resource/no/such/resource`,
+    { signal: AbortSignal.timeout(20_000) },
+  ).catch(() => null);
+  check('metadata is not served for an unknown resource path',
+    bogus?.status === 404, `HTTP ${bogus?.status}`);
+
   const prmUrl = `${CFG.baseUrl.replace(/\/$/, '')}/.well-known/oauth-protected-resource`;
   const prmRes = await fetch(prmUrl, { signal: AbortSignal.timeout(20_000) });
   const prm = await prmRes.json().catch(() => null);

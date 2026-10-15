@@ -1,7 +1,17 @@
 // ---------------------------------------------------------------------------
 // OAuth 2.0 Protected Resource Metadata — RFC 9728
 // ---------------------------------------------------------------------------
-// GET /.well-known/oauth-protected-resource
+// GET /.well-known/oauth-protected-resource            (recurso sin path)
+// GET /.well-known/oauth-protected-resource/api/mcp    (este servidor)
+//
+// RFC 9728 §3.1: cuando el identificador del recurso tiene path, ese path se
+// AÑADE DESPUÉS del sufijo well-known — no al principio. Para
+// `https://host/api/mcp` el documento vive en
+// `/.well-known/oauth-protected-resource/api/mcp`.
+//
+// Servirlo solo en la raíz es lo que hacía fallar la conexión desde
+// Claude.ai: pide la ruta con path, recibía 404 y abortaba antes de
+// empezar el flujo. Un catch-all opcional cubre ambas formas.
 //
 // This is the document an MCP client fetches after receiving a 401, to learn
 // WHERE to authenticate. It is the entry point of the whole authorization
@@ -36,9 +46,36 @@ import { ALL_SCOPES } from '~/lib/services/api-key.types';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function GET(request: Request) {
+export async function GET(
+  request: Request,
+  context: { params: Promise<{ resource?: string[] }> },
+) {
   const origin = resolveOrigin(request);
   const resource = resolveResourceId(request);
+
+  // El path pedido debe corresponder al recurso que este documento describe.
+  // Responder el mismo metadata para cualquier ruta convertiría esto en un
+  // comodín: un cliente que pide /otro-servidor recibiría credenciales de
+  // descubrimiento que no le corresponden.
+  const segments = (await context.params).resource ?? [];
+  if (segments.length) {
+    const requested = `/${segments.join('/')}`;
+    if (requested !== new URL(resource).pathname) {
+      return new Response(
+        JSON.stringify({
+          error: 'not_found',
+          error_description: `No protected resource metadata for ${requested}. This server publishes ${new URL(resource).pathname}.`,
+        }),
+        {
+          status: 404,
+          headers: {
+            'content-type': 'application/json',
+            'access-control-allow-origin': '*',
+          },
+        },
+      );
+    }
+  }
 
   return NextResponse.json(
     {
