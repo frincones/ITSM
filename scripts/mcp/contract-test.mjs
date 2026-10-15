@@ -219,8 +219,48 @@ async function suiteTransport() {
 async function suiteAuth() {
   if (!JSON_OUT) console.log('\n\x1b[1mAuthentication / authorization\x1b[0m');
 
+  // RFC 9728 discovery: the document a client fetches after a 401 to learn
+  // where to authenticate. Required by the MCP authorization spec.
+  const prmUrl = `${CFG.baseUrl.replace(/\/$/, '')}/.well-known/oauth-protected-resource`;
+  const prmRes = await fetch(prmUrl, { signal: AbortSignal.timeout(20_000) });
+  const prm = await prmRes.json().catch(() => null);
+
+  check('protected resource metadata is published', prmRes.status === 200, `HTTP ${prmRes.status}`);
+  check('metadata is readable without a token', prmRes.status === 200);
+  check('metadata declares an absolute resource id',
+    typeof prm?.resource === 'string' && prm.resource.startsWith('http'),
+    `resource=${prm?.resource}`);
+  check('metadata resource matches this endpoint',
+    prm?.resource === ENDPOINT, `${prm?.resource} vs ${ENDPOINT}`);
+  check('metadata declares authorization_servers',
+    Array.isArray(prm?.authorization_servers),
+    `got ${typeof prm?.authorization_servers}`);
+  check('metadata lists supported scopes',
+    Array.isArray(prm?.scopes_supported) && prm.scopes_supported.length > 0,
+    `${prm?.scopes_supported?.length ?? 0} scopes`);
+  check('metadata accepts bearer tokens in the header',
+    Array.isArray(prm?.bearer_methods_supported) && prm.bearer_methods_supported.includes('header'));
+  // Advertising an authorization server that cannot complete a flow is worse
+  // than advertising none: the client fails mid-flow and blames us.
+  warn('an authorization server is configured',
+    (prm?.authorization_servers?.length ?? 0) > 0,
+    prm?.authorization_status?.detail ?? 'none configured');
+
   const noKey = await rpc('tools/list', null, { auth: false });
   check('tools/list without Bearer → -32001', noKey.body?.error?.code === -32001, JSON.stringify(noKey.body?.error));
+
+  // The 401 has to say HOW to authenticate, not just that it failed.
+  const challenge = await fetch(ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method: 'tools/list' }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const wwwAuth = challenge.headers.get('www-authenticate');
+  check('401 carries a WWW-Authenticate challenge', !!wwwAuth, `got ${wwwAuth ?? 'none'}`);
+  check('challenge points at the metadata document',
+    !!wwwAuth && wwwAuth.includes('resource_metadata=') && wwwAuth.includes('/.well-known/oauth-protected-resource'),
+    wwwAuth ?? '');
 
   const noKeyCall = await rpc('tools/call', { name: 'tickets_list', arguments: {} }, { auth: false });
   check('tools/call without Bearer → -32001', noKeyCall.body?.error?.code === -32001);

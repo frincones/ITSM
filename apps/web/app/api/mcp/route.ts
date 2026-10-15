@@ -39,6 +39,7 @@ import { getSupabaseServerAdminClient } from '@kit/supabase/server-admin-client'
 
 import { recordMcpCall, type AuditStatus } from '~/lib/mcp/audit';
 import { buildContext, type McpCallerMeta } from '~/lib/mcp/context';
+import { resolveOrigin } from '~/lib/mcp/origin';
 import {
   JsonRpcErrorCode,
   McpError,
@@ -477,7 +478,7 @@ async function executeRpc(
 function commonHeaders(req: NextRequest, sessionId: string): Headers {
   const h = new Headers();
   h.set(SESSION_HEADER, sessionId);
-  h.set('Access-Control-Expose-Headers', SESSION_HEADER);
+  h.set('Access-Control-Expose-Headers', `${SESSION_HEADER}, WWW-Authenticate`);
   const origin = req.headers.get('origin');
   if (origin) {
     h.set('Access-Control-Allow-Origin', origin);
@@ -485,6 +486,29 @@ function commonHeaders(req: NextRequest, sessionId: string): Headers {
     h.set('Access-Control-Allow-Credentials', 'true');
   }
   return h;
+}
+
+/**
+ * Adds the RFC 9728 challenge to a 401 so a client can discover HOW to
+ * authenticate instead of only learning that it failed.
+ *
+ * `resource_metadata` points at the protected resource metadata document,
+ * which is what the MCP authorization spec requires a 401 to carry. The
+ * realm stays "mcp" so a client can tell this challenge apart from one
+ * issued by the web app.
+ */
+function withAuthChallenge(
+  headers: Headers,
+  req: NextRequest,
+  httpStatus: number,
+): Headers {
+  if (httpStatus !== 401) return headers;
+  const origin = resolveOrigin(req);
+  headers.set(
+    'WWW-Authenticate',
+    `Bearer realm="mcp", resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
+  );
+  return headers;
 }
 
 /**
@@ -505,7 +529,7 @@ function jsonRpcAsSse(
       controller.close();
     },
   });
-  const headers = commonHeaders(req, sessionId);
+  const headers = withAuthChallenge(commonHeaders(req, sessionId), req, status);
   headers.set('Content-Type', 'text/event-stream; charset=utf-8');
   headers.set('Cache-Control', 'no-cache, no-transform');
   headers.set('Connection', 'keep-alive');
@@ -576,7 +600,10 @@ export async function POST(req: NextRequest) {
   const single = body as JsonRpcRequest;
   const { response, httpStatus } = await executeRpc(req, single);
   if (wantsSse) return jsonRpcAsSse(req, response, httpStatus, sessionId);
-  return NextResponse.json(response, { status: httpStatus, headers: commonHeaders(req, sessionId) });
+  return NextResponse.json(response, {
+    status: httpStatus,
+    headers: withAuthChallenge(commonHeaders(req, sessionId), req, httpStatus),
+  });
 }
 
 // ---------------------------------------------------------------------------
