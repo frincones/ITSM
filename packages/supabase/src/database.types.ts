@@ -15,9 +15,9 @@
 // not describe RPC signatures in enough detail to generate them, and a
 // wrong signature would be worse than an honest `unknown`.
 //
-// Tables: 99
-// Functions: 37
-// Generated: 2026-10-15T17:47:29.945Z
+// Tables: 102
+// Functions: 40
+// Generated: 2026-10-15T21:05:21.061Z
 // ---------------------------------------------------------------------------
 
 export type Json =
@@ -60,7 +60,7 @@ export type Database = {
           created_by?: string | null
           updated_by?: string | null
           picture_url?: string | null
-          public_data: Json
+          public_data?: Json
         }
         Update: {
           id?: string
@@ -327,10 +327,10 @@ export type Database = {
           environment?: "live" | "test"
           key_prefix: string
           key_hash: string
-          scopes: string[]
+          scopes?: string[]
           rate_limit_rpm?: number
           organization_ids?: string[] | null
-          metadata: Json
+          metadata?: Json
           is_active?: boolean
           expires_at?: string | null
           last_used_at?: string | null
@@ -1117,7 +1117,7 @@ export type Database = {
           form_id: string
           tenant_id: string
           contact_id?: string | null
-          answers: Json
+          answers?: Json
           ticket_id?: string | null
           status?: string
           created_at?: string
@@ -1914,6 +1914,180 @@ export type Database = {
         }
         Relationships: []
       }
+      oauth_authorization_codes: {
+        Row: {
+          id: string
+          code_hash: string
+          client_id: string
+          user_id: string
+          agent_id: string
+          tenant_id: string
+          scopes: string[]
+          resource: string
+          redirect_uri: string
+          code_challenge: string
+          code_challenge_method: string
+          organization_ids: string[] | null
+          expires_at: string
+          used_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          code_hash: string
+          client_id: string
+          user_id: string
+          agent_id: string
+          tenant_id: string
+          scopes?: string[]
+          resource: string
+          redirect_uri: string
+          code_challenge: string
+          code_challenge_method?: string
+          organization_ids?: string[] | null
+          expires_at: string
+          used_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          code_hash?: string
+          client_id?: string
+          user_id?: string
+          agent_id?: string
+          tenant_id?: string
+          scopes?: string[]
+          resource?: string
+          redirect_uri?: string
+          code_challenge?: string
+          code_challenge_method?: string
+          organization_ids?: string[] | null
+          expires_at?: string
+          used_at?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      oauth_clients: {
+        Row: {
+          id: string
+          client_id: string
+          client_secret_hash: string | null
+          client_name: string
+          client_uri: string | null
+          logo_uri: string | null
+          redirect_uris: string[]
+          grant_types: string[]
+          response_types: string[]
+          token_endpoint_auth_method: string
+          allowed_scopes: string[]
+          is_dynamic: boolean
+          is_active: boolean
+          tenant_id: string | null
+          metadata: Json
+          created_at: string
+          updated_at: string
+          last_used_at: string | null
+        }
+        Insert: {
+          id?: string
+          client_id: string
+          client_secret_hash?: string | null
+          client_name: string
+          client_uri?: string | null
+          logo_uri?: string | null
+          redirect_uris?: string[]
+          grant_types?: string[]
+          response_types?: string[]
+          token_endpoint_auth_method?: string
+          allowed_scopes?: string[]
+          is_dynamic?: boolean
+          is_active?: boolean
+          tenant_id?: string | null
+          metadata?: Json
+          created_at?: string
+          updated_at?: string
+          last_used_at?: string | null
+        }
+        Update: {
+          id?: string
+          client_id?: string
+          client_secret_hash?: string | null
+          client_name?: string
+          client_uri?: string | null
+          logo_uri?: string | null
+          redirect_uris?: string[]
+          grant_types?: string[]
+          response_types?: string[]
+          token_endpoint_auth_method?: string
+          allowed_scopes?: string[]
+          is_dynamic?: boolean
+          is_active?: boolean
+          tenant_id?: string | null
+          metadata?: Json
+          created_at?: string
+          updated_at?: string
+          last_used_at?: string | null
+        }
+        Relationships: []
+      }
+      oauth_tokens: {
+        Row: {
+          id: string
+          token_hash: string
+          token_type: string
+          client_id: string
+          user_id: string
+          agent_id: string
+          tenant_id: string
+          scopes: string[]
+          resource: string
+          organization_ids: string[] | null
+          refresh_parent_id: string | null
+          expires_at: string
+          revoked_at: string | null
+          last_used_at: string | null
+          usage_count: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          token_hash: string
+          token_type: string
+          client_id: string
+          user_id: string
+          agent_id: string
+          tenant_id: string
+          scopes?: string[]
+          resource: string
+          organization_ids?: string[] | null
+          refresh_parent_id?: string | null
+          expires_at: string
+          revoked_at?: string | null
+          last_used_at?: string | null
+          usage_count?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          token_hash?: string
+          token_type?: string
+          client_id?: string
+          user_id?: string
+          agent_id?: string
+          tenant_id?: string
+          scopes?: string[]
+          resource?: string
+          organization_ids?: string[] | null
+          refresh_parent_id?: string | null
+          expires_at?: string
+          revoked_at?: string | null
+          last_used_at?: string | null
+          usage_count?: number
+          created_at?: string
+        }
+        Relationships: []
+      }
       ola_level_actions: {
         Row: {
           id: string
@@ -1929,7 +2103,7 @@ export type Database = {
           tenant_id: string
           ola_level_id: string
           action_type: string
-          config: Json
+          config?: Json
           execution_order?: number | null
           created_at?: string
         }
@@ -2069,7 +2243,7 @@ export type Database = {
           effective_to?: string | null
           created_at?: string
           updated_at?: string
-          quota_notices: Json
+          quota_notices?: Json
           notify_client?: boolean
           plan_id?: string | null
         }
@@ -2537,7 +2711,7 @@ export type Database = {
           id?: string
           profile_id: string
           resource: string
-          actions: string[]
+          actions?: string[]
           scope?: "own" | "group" | "all"
           conditions?: Json | null
           created_at?: string
@@ -2766,7 +2940,7 @@ export type Database = {
           tenant_id: string
           rule_id: string
           action_type: "assign_agent" | "assign_group" | "set_priority" | "set_status" | "set_category" | "set_type" | "add_tag" | "remove_tag" | "send_notification" | "send_webhook" | "add_follower" | "escalate" | "set_sla" | "add_note" | "run_ai_triage"
-          config: Json
+          config?: Json
           execution_order?: number | null
           created_at?: string
         }
@@ -2798,7 +2972,7 @@ export type Database = {
           rule_id: string
           field: string
           operator?: "equals" | "not_equals" | "contains" | "not_contains" | "starts_with" | "ends_with" | "greater_than" | "less_than" | "in" | "not_in" | "is_null" | "is_not_null" | "between" | "regex"
-          value: Json
+          value?: Json
           logical_group?: number | null
           created_at?: string
         }
@@ -3012,7 +3186,7 @@ export type Database = {
           tenant_id: string
           sla_level_id: string
           action_type: string
-          config: Json
+          config?: Json
           execution_order?: number | null
           created_at?: string
         }
@@ -3543,8 +3717,8 @@ export type Database = {
           source_ref?: string | null
           search_tsv?: string | null
           email_message_id?: string | null
-          mentioned_agent_ids: string[]
-          mentioned_contact_ids: string[]
+          mentioned_agent_ids?: string[]
+          mentioned_contact_ids?: string[]
         }
         Update: {
           id?: string
@@ -4478,6 +4652,10 @@ export type Database = {
         Args: Record<string, unknown>
         Returns: unknown
       }
+      gc_oauth_expired: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
       get_current_tenant_id: {
         Args: Record<string, unknown>
         Returns: unknown
@@ -4491,6 +4669,10 @@ export type Database = {
         Returns: unknown
       }
       match_knowledge: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      redeem_authorization_code: {
         Args: Record<string, unknown>
         Returns: unknown
       }
@@ -4599,6 +4781,10 @@ export type Database = {
         Returns: unknown
       }
       verify_api_key: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      verify_oauth_token: {
         Args: Record<string, unknown>
         Returns: unknown
       }

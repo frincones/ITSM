@@ -109,8 +109,36 @@ const TRIGGER_FILLED = new Set([
   'last_testing_strike_at',
 ]);
 
+/**
+ * PostgREST omits `default` for array and jsonb columns.
+ *
+ * Verified against this project's OpenAPI document: `is_dynamic` (boolean)
+ * and `created_at` (timestamptz) carry their defaults, while `grant_types`
+ * (text[]), `allowed_scopes` (text[]) and `metadata` (jsonb) do not — even
+ * though all five are NOT NULL DEFAULT in the migration.
+ *
+ * Trusting the absence would mark them required on insert, so every caller
+ * would have to pass a value the database is perfectly able to supply. That
+ * is a false positive, and a type that lies in the stricter direction still
+ * wastes the reader's time.
+ *
+ * A NOT NULL array or jsonb column is therefore treated as optional. The
+ * trade-off is explicit: an array column that genuinely has no default will
+ * be typed optional and fail at runtime instead of at compile time. In this
+ * schema every such column does have one, and the alternative — maintaining
+ * them by hand in TRIGGER_FILLED — is what this rule replaces.
+ */
+function defaultInvisibleToPostgrest(prop) {
+  return prop.format === 'jsonb' || String(prop.format ?? '').endsWith('[]');
+}
+
 function optionalOnInsert(name, prop, def) {
-  return isNullable(name, def) || prop.default !== undefined || TRIGGER_FILLED.has(name);
+  return (
+    isNullable(name, def) ||
+    prop.default !== undefined ||
+    defaultInvisibleToPostgrest(prop) ||
+    TRIGGER_FILLED.has(name)
+  );
 }
 
 function emitTable(name, def) {
