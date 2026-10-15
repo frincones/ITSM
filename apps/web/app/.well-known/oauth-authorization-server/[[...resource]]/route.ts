@@ -1,7 +1,19 @@
 // ---------------------------------------------------------------------------
 // OAuth 2.0 Authorization Server Metadata — RFC 8414
 // ---------------------------------------------------------------------------
-// GET /.well-known/oauth-authorization-server
+// GET /.well-known/oauth-authorization-server            (el issuer real)
+// GET /.well-known/oauth-authorization-server/api/mcp    (variante que
+//                                                         algunos clientes
+//                                                         prueban primero)
+//
+// El issuer de este servidor NO tiene path (`https://host`), así que la ruta
+// canónica es la raíz. Pero varios clientes —Claude.ai entre ellos— prueban
+// primero la forma con el path del recurso, como hacen para RFC 9728. Un
+// catch-all opcional responde a ambas en vez de devolver 404 y hacer que el
+// cliente abandone el flujo.
+//
+// El documento es el mismo en los dos casos: describe un único authorization
+// server, y `issuer` siempre apunta al origen sin path.
 //
 // The MCP spec requires an authorization server to publish either this or
 // OpenID Connect Discovery. A client reaches it after reading
@@ -21,7 +33,10 @@ import { SUPPORTED_SCOPES } from '~/lib/oauth/oauth.service';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function GET(request: Request) {
+export async function GET(
+  request: Request,
+  _context: { params: Promise<{ resource?: string[] }> },
+) {
   const origin = resolveOrigin(request);
 
   return NextResponse.json(
