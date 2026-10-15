@@ -261,18 +261,42 @@ Scopes: `portal:read`, `nps:read`, `projects:read`, `projects:write`,
 
 Riesgo: **bajo**. `search_global` envuelve el RPC `search_global` existente.
 
-### Fase 4 — OAuth 2.1 · consumo universal
+### Fase 4 — OAuth 2.1 · consumo universal — **implementada**
 
-Lo que falta para conectar desde Claude.ai sin pegar llaves a mano:
+Para conectar desde Claude.ai sin pegar llaves a mano:
 
-- `/.well-known/oauth-protected-resource`
-- `/.well-known/oauth-authorization-server`
-- Resource Indicators (RFC 8707)
-- Dynamic Client Registration (RFC 7591)
-- Delegación en Supabase Auth como Authorization Server
+| Pieza | Estado | Dónde |
+|---|---|---|
+| `/.well-known/oauth-protected-resource` (RFC 9728) | hecho | `app/.well-known/oauth-protected-resource/` |
+| `/.well-known/oauth-authorization-server` (RFC 8414) | hecho | `app/.well-known/oauth-authorization-server/` |
+| `/oauth/authorize` — pantalla de consentimiento | hecho | `app/oauth/authorize/` |
+| `/api/oauth/token` — code + refresh | hecho | `app/api/oauth/token/` |
+| `/api/oauth/register` (RFC 7591) | hecho | `app/api/oauth/register/` |
+| `/api/oauth/revoke` (RFC 7009) | hecho | `app/api/oauth/revoke/` |
+| Resource Indicators (RFC 8707) | hecho | verificado en SQL, `verify_oauth_token` |
+| PKCE S256 obligatorio (RFC 7636) | hecho | `lib/oauth/oauth.service.ts` |
+| Client ID Metadata Documents | hecho | `resolveClient()`, con guardas SSRF |
+
+**La app es su propio Authorization Server.** El plan original contemplaba
+delegar en Supabase Auth; no se puede: anuncia `/auth/v1/oauth/authorize` y
+`/auth/v1/oauth/token` en su metadata OIDC, pero ambos devuelven 404 en esta
+instancia (verificado 15-oct-2026). Autentica personas, no emite tokens OAuth
+para terceros. Los roles quedan separados: Supabase Auth es el proveedor de
+identidad (la pantalla de consentimiento exige sesión ITSM) y la app es el
+authorization server.
+
+**Lo que NO se hizo, a propósito.** Los tokens OAuth no pasan por el rate
+limiter: `mcp_rate_buckets.api_key_id` es FK a `api_keys`, así que no hay forma
+de contarlos sin una tabla propia. Hoy quedan acotados por el TTL de una hora y
+por la revocación inmediata. Medirlos requiere su propio bucket — anotado para
+la fase siguiente, no disimulado con un id falso.
 
 Riesgo: **medio**. Toca el camino de autenticación. Las API keys siguen
-funcionando en paralelo; OAuth es un segundo método, no un reemplazo.
+funcionando en paralelo sin cambio de comportamiento — el resolvedor elige por
+prefijo (`nvd_` → API key, `nvat_` → token OAuth), verificado en local contra
+el build de producción.
+
+Requiere la migración **00066** (ver `MIGRATIONS.md`).
 
 ### Fase 5 — Resources y Prompts
 
@@ -297,7 +321,7 @@ Riesgo: **bajo**. Puramente aditivo.
 | 3F Operación | 12 | bajo | no |
 | 3G Tickets avanzado | 10 | bajo-medio | no |
 | 3H Portal, NPS, proyectos | 14 | bajo | no |
-| 4 OAuth 2.1 | — | medio | posible |
+| 4 OAuth 2.1 | — | medio | **00066** |
 | 5 Resources y Prompts | — | bajo | no |
 
 **38 actuales + 79 nuevos = 117 tools.**

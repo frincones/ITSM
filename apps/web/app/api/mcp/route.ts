@@ -39,7 +39,7 @@ import { getSupabaseServerAdminClient } from '@kit/supabase/server-admin-client'
 
 import { recordMcpCall, type AuditStatus } from '~/lib/mcp/audit';
 import { buildContext, type McpCallerMeta } from '~/lib/mcp/context';
-import { resolveOrigin } from '~/lib/mcp/origin';
+import { resolveOrigin, resolveResourceId } from '~/lib/mcp/origin';
 import { getPrompt, listPrompts } from '~/lib/mcp/prompts';
 import {
   listResourceTemplates,
@@ -61,10 +61,8 @@ import {
   negotiateProtocolVersion,
   registry,
 } from '~/lib/mcp/server';
-import {
-  checkRateLimit,
-  verifyApiKey,
-} from '~/lib/services/api-key.service';
+import { verifyCredential } from '~/lib/oauth/verify';
+import { checkRateLimit } from '~/lib/services/api-key.service';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -314,55 +312,73 @@ async function executeRpc(
     };
   }
 
-  const verified = await verifyApiKey(supabase, bearer, ip);
+  // Either credential type is accepted on this header. An OAuth token is
+  // additionally checked against this server's resource identifier (RFC
+  // 8707): a token minted for a different MCP server is refused here even
+  // if it is otherwise valid, which is what stops a malicious server from
+  // harvesting a token and replaying it against this one.
+  const verified = await verifyCredential(supabase, bearer, resolveResourceId(req), ip);
   if (!verified) {
     return {
-      response: buildError(id, JsonRpcErrorCode.Unauthorized, 'Invalid or revoked API key'),
+      response: buildError(
+        id,
+        JsonRpcErrorCode.Unauthorized,
+        'Invalid, expired or revoked credential',
+      ),
       httpStatus: 401,
     };
   }
 
-  // Rate limit (per key, per minute).
-  const rate = await checkRateLimit(supabase, verified.id, verified.rate_limit_rpm);
-  if (!rate.allowed) {
-    await recordMcpCall(supabase, {
-      tenantId: verified.tenant_id,
-      apiKeyId: verified.id,
-      agentId: null,
-      channel: 'mcp',
-      toolName: rpc.method,
-      status: 'rate_limited',
-      statusCode: 429,
-      durationMs: 0,
-      ip,
-      userAgent,
-      requestId,
-      arguments: rpc.params,
-    });
-    const err = rateLimited(rate.limit);
-    return {
-      response: buildError(id, err.code, err.message, err.data),
-      httpStatus: 429,
-    };
+  // Rate limit (per key, per minute). The bucket table keys on api_keys.id
+  // by foreign key, so OAuth grants cannot be metered through it; they are
+  // bounded instead by the access token's one-hour lifetime and by
+  // revocation. Metering them needs its own bucket table — tracked for the
+  // next phase rather than papered over with a fake key id.
+  if (verified.apiKeyId && verified.rateLimitRpm !== null) {
+    const rate = await checkRateLimit(supabase, verified.apiKeyId, verified.rateLimitRpm);
+    if (!rate.allowed) {
+      await recordMcpCall(supabase, {
+        tenantId: verified.tenantId,
+        apiKeyId: verified.apiKeyId,
+        agentId: verified.agentId,
+        channel: verified.channel,
+        toolName: rpc.method,
+        status: 'rate_limited',
+        statusCode: 429,
+        durationMs: 0,
+        ip,
+        userAgent,
+        requestId,
+        arguments: rpc.params,
+      });
+      const err = rateLimited(rate.limit);
+      return {
+        response: buildError(id, err.code, err.message, err.data),
+        httpStatus: 429,
+      };
+    }
   }
 
   // Build the tool execution context. The acting identity comes from the
-  // key's configured actor agent, so writes are attributable to a real
-  // person exactly as UI writes are.
+  // key's configured actor agent, or from the agent who approved the OAuth
+  // grant, so writes are attributable to a real person exactly as UI
+  // writes are.
   const callerMeta: McpCallerMeta = {
-    apiKeyId: verified.id,
-    agentId: verified.actor_agent_id,
-    userId: verified.actor_user_id,
-    channel: 'mcp',
+    apiKeyId: verified.apiKeyId,
+    agentId: verified.agentId,
+    userId: verified.userId,
+    // 'mcp' for an API key, 'oauth' for a token, so the audit log keeps the
+    // distinction between a machine credential and a human-granted one.
+    channel: verified.channel,
     ip,
     userAgent,
     requestId,
   };
 
   const ctx = buildContext({
-    tenantId: verified.tenant_id,
+    tenantId: verified.tenantId,
     scopes: verified.scopes,
-    organizationIds: verified.organization_ids,
+    organizationIds: verified.organizationIds,
     caller: callerMeta,
     supabase,
   });
@@ -430,10 +446,10 @@ async function executeRpc(
       errorMessage = err.message;
       const failure = buildError(id, err.code, err.message, err.data);
       await recordMcpCall(supabase, {
-        tenantId: verified.tenant_id,
-        apiKeyId: verified.id,
-        agentId: null,
-        channel: 'mcp',
+        tenantId: verified.tenantId,
+        apiKeyId: verified.apiKeyId,
+        agentId: verified.agentId,
+        channel: verified.channel,
         toolName,
         status: auditStatus,
         statusCode: httpStatus,
@@ -452,10 +468,10 @@ async function executeRpc(
     errorMessage = err instanceof Error ? err.message : String(err);
     const failure = buildError(id, JsonRpcErrorCode.InternalError, errorMessage);
     await recordMcpCall(supabase, {
-      tenantId: verified.tenant_id,
-      apiKeyId: verified.id,
-      agentId: null,
-      channel: 'mcp',
+      tenantId: verified.tenantId,
+      apiKeyId: verified.apiKeyId,
+      agentId: verified.agentId,
+      channel: verified.channel,
       toolName,
       status: 'error',
       statusCode: 500,
@@ -471,10 +487,10 @@ async function executeRpc(
 
   // Success path.
   await recordMcpCall(supabase, {
-    tenantId: verified.tenant_id,
-    apiKeyId: verified.id,
-    agentId: null,
-    channel: 'mcp',
+    tenantId: verified.tenantId,
+    apiKeyId: verified.apiKeyId,
+    agentId: verified.agentId,
+    channel: verified.channel,
     toolName,
     status: 'success',
     statusCode: 200,

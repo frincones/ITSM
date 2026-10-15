@@ -252,6 +252,74 @@ async function suiteAuth() {
     (prm?.authorization_servers?.length ?? 0) > 0,
     prm?.authorization_status?.detail ?? 'none configured');
 
+  // RFC 8414 — the authorization server metadata the document above points
+  // at. Fetched from the first entry of authorization_servers rather than
+  // assumed, because a client follows the same chain and a mismatch between
+  // the two documents is exactly the bug worth catching here.
+  const asBase = prm?.authorization_servers?.[0];
+  if (asBase) {
+    const asUrl = `${String(asBase).replace(/\/$/, '')}/.well-known/oauth-authorization-server`;
+    const asRes = await fetch(asUrl, { signal: AbortSignal.timeout(20_000) }).catch(() => null);
+    const as = asRes ? await asRes.json().catch(() => null) : null;
+
+    check('authorization server metadata is published', asRes?.status === 200,
+      `HTTP ${asRes?.status ?? 'unreachable'} at ${asUrl}`);
+    check('AS issuer matches the advertised server', as?.issuer === asBase,
+      `${as?.issuer} vs ${asBase}`);
+    check('AS publishes an authorization endpoint',
+      typeof as?.authorization_endpoint === 'string' && as.authorization_endpoint.startsWith('http'),
+      `got ${as?.authorization_endpoint}`);
+    check('AS publishes a token endpoint',
+      typeof as?.token_endpoint === 'string' && as.token_endpoint.startsWith('http'),
+      `got ${as?.token_endpoint}`);
+    // The spec tells clients to REFUSE to proceed when this is absent, since
+    // there is no other way to discover PKCE support. Omitting it would make
+    // every compliant client give up before starting.
+    check('AS advertises PKCE S256',
+      Array.isArray(as?.code_challenge_methods_supported) &&
+        as.code_challenge_methods_supported.includes('S256'),
+      `got ${JSON.stringify(as?.code_challenge_methods_supported)}`);
+    check('AS does not offer the plain PKCE method',
+      !as?.code_challenge_methods_supported?.includes('plain'));
+    check('AS supports the authorization_code grant',
+      Array.isArray(as?.grant_types_supported) &&
+        as.grant_types_supported.includes('authorization_code'));
+    check('AS does not offer the implicit flow',
+      !as?.response_types_supported?.includes('token'),
+      'removed in OAuth 2.1');
+    check('AS declares RFC 8707 resource indicators',
+      as?.resource_indicators_supported === true);
+
+    // A token endpoint that accepts a request with no PKCE verifier would
+    // defeat the whole exchange, so probe it rather than trusting metadata.
+    if (typeof as?.token_endpoint === 'string') {
+      const noPkce = await fetch(as.token_endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'grant_type=authorization_code&code=probe&client_id=probe',
+        signal: AbortSignal.timeout(20_000),
+      }).catch(() => null);
+      const body = noPkce ? await noPkce.json().catch(() => null) : null;
+      check('token endpoint rejects a code exchange without PKCE',
+        body?.error === 'invalid_request',
+        `got ${JSON.stringify(body)}`);
+
+      const badGrant = await fetch(as.token_endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'grant_type=password&username=a&password=b',
+        signal: AbortSignal.timeout(20_000),
+      }).catch(() => null);
+      const bg = badGrant ? await badGrant.json().catch(() => null) : null;
+      check('token endpoint refuses the password grant',
+        bg?.error === 'unsupported_grant_type',
+        `got ${JSON.stringify(bg)}`);
+    }
+  } else {
+    warn('authorization server metadata reachable', false,
+      'no authorization_servers entry to follow');
+  }
+
   const noKey = await rpc('tools/list', null, { auth: false });
   check('tools/list without Bearer → -32001', noKey.body?.error?.code === -32001, JSON.stringify(noKey.body?.error));
 
