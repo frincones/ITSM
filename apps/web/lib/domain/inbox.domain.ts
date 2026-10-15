@@ -21,7 +21,11 @@ import { after } from 'next/server';
 import { getAdapter } from '~/lib/integrations/registry';
 import { addMessage, linkConversationToTicket } from '~/lib/services/inbox.service';
 
-import { createTicket as createTicketDomain } from './tickets.domain';
+import {
+  createTicket as createTicketDomain,
+  type SeverityLevel,
+  type TicketType,
+} from './tickets.domain';
 import {
   fail,
   ok,
@@ -68,6 +72,27 @@ async function loadConversation(
 
   const { data } = await query.maybeSingle();
   return data as Record<string, unknown> | null;
+}
+
+const TICKET_TYPES: readonly TicketType[] = [
+  'incident',
+  'request',
+  'warranty',
+  'support',
+  'backlog',
+  'desarrollo_pendiente',
+];
+
+const SEVERITIES: readonly SeverityLevel[] = ['low', 'medium', 'high', 'critical'];
+
+/** Returns the value only if it is a real ticket type, else undefined. */
+function asTicketType(value: string | null | undefined): TicketType | undefined {
+  return TICKET_TYPES.includes(value as TicketType) ? (value as TicketType) : undefined;
+}
+
+/** Returns the value only if it is a real severity, else undefined. */
+function asSeverity(value: string | null | undefined): SeverityLevel | undefined {
+  return SEVERITIES.includes(value as SeverityLevel) ? (value as SeverityLevel) : undefined;
 }
 
 /** Defers work past the response; see the note in tickets.domain.ts. */
@@ -198,7 +223,10 @@ export async function sendReply(
   const { internal = false, contentHtml = null } = options;
 
   const resolved = requireUserId(actor);
-  if (resolved.error) return fail(resolved.error, 'forbidden');
+  // Narrow on the value, not the error: TypeScript discriminates this union
+  // by `userId`, so checking `error` leaves userId as `string | null` and the
+  // NOT NULL author column rejects it at the type level.
+  if (!resolved.ok) return fail(resolved.error, 'forbidden');
 
   const conversation = await loadConversation(
     ctx,
@@ -357,9 +385,9 @@ export async function setConversationStatus(
 export interface CreateTicketFromConversationFields {
   title?: string | null;
   description?: string | null;
-  type?: string;
-  urgency?: string;
-  impact?: string;
+  type?: TicketType;
+  urgency?: SeverityLevel;
+  impact?: SeverityLevel;
   category_id?: string | null;
   organization_id?: string | null;
 }
@@ -461,8 +489,12 @@ export async function createTicketFromConversation(
       classification?.suggested_ticket?.description?.trim() ||
       transcript ||
       'Sin mensajes en la conversación.',
-    type: fields.type ?? classification?.suggested_ticket?.type ?? 'request',
-    urgency: fields.urgency ?? classification?.urgency ?? 'medium',
+    // The classifier is a language model: it can return a type or urgency
+    // that is not a member of the enum, which Postgres then rejects. Its
+    // suggestions are validated against the allowed values and discarded if
+    // they do not match, rather than trusted into the insert.
+    type: fields.type ?? asTicketType(classification?.suggested_ticket?.type) ?? 'request',
+    urgency: fields.urgency ?? asSeverity(classification?.urgency) ?? 'medium',
     impact: fields.impact ?? 'medium',
     organization_id:
       fields.organization_id ?? (conversation.organization_id as string | null) ?? null,

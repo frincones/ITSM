@@ -82,8 +82,35 @@ function isNullable(name, def) {
  * typing it: too strict and every insert fails to compile, too loose and the
  * NOT NULL violations this file exists to prevent slip through.
  */
+/**
+ * Columns a BEFORE INSERT trigger fills in.
+ *
+ * PostgREST marks a NOT NULL column with no DEFAULT as required, which is
+ * true at the SQL level but wrong for callers: the trigger supplies the
+ * value, and every insert in this codebase legitimately omits it. Without
+ * this list, `tickets.insert({...})` fails to compile for want of a
+ * ticket_number that the caller must not provide.
+ *
+ * Extracted from `NEW.<col> :=` assignments across the migrations. Re-check
+ * it when a migration adds a trigger that populates a NOT NULL column.
+ */
+const TRIGGER_FILLED = new Set([
+  'ticket_number',
+  'change_number',
+  'problem_number',
+  'priority',
+  'custom_fields',
+  'sla_applies',
+  'sla_contract_id',
+  'sla_due_date',
+  'sla_target_minutes',
+  'mitigation_due_at',
+  'testing_strikes',
+  'last_testing_strike_at',
+]);
+
 function optionalOnInsert(name, prop, def) {
-  return isNullable(name, def) || prop.default !== undefined;
+  return isNullable(name, def) || prop.default !== undefined || TRIGGER_FILLED.has(name);
 }
 
 function emitTable(name, def) {
@@ -182,6 +209,14 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // supabase-js 2.75+ reads this marker to decide which PostgREST dialect
+  // the client speaks. Without it the Database generic is discarded and
+  // SupabaseClient<Database> silently behaves as SupabaseClient<any> — the
+  // types compile, the client validates nothing, and an invented column
+  // goes straight through to a runtime 400.
+  __InternalSupabase: {
+    PostgrestVersion: '12'
+  }
   public: {
     Tables: {
 ${tables}

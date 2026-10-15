@@ -335,7 +335,10 @@ async function recordDecision(
     );
   }
   const resolved = requireUserId(actor);
-  if (resolved.error) return fail(resolved.error, 'forbidden');
+  // Narrow on the value, not the error: TypeScript discriminates this union
+  // by `userId`, so checking `error` leaves userId as `string | null` and the
+  // NOT NULL author column rejects it at the type level.
+  if (!resolved.ok) return fail(resolved.error, 'forbidden');
 
   const existing = await loadChange(ctx, changeId, 'id, change_number, status, created_by');
   if (!existing) return fail('Change not found', 'not_found');

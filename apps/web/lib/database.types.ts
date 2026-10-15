@@ -17,7 +17,7 @@
 //
 // Tables: 99
 // Functions: 37
-// Generated: 2026-10-15T17:04:33.226Z
+// Generated: 2026-10-15T17:47:32.015Z
 // ---------------------------------------------------------------------------
 
 export type Json =
@@ -29,6 +29,14 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // supabase-js 2.75+ reads this marker to decide which PostgREST dialect
+  // the client speaks. Without it the Database generic is discarded and
+  // SupabaseClient<Database> silently behaves as SupabaseClient<any> — the
+  // types compile, the client validates nothing, and an invented column
+  // goes straight through to a runtime 400.
+  __InternalSupabase: {
+    PostgrestVersion: '12'
+  }
   public: {
     Tables: {
       accounts: {
@@ -813,7 +821,7 @@ export type Database = {
         Insert: {
           id?: string
           tenant_id: string
-          change_number: string
+          change_number?: string
           title: string
           description?: string | null
           status?: "new" | "evaluation" | "approval_pending" | "approved" | "scheduled" | "in_progress" | "testing" | "implemented" | "rolled_back" | "closed" | "rejected"
@@ -2466,7 +2474,7 @@ export type Database = {
         Insert: {
           id?: string
           tenant_id: string
-          problem_number: string
+          problem_number?: string
           title: string
           description?: string | null
           status?: "new" | "accepted" | "analysis" | "root_cause_identified" | "solution_planned" | "resolved" | "closed"
@@ -4079,7 +4087,7 @@ export type Database = {
         Insert: {
           id?: string
           tenant_id: string
-          ticket_number: string
+          ticket_number?: string
           title: string
           description: string
           description_html?: string | null

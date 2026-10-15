@@ -5,6 +5,8 @@
 import { z } from 'zod';
 
 import { notFound } from '../errors';
+import type { Json } from '~/lib/domain/types';
+
 import { registry } from '../registry';
 import {
   PaginationInput,
@@ -101,7 +103,7 @@ registry.register({
           phone: input.phone,
           whatsapp_id: input.whatsapp_id,
           company: input.company,
-          metadata: input.metadata,
+          metadata: (input.metadata ?? null) as Json,
         })
         .eq('id', existingId)
         .eq('tenant_id', ctx.tenantId)
@@ -120,7 +122,7 @@ registry.register({
         phone: input.phone ?? null,
         whatsapp_id: input.whatsapp_id ?? null,
         company: input.company ?? null,
-        metadata: input.metadata ?? {},
+        metadata: (input.metadata ?? {}) as Json,
       })
       .select(CONTACT_COLUMNS)
       .single();

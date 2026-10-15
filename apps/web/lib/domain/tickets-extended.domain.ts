@@ -17,7 +17,10 @@ import 'server-only';
 
 import { addFollower, removeFollower } from '~/lib/services/ticket-followers.service';
 
+import type { TicketType } from './tickets.domain';
+
 import {
+  asJson,
   fail,
   isClientActor,
   ok,
@@ -156,7 +159,10 @@ export async function addSolution(
 
   // author_id is NOT NULL REFERENCES auth.users(id), so an actor is required.
   const resolved = requireUserId(actor);
-  if (resolved.error) return fail(resolved.error, 'forbidden');
+  // Narrow on the value, not the error: TypeScript discriminates this union
+  // by `userId`, so checking `error` leaves userId as `string | null` and the
+  // NOT NULL author column rejects it at the type level.
+  if (!resolved.ok) return fail(resolved.error, 'forbidden');
 
   const ticket = await loadTicket(ctx, ticketId, 'id');
   if (!ticket) return fail('Ticket not found', 'not_found');
@@ -353,7 +359,7 @@ export async function setTestingResult(
   const { data, error } = await client
     .from('tickets')
     .update({
-      custom_fields: nextCustom,
+      custom_fields: asJson(nextCustom),
       updated_at: new Date().toISOString(),
       updated_by: actor.userId,
     })
@@ -502,7 +508,8 @@ export async function setClientRank(
       .select('id, ticket_number, title')
       .eq('tenant_id', actor.tenantId)
       .eq('organization_id', ticket.organization_id as string)
-      .eq('type', ticket.type as string)
+      // The value comes from the column, so it is already a member of the enum.
+      .eq('type', ticket.type as TicketType)
       .eq('custom_fields->>client_rank', String(rank))
       .neq('id', ticketId)
       .is('deleted_at', null)
@@ -525,7 +532,7 @@ export async function setClientRank(
   const { data, error } = await client
     .from('tickets')
     .update({
-      custom_fields: nextCustom,
+      custom_fields: asJson(nextCustom),
       updated_at: new Date().toISOString(),
       updated_by: actor.userId,
     })
