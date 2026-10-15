@@ -40,6 +40,7 @@ import { getSupabaseServerAdminClient } from '@kit/supabase/server-admin-client'
 import { recordMcpCall, type AuditStatus } from '~/lib/mcp/audit';
 import { buildContext, type McpCallerMeta } from '~/lib/mcp/context';
 import { resolveOrigin, resolveResourceId } from '~/lib/mcp/origin';
+import { DEFAULT_OFFERED_SCOPES } from '~/lib/oauth/scopes';
 import { getPrompt, listPrompts } from '~/lib/mcp/prompts';
 import {
   listResourceTemplates,
@@ -287,19 +288,28 @@ async function executeRpc(
     }
   }
 
-  // Methods that don't require auth.
+  // `ping` stays open: it is a liveness probe that returns no data, and a
+  // monitor should not need a credential to ask whether the server is up.
   if (rpc.method === 'ping') {
     return { response: { jsonrpc: '2.0', id, result: {} }, httpStatus: 200 };
   }
 
-  if (rpc.method === 'initialize') {
-    return {
-      response: { jsonrpc: '2.0', id, result: await handleInitialize(rpc.params) },
-      httpStatus: 200,
-    };
-  }
-
-  // ---- Authenticated methods ----
+  // `initialize` REQUIRES a credential, and that is deliberate.
+  //
+  // The MCP authorization spec starts its flow with "MCP request without
+  // token -> HTTP 401 Unauthorized with WWW-Authenticate header". The
+  // client's first request is initialize, so answering it with 200 tells
+  // the client the server needs no authorization: it never sees a 401,
+  // never reads the resource metadata, and never starts the OAuth flow.
+  //
+  // That is exactly what happened with Claude.ai — it reported only
+  // "No se pudo conectar con ITSM", because from its side the server had
+  // claimed to be open and then refused everything else.
+  //
+  // The handshake itself exposes nothing a caller cannot already read from
+  // GET /api/mcp/manifest without a credential, so gating it costs no
+  // discoverability.
+  // ---- Authenticated methods, initialize included ----
   const supabase = getSupabaseServerAdminClient();
   const ip = getClientIp(req);
   const userAgent = req.headers.get('user-agent');
@@ -307,7 +317,13 @@ async function executeRpc(
   const bearer = extractBearer(req);
   if (!bearer) {
     return {
-      response: buildError(id, JsonRpcErrorCode.Unauthorized, 'Missing Bearer token'),
+      response: buildError(
+        id,
+        JsonRpcErrorCode.Unauthorized,
+        rpc.method === 'initialize'
+          ? 'Authorization required. Authenticate with an API key or via OAuth; see the WWW-Authenticate header.'
+          : 'Missing Bearer token',
+      ),
       httpStatus: 401,
     };
   }
@@ -374,6 +390,16 @@ async function executeRpc(
     userAgent,
     requestId,
   };
+
+  // Resolved only now: a token that is present but invalid must get a 401
+  // here too, otherwise the handshake succeeds for anyone who sends a
+  // syntactically valid header and the 401 above becomes trivial to bypass.
+  if (rpc.method === 'initialize') {
+    return {
+      response: { jsonrpc: '2.0', id, result: await handleInitialize(rpc.params) },
+      httpStatus: 200,
+    };
+  }
 
   const ctx = buildContext({
     tenantId: verified.tenantId,
@@ -537,6 +563,13 @@ function commonHeaders(req: NextRequest, sessionId: string): Headers {
  * which is what the MCP authorization spec requires a 401 to carry. The
  * realm stays "mcp" so a client can tell this challenge apart from one
  * issued by the web app.
+ *
+ * The URL carries the resource path, per RFC 9728 §3.1: for a resource at
+ * /api/mcp the canonical document is
+ * /.well-known/oauth-protected-resource/api/mcp. Both forms are served, so
+ * a client that follows this header worked either way — but advertising the
+ * canonical one keeps the challenge and the spec in agreement, and matters
+ * on a host that ever serves a second resource.
  */
 function withAuthChallenge(
   headers: Headers,
@@ -545,9 +578,17 @@ function withAuthChallenge(
 ): Headers {
   if (httpStatus !== 401) return headers;
   const origin = resolveOrigin(req);
+  const resourcePath = new URL(resolveResourceId(req)).pathname;
+  // `scope` tells the client what to ask for without first fetching the
+  // metadata document (RFC 9728 §5.1). A deliberately small default: the
+  // server supports 40 scopes, but handing a client all of them produces a
+  // consent screen nobody reads, and a grant far wider than any first
+  // connection needs. A client that wants more asks for more — consent
+  // still governs what it gets.
+  const defaultScope = DEFAULT_OFFERED_SCOPES.join(' ');
   headers.set(
     'WWW-Authenticate',
-    `Bearer realm="mcp", resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
+    `Bearer realm="mcp", resource_metadata="${origin}/.well-known/oauth-protected-resource${resourcePath}", scope="${defaultScope}"`,
   );
   return headers;
 }
