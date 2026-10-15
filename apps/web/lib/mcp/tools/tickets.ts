@@ -317,6 +317,10 @@ registry.register({
   async handler(ctx, input) {
     const { ticket_id, id, ...patch } = input;
     const targetId = ticket_id ?? id;
+    // The schema's refinement already guarantees one of the two is present,
+    // but that constraint is not expressible in the inferred type — and an
+    // undefined id here would update by `id IS NULL`, matching nothing.
+    if (!targetId) throw invalidParams('ticket_id is required');
 
     // An update with no mutable field would quietly succeed and return the
     // untouched row, which reads as "it worked" to an agent.

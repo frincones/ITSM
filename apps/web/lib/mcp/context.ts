@@ -16,7 +16,7 @@
 
 import 'server-only';
 
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { TypedSupabaseClient } from '~/lib/domain/types';
 
 import { forbidden } from './errors';
 import { hasScope } from '~/lib/services/api-key.types';
@@ -54,7 +54,7 @@ export interface MCPContext {
    */
   organizationIds: string[] | null;
   caller: McpCallerMeta;
-  supabase: SupabaseClient;
+  supabase: TypedSupabaseClient;
 
   /** Throws Forbidden if scope is not granted. */
   requireScope(scope: string): void;
@@ -79,7 +79,7 @@ export interface MCPContextInit {
   scopes: string[];
   organizationIds: string[] | null;
   caller: McpCallerMeta;
-  supabase: SupabaseClient;
+  supabase: TypedSupabaseClient;
 }
 
 /**
