@@ -383,13 +383,20 @@ export async function listNotifications(
 
 export async function listNotificationTemplates(
   ctx: DomainContext,
+  filters: { eventType?: string | null; activeOnly?: boolean } = {},
 ): Promise<DomainResult<{ templates: unknown[] }>> {
-  const { data, error } = await ctx.client
+  let query = ctx.client
     .from('notification_templates')
+    // body_template is omitted: it is long, and the subject plus the event
+    // is what answers "why did this reach someone".
     .select('id, event_type, channel, subject_template, is_active, language, created_at, updated_at')
     .eq('tenant_id', ctx.actor.tenantId)
     .order('event_type', { ascending: true });
 
+  if (filters.eventType) query = query.eq('event_type', filters.eventType);
+  if (filters.activeOnly) query = query.eq('is_active', true);
+
+  const { data, error } = await query;
   if (error) return fail(error.message, 'internal');
   return ok({ templates: data ?? [] });
 }
