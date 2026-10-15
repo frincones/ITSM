@@ -64,9 +64,19 @@ export async function GET(
       // and rejected elsewhere.
       resource_indicators_supported: true,
 
-      // Preferred over dynamic registration in the 2025-11-25 spec: a client
-      // identifies itself by an https URL serving its own metadata.
-      client_id_metadata_document_supported: true,
+      // NOT advertised, deliberately.
+      //
+      // `resolveClient()` still accepts an https client_id and fetches the
+      // document, so a client that uses CIMD keeps working. But advertising
+      // the capability makes Claude.ai PREFER it and skip dynamic
+      // registration entirely — and Claude.ai serves no reachable metadata
+      // document (its redirect_uri answers 400, and the usual well-known
+      // paths 404/403), so the flow would end with nothing to fetch.
+      //
+      // Advertising a capability the main client cannot complete is worse
+      // than not advertising it: it steers that client away from the path
+      // that does work. Restore this once a client that publishes a real
+      // metadata document needs it.
 
       service_documentation: `${origin}/api/mcp/manifest`,
     },

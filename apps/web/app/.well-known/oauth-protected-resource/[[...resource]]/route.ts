@@ -41,7 +41,38 @@
 import { NextResponse } from 'next/server';
 
 import { resolveOrigin, resolveResourceId } from '~/lib/mcp/origin';
+import { DEFAULT_OFFERED_SCOPES } from '~/lib/oauth/scopes';
 import { ALL_SCOPES } from '~/lib/services/api-key.types';
+
+/**
+ * What a client is offered on a first connection.
+ *
+ * The server understands all 40 scopes in ALL_SCOPES, and a client may still
+ * request any of them explicitly. But Anthropic's connector docs are
+ * explicit that a client which sends no `scope` asks for everything listed
+ * here, "which can produce an over-broad consent prompt" — 40 checkboxes
+ * nobody reads, granting far more than a first connection needs.
+ *
+ * So this list is the sensible default, not the limit: read access plus the
+ * two writes a support workflow actually starts with. Destructive and
+ * administrative scopes (tickets:delete, organizations:deactivate,
+ * webhooks:manage, automation:activate, kb:publish, changes:approve) are
+ * deliberately absent — they are grantable, but never by default.
+ *
+ * Linear, for comparison, advertises two scopes; Sentry five.
+ */
+const DEFAULT_OFFERED_SCOPES = [
+  'tickets:read',
+  'tickets:write',
+  'tickets:comment',
+  'organizations:read',
+  'contacts:read',
+  'agents:read',
+  'kb:read',
+  'kb:search',
+  'metrics:read',
+  'reports:read',
+] as const;
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -91,13 +122,20 @@ export async function GET(
       // the authorization server (see lib/oauth/oauth.service.ts).
       authorization_servers: [origin],
 
-      scopes_supported: ALL_SCOPES,
+      // The default offer, not the ceiling: a client may request any scope
+      // the server supports, and `scopes_available` below says how many.
+      scopes_supported: DEFAULT_OFFERED_SCOPES,
 
       // RFC 6750 bearer tokens in the Authorization header. We never accept
       // credentials in a query string: they end up in logs and referrers.
       bearer_methods_supported: ['header'],
 
       resource_name: 'NovaDesk ITSM',
+
+      // Non-standard, additive: makes clear that the list above is a default
+      // rather than the full set, so an integrator does not conclude the
+      // other scopes do not exist.
+      scopes_available: ALL_SCOPES.length,
       resource_documentation: `${origin}/api/mcp/manifest`,
 
       // Non-standard, additive: API keys remain a supported method
