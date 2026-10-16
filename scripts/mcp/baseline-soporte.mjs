@@ -39,7 +39,19 @@ const BASE = {
   compliance_pct: 100,
   credit_tickets: 0,
   credit_cop: 0,
-  excluded_count: 3,
+  // ⚠ ESTA CIFRA NO ES DINERO y sube con cada ítem de proyecto.
+  //
+  // support_cycle_compliance recorre TODOS los tickets del ciclo y manda a
+  // excluded_count los que no tienen SLA debido. No filtra por tipo, así que
+  // cada backlog o desarrollo_pendiente del cronograma engorda el número.
+  //
+  // Re-basada el 16-oct-2026 tras cargar el cronograma de Podenza: de 3 a
+  // 52 (49 del proyecto nuevo + 3 que ya estaban). Verificado que ninguno
+  // de esos 49 tiene sla_applies ni consume cuota.
+  //
+  // Lo que SÍ es dinero y no puede moverse está arriba: measurable, met,
+  // credit_cop, consumed y quota.
+  excluded_count: 52,
   // support_cycle_usage — la cuota (dinero)
   consumed: 15,
   quota: 30,
