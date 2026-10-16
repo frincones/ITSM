@@ -62,6 +62,14 @@ export interface PhaseWait {
   turn_number: number;
 }
 
+export interface PhaseMember {
+  requirement_id: string;
+  member_number: string;
+  member_title: string;
+  member_status: string;
+  member_done: boolean;
+}
+
 export interface PhaseSummary {
   open_requirements: number;
   tdx_delay_days: number;
@@ -76,6 +84,8 @@ interface Props {
   waits: PhaseWait[];
   summary: PhaseSummary;
   phaseCatalog: Array<{ phase: string; name: string; owner: string; sort_order: number }>;
+  /** Los tickets que componen cada requerimiento agrupado, por id del padre. */
+  members: Record<string, PhaseMember[]>;
 }
 
 /** Nombre corto de cada fase. El catálogo trae el canónico; esto cabe en una fila. */
@@ -249,6 +259,7 @@ export function PortalPhases(props: Props) {
             <RequirementRow
               key={r.id}
               req={r}
+              miembros={props.members[r.id] ?? []}
               nombreFase={nombreFase}
               expandido={abierto === r.id}
               onToggle={() => setAbierto(abierto === r.id ? null : r.id)}
@@ -264,15 +275,19 @@ export function PortalPhases(props: Props) {
 
 function RequirementRow({
   req,
+  miembros,
   nombreFase,
   expandido,
   onToggle,
 }: {
   req: PhaseRequirement;
+  /** Los tickets que el cliente creó y que componen este entregable. */
+  miembros: PhaseMember[];
   nombreFase: Record<string, string>;
   expandido: boolean;
   onToggle: () => void;
 }) {
+  const listos = miembros.filter((m) => m.member_done).length;
   const total = req.tdx_days + req.client_days + req.third_party_days;
   const terminal = ['entregado', 'descartado'].includes(req.phase ?? '');
   const idxActual = LINEA.indexOf((req.phase ?? '') as (typeof LINEA)[number]);
@@ -296,6 +311,11 @@ function RequirementRow({
         >
           {nombreFase[req.phase ?? ''] ?? req.phase}
         </span>
+        {miembros.length > 0 ? (
+          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+            {listos} de {miembros.length} listos
+          </span>
+        ) : null}
         {req.effort_points ? (
           <span className="text-[11px] text-gray-500">
             {req.effort_size} · {req.effort_points} cr
@@ -378,6 +398,30 @@ function RequirementRow({
             {req.client_days > 0
               ? `Los ${req.client_days} día(s) que esperamos tu respuesta extienden el plazo día por día.`
               : ''}
+          </p>
+        </div>
+      ) : null}
+
+      {/* Los tickets que componen el entregable. El cliente los creó y
+          quiere ver en qué van, aunque el plazo sea del requerimiento. */}
+      {expandido && miembros.length > 0 ? (
+        <div className="mt-3 border-t pt-3">
+          <p className="mb-1.5 text-[11px] font-medium text-gray-600 dark:text-gray-400">
+            Este requerimiento agrupa {miembros.length} solicitudes tuyas
+          </p>
+          <ul className="space-y-1">
+            {miembros.map((m) => (
+              <li key={m.member_number} className="flex items-center gap-2 text-[11px]">
+                <span className={m.member_done ? 'text-emerald-600' : 'text-gray-400'}>
+                  {m.member_done ? '✓' : '○'}
+                </span>
+                <span className="font-mono text-[10px] text-gray-500">{m.member_number}</span>
+                <span className="min-w-0 flex-1 truncate">{m.member_title}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5 text-[10px] text-gray-500">
+            El plazo se mide sobre el requerimiento completo, no sobre cada solicitud.
           </p>
         </div>
       ) : null}

@@ -1198,5 +1198,225 @@ export async function listRequirements(
   return ok(rows.map((r) => ({ ...r, delay: byId.get(r.id as string) ?? {} })));
 }
 
+// ---------------------------------------------------------------------------
+// Agrupación en requerimientos facturables
+// ---------------------------------------------------------------------------
+// El contrato factura por entregable; el trabajo entra como tickets. Siete
+// filtros pueden valer 2 créditos entre todos, y un ítem valer 2 él solo.
+//
+// Tres reglas (00081):
+//   1. El crédito y la fase viven en el padre; los miembros van a 0.
+//   2. El padre es un ticket nuevo de tipo desarrollo_pendiente.
+//   3. Un ticket sin padre es su propio entregable.
+//
+// La tercera es la que hace que agrupar sea opcional: lo individual sigue
+// funcionando sin tocar nada.
+
+/** Un miembro de un requerimiento agrupado. */
+export interface RequirementMember {
+  member_id: string;
+  member_number: string;
+  member_title: string;
+  member_type: string;
+  member_status: string;
+  member_done: boolean;
+  /** Este miembro consume cuota de soporte además de los créditos del padre. */
+  member_consumes_quota: boolean;
+}
+
+/**
+ * Agrupa tickets bajo un requerimiento nuevo.
+ *
+ * Los miembros CONSERVAN su tipo, así que uno de tipo support seguirá
+ * consumiendo cuota de soporte además de los créditos del padre. Es una
+ * decisión deliberada del equipo —para que planificar no sea reclasificar—
+ * y la interfaz lo advierte antes de confirmar.
+ */
+export async function groupTickets(
+  ctx: DomainContext,
+  input: {
+    child_ids: string[];
+    title: string;
+    size: EffortSize;
+    cycle_id?: string | null;
+    project_id?: string | null;
+  },
+): Promise<DomainResult<Record<string, unknown>>> {
+  const { client } = ctx;
+
+  if (!input.child_ids?.length) {
+    return fail('Hay que elegir al menos un ticket para agrupar', 'invalid_input');
+  }
+  if (!input.title?.trim()) {
+    return fail('El requerimiento necesita un nombre', 'invalid_input');
+  }
+
+  const { data, error } = await client.rpc('group_tickets_into_requirement', {
+    p_child_ids: input.child_ids,
+    p_title: input.title.trim(),
+    p_size: input.size,
+    p_cycle_id: input.cycle_id ?? undefined,
+    p_project_id: input.project_id ?? undefined,
+    p_actor_agent_id: ctx.actor.agentId ?? undefined,
+  });
+
+  if (error) {
+    // La función lanza con mensajes en español, ya listos para mostrar.
+    if (error.code === 'P0001') return fail(error.message, 'invalid_input');
+    return fail(error.message, 'internal');
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return fail('No se pudo crear el requerimiento', 'internal');
+  return ok(row as Record<string, unknown>);
+}
+
+/**
+ * Deshace un requerimiento agrupado.
+ *
+ * Los miembros vuelven al backlog sin crédito ni fase. El padre NO se borra:
+ * si ya pasó por fases, su histórico de tramos y esperas es la trazabilidad
+ * del entregable.
+ */
+export async function ungroupRequirement(
+  ctx: DomainContext,
+  parentId: string,
+): Promise<DomainResult<{ released: number }>> {
+  const { client } = ctx;
+
+  const { data, error } = await client.rpc('ungroup_requirement', {
+    p_parent_id: parentId,
+    p_actor_agent_id: ctx.actor.agentId ?? undefined,
+  });
+
+  if (error) {
+    if (error.code === 'P0001') return fail(error.message, 'invalid_input');
+    return fail(error.message, 'internal');
+  }
+
+  return ok({ released: Number(data ?? 0) });
+}
+
+/**
+ * Cambia la talla de un requerimiento, y con ella sus créditos.
+ *
+ * Solo admin: afecta a lo que se factura. Y solo con el ciclo abierto — una
+ * cifra ya facturada no se recalcula. Las dos reglas las impone la base, no
+ * esta capa.
+ */
+export async function resizeRequirement(
+  ctx: DomainContext,
+  ticketId: string,
+  size: EffortSize,
+): Promise<DomainResult<Record<string, unknown>>> {
+  const { client } = ctx;
+
+  const { data, error } = await client.rpc('resize_requirement', {
+    p_ticket_id: ticketId,
+    p_size: size,
+    p_actor_agent_id: ctx.actor.agentId ?? undefined,
+  });
+
+  if (error) {
+    if (error.code === 'P0001') return fail(error.message, 'forbidden');
+    return fail(error.message, 'internal');
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return fail('No se pudo re-estimar el requerimiento', 'internal');
+  return ok(row as Record<string, unknown>);
+}
+
+/** Los tickets que componen un requerimiento, con su avance. */
+export async function listMembers(
+  ctx: DomainContext,
+  parentId: string,
+): Promise<DomainResult<RequirementMember[]>> {
+  const { client } = ctx;
+
+  const { data, error } = await client
+    .from('requirement_members')
+    .select(
+      'member_id, member_number, member_title, member_type, member_status, ' +
+        'member_done, member_consumes_quota',
+    )
+    .eq('requirement_id', parentId)
+    .order('member_number');
+
+  if (error) return fail(error.message, 'internal');
+  return ok((data ?? []) as unknown as RequirementMember[]);
+}
+
+/**
+ * Los miembros de varios requerimientos de una vez.
+ *
+ * La pantalla lista decenas de entregables; pedir los miembros de cada uno
+ * por separado sería una consulta por fila.
+ */
+export async function listMembersBulk(
+  ctx: DomainContext,
+  parentIds: string[],
+): Promise<DomainResult<Record<string, RequirementMember[]>>> {
+  const { client } = ctx;
+  if (!parentIds.length) return ok({});
+
+  const { data, error } = await client
+    .from('requirement_members')
+    .select(
+      'requirement_id, member_id, member_number, member_title, member_type, ' +
+        'member_status, member_done, member_consumes_quota',
+    )
+    .in('requirement_id', parentIds)
+    .order('member_number');
+
+  if (error) return fail(error.message, 'internal');
+
+  const porPadre: Record<string, RequirementMember[]> = {};
+  for (const row of (data ?? []) as unknown as Array<
+    RequirementMember & { requirement_id: string }
+  >) {
+    (porPadre[row.requirement_id] ??= []).push(row);
+  }
+  return ok(porPadre);
+}
+
+/**
+ * Cuántos tickets de una selección consumen cuota de soporte.
+ *
+ * Alimenta el aviso del diálogo de agrupar: un miembro de tipo support,
+ * incident o request seguirá contando en la cuota mensual además de los
+ * créditos del entregable. El PM debería verlo antes de confirmar, porque es
+ * un peso en la factura.
+ */
+export async function quotaImpactOf(
+  ctx: DomainContext,
+  ticketIds: string[],
+): Promise<DomainResult<{ total: number; consumes: number; types: string[] }>> {
+  const { client, actor } = ctx;
+  if (!ticketIds.length) return ok({ total: 0, consumes: 0, types: [] });
+
+  const { data, error } = await client
+    .from('tickets')
+    .select('id, type')
+    .in('id', ticketIds)
+    .eq('tenant_id', actor.tenantId)
+    .is('deleted_at', null);
+
+  if (error) return fail(error.message, 'internal');
+
+  const rows = (data ?? []) as unknown as Array<{ type: string }>;
+  // Los mismos tres tipos que ticket_type_consumes_quota() en 00048. Se
+  // repiten aquí para no pagar una llamada por ticket; si esa lista cambia
+  // en la base, hay que cambiarla también aquí.
+  const CONSUMEN = ['support', 'incident', 'request'];
+  const consumen = rows.filter((r) => CONSUMEN.includes(r.type));
+
+  return ok({
+    total: rows.length,
+    consumes: consumen.length,
+    types: [...new Set(consumen.map((r) => r.type))],
+  });
+}
+
 /** Marcador observado por lib/mcp/server.ts para evitar el tree-shaking. */
 export const __deliveryDomainLoaded = true;

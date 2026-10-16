@@ -47,6 +47,11 @@ import {
   listRequirements as domainListRequirements,
   openWait as domainOpenWait,
   setPhase as domainSetPhase,
+  groupTickets as domainGroupTickets,
+  listMembers as domainListMembers,
+  quotaImpactOf as domainQuotaImpact,
+  resizeRequirement as domainResize,
+  ungroupRequirement as domainUngroup,
 } from '~/lib/domain/delivery.domain';
 
 import { toDomainContext, unwrap } from '../domain-bridge';
@@ -689,6 +694,99 @@ registry.register({
         }),
       ),
     };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Agrupación en requerimientos facturables
+// ---------------------------------------------------------------------------
+
+registry.register({
+  name: 'requirements_group',
+  description:
+    'Agrupa varios tickets bajo un requerimiento facturable nuevo. El contrato factura por entregable, no por ticket: siete filtros pueden valer 2 créditos entre todos. El padre se crea como desarrollo_pendiente con la talla indicada, y los miembros pasan a 0 créditos y sin fase, porque el crédito y el plazo son del entregable. OJO: los miembros CONSERVAN su tipo, así que uno de tipo support, incident o request seguirá consumiendo cuota de soporte además de los créditos del padre — usa requirements_quota_impact antes para saber cuántos.',
+  scope: 'projects:write',
+  inputSchema: z.object({
+    child_ids: z
+      .array(z.string().uuid())
+      .min(1)
+      .max(50)
+      .describe('Los tickets que componen el entregable. Todos de la misma organización'),
+    title: z.string().min(1).max(300).describe('Nombre del entregable, no de uno de sus tickets'),
+    size: z
+      .enum(EFFORT_SIZES)
+      .describe('La talla del ENTREGABLE completo, no la suma de sus partes'),
+    cycle_id: z.string().uuid().optional(),
+    project_id: z.string().uuid().optional(),
+  }),
+  meta: { since: '1.6.0', tags: ['projects', 'grouping', 'write'] },
+  async handler(ctx, input) {
+    return {
+      item: unwrap(
+        await domainGroupTickets(toDomainContext(ctx), {
+          child_ids: input.child_ids,
+          title: input.title,
+          size: input.size,
+          cycle_id: input.cycle_id ?? null,
+          project_id: input.project_id ?? null,
+        }),
+      ),
+    };
+  },
+});
+
+registry.register({
+  name: 'requirements_ungroup',
+  description:
+    'Deshace un requerimiento agrupado. Los miembros vuelven al backlog sin crédito ni fase, y habrá que re-estimarlos si salen por su cuenta. NO borra ningún ticket: el padre queda vacío y es el equipo quien decide si lo cancela, porque si ya pasó por fases su histórico de tramos y esperas es la trazabilidad del entregable.',
+  scope: 'projects:write',
+  inputSchema: z.object({ parent_id: z.string().uuid() }),
+  meta: { since: '1.6.0', tags: ['projects', 'grouping', 'write'] },
+  async handler(ctx, input) {
+    return { item: unwrap(await domainUngroup(toDomainContext(ctx), input.parent_id)) };
+  },
+});
+
+registry.register({
+  name: 'requirements_members',
+  description:
+    'Los tickets que componen un requerimiento, con si ya están listos y si consumen cuota de soporte. `member_done` explica por qué un entregable sigue abierto: mientras falte uno, el entregable no está entregado y su plazo corre.',
+  scope: 'projects:read',
+  inputSchema: z.object({ parent_id: z.string().uuid() }),
+  meta: { since: '1.6.0', tags: ['projects', 'grouping', 'read'] },
+  async handler(ctx, input) {
+    return { items: unwrap(await domainListMembers(toDomainContext(ctx), input.parent_id)) };
+  },
+});
+
+registry.register({
+  name: 'requirements_resize',
+  description:
+    'Cambia la talla de un requerimiento y con ella sus créditos. SOLO un administrador puede hacerlo, porque afecta a lo que se factura, y solo mientras el ciclo esté abierto: una cifra ya facturada no se recalcula. No sirve para un miembro de un grupo — el crédito es del padre.',
+  scope: 'projects:write',
+  inputSchema: z.object({
+    ticket_id: z.string().uuid(),
+    size: z.enum(EFFORT_SIZES),
+  }),
+  meta: { since: '1.6.0', tags: ['projects', 'grouping', 'billing', 'write'] },
+  async handler(ctx, input) {
+    return {
+      item: unwrap(await domainResize(toDomainContext(ctx), input.ticket_id, input.size)),
+    };
+  },
+});
+
+registry.register({
+  name: 'requirements_quota_impact',
+  description:
+    'Cuántos de los tickets indicados seguirán consumiendo cuota de soporte si se agrupan. Conviene llamarla ANTES de requirements_group: un miembro de tipo support, incident o request cuenta en los dos contadores —la cuota mensual de soporte y los créditos del entregable—, y eso es un peso en la factura que quien agrupa debería conocer.',
+  scope: 'projects:read',
+  inputSchema: z.object({
+    ticket_ids: z.array(z.string().uuid()).min(1).max(50),
+  }),
+  meta: { since: '1.6.0', tags: ['projects', 'grouping', 'billing', 'read'] },
+  async handler(ctx, input) {
+    return { item: unwrap(await domainQuotaImpact(toDomainContext(ctx), input.ticket_ids)) };
   },
 });
 

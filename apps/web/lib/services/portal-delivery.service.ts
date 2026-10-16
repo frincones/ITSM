@@ -574,6 +574,44 @@ export async function getPortalCompliance(
   return (row as Record<string, unknown>) ?? null;
 }
 
+export interface PortalMember {
+  requirement_id: string;
+  member_number: string;
+  member_title: string;
+  member_status: string;
+  member_done: boolean;
+}
+
+/**
+ * Los tickets que componen cada requerimiento agrupado de este cliente.
+ *
+ * El cliente creó esos tickets y quiere saber en qué van, aunque el crédito
+ * y el plazo sean del entregable. Se muestran plegados debajo, sin días ni
+ * plazo propios: esos se enseñan una sola vez, en el requerimiento.
+ *
+ * El filtro por organización va en la consulta, no en memoria: este servicio
+ * usa service_role y no pasa por RLS.
+ */
+export async function getPortalMembers(
+  organizationId: string,
+): Promise<Record<string, PortalMember[]>> {
+  const svc = serviceClient();
+
+  const { data } = await svc
+    .from('requirement_members')
+    .select(
+      'requirement_id, member_number, member_title, member_status, member_done',
+    )
+    .eq('organization_id', organizationId)
+    .order('member_number');
+
+  const porReq: Record<string, PortalMember[]> = {};
+  for (const row of (data ?? []) as unknown as PortalMember[]) {
+    (porReq[row.requirement_id] ??= []).push(row);
+  }
+  return porReq;
+}
+
 /** El catálogo de fases, para rotular el avance en el portal. */
 export async function getPhaseCatalog(): Promise<
   Array<{ phase: string; name: string; owner: string; sort_order: number }>
