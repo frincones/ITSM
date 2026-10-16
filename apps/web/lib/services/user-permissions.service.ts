@@ -15,6 +15,7 @@ const ALL_MODULES: string[] = [
   'reports',
   'assets',
   'projects',
+  'delivery',
   'service_catalog',
   'automations',
   'workflows',
