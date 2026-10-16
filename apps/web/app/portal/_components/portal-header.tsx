@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
-import { BookOpen, TicketIcon, User } from 'lucide-react';
+import { BookOpen, FolderKanban, TicketIcon, User } from 'lucide-react';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@kit/ui/avatar';
 
@@ -91,6 +91,14 @@ export function PortalHeader({
           >
             <TicketIcon className="h-4 w-4" />
             Mis Tickets
+          </Link>
+          {/* Pide sesión: muestra el backlog y el consumo del contrato. */}
+          <Link
+            href={`${base}/proyecto`}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+          >
+            <FolderKanban className="h-4 w-4" />
+            Mi Proyecto
           </Link>
         </nav>
 
