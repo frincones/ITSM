@@ -33,6 +33,15 @@ const MODO_ESPERADO = process.argv.includes('--esperado');
  *
  * `null` = no se comprueba todavía, porque esa tabla se corrige en 00070.
  */
+// ⚠ ESTAS CIFRAS CADUCAN. El portal crea tickets a diario, así que un
+// número exacto falla por tráfico normal y no por una fuga: el 16-oct-2026
+// un ticket del cliente movió Prosuministros de 240 a 241.
+//
+// Se conservan como referencia histórica y para detectar un salto grande,
+// pero la comprobación que IMPORTA no es esta: es la de la sección
+// "aislamiento real", que verifica que cada usuario de cliente vea
+// exclusivamente tickets de SU organización. Esa no caduca, porque no
+// depende de cuántos haya sino de a quién pertenecen.
 const ESPERADO = {
   'Admin NovaDesk':   { rol: 'admin',    tickets: 714, followups: 1273, contacts: 6, nps: 188 },
   'Freddy Rincones':  { rol: 'admin',    tickets: 714, followups: 1273, contacts: 6, nps: 188 },
