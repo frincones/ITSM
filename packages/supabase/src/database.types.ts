@@ -15,9 +15,9 @@
 // not describe RPC signatures in enough detail to generate them, and a
 // wrong signature would be worse than an honest `unknown`.
 //
-// Tables: 103
-// Functions: 40
-// Generated: 2026-10-16T02:07:58.012Z
+// Tables: 105
+// Functions: 43
+// Generated: 2026-10-16T03:08:52.377Z
 // ---------------------------------------------------------------------------
 
 export type Json =
@@ -999,6 +999,102 @@ export type Database = {
           updated_at?: string
           organization_id?: string | null
           category_id?: string | null
+        }
+        Relationships: []
+      }
+      delivery_cycle_history: {
+        Row: {
+          id: string
+          tenant_id: string
+          ticket_id: string
+          from_cycle_id: string | null
+          to_cycle_id: string | null
+          effort_points: number | null
+          changed_at: string
+          changed_by_user_id: string | null
+          changed_by_agent_id: string | null
+          reason: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          ticket_id: string
+          from_cycle_id?: string | null
+          to_cycle_id?: string | null
+          effort_points?: number | null
+          changed_at?: string
+          changed_by_user_id?: string | null
+          changed_by_agent_id?: string | null
+          reason?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          ticket_id?: string
+          from_cycle_id?: string | null
+          to_cycle_id?: string | null
+          effort_points?: number | null
+          changed_at?: string
+          changed_by_user_id?: string | null
+          changed_by_agent_id?: string | null
+          reason?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      delivery_cycles: {
+        Row: {
+          id: string
+          tenant_id: string
+          project_id: string
+          cycle_number: number
+          name: string | null
+          starts_on: string
+          ends_on: string
+          committed_points: number | null
+          status: string
+          closed_at: string | null
+          closed_by: string | null
+          delivered_points: number | null
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          project_id: string
+          cycle_number: number
+          name?: string | null
+          starts_on: string
+          ends_on: string
+          committed_points?: number | null
+          status?: string
+          closed_at?: string | null
+          closed_by?: string | null
+          delivered_points?: number | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          project_id?: string
+          cycle_number?: number
+          name?: string | null
+          starts_on?: string
+          ends_on?: string
+          committed_points?: number | null
+          status?: string
+          closed_at?: string | null
+          closed_by?: string | null
+          delivered_points?: number | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -4293,6 +4389,7 @@ export type Database = {
           project_id: string | null
           effort_size: "S" | "M" | "L" | "XL" | null
           effort_points: number | null
+          delivery_cycle_id: string | null
         }
         Insert: {
           id?: string
@@ -4359,6 +4456,7 @@ export type Database = {
           project_id?: string | null
           effort_size?: "S" | "M" | "L" | "XL" | null
           effort_points?: number | null
+          delivery_cycle_id?: string | null
         }
         Update: {
           id?: string
@@ -4425,6 +4523,7 @@ export type Database = {
           project_id?: string | null
           effort_size?: "S" | "M" | "L" | "XL" | null
           effort_points?: number | null
+          delivery_cycle_id?: string | null
         }
         Relationships: []
       }
@@ -4686,6 +4785,10 @@ export type Database = {
         Args: Record<string, unknown>
         Returns: unknown
       }
+      delivery_cycle_status: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
       end_of_business_day: {
         Args: Record<string, unknown>
         Returns: unknown
@@ -4702,11 +4805,19 @@ export type Database = {
         Args: Record<string, unknown>
         Returns: unknown
       }
+      has_org_access: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
       immutable_unaccent: {
         Args: Record<string, unknown>
         Returns: unknown
       }
       increment_rate_bucket: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      is_staff_agent: {
         Args: Record<string, unknown>
         Returns: unknown
       }

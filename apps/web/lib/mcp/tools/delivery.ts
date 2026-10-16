@@ -20,10 +20,18 @@ import {
   getEffortScale as domainGetScale,
   getProjectEffort as domainProjectEffort,
   listBacklog as domainListBacklog,
+  assignToCycle as domainAssignToCycle,
+  closeCycle as domainCloseCycle,
+  createCycle as domainCreateCycle,
+  getCycleHistory as domainCycleHistory,
+  getCycleStatus as domainCycleStatus,
+  listCycles as domainListCycles,
 } from '~/lib/domain/delivery.domain';
 
 import { toDomainContext, unwrap } from '../domain-bridge';
 import { registry } from '../registry';
+
+const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 
 registry.register({
   name: 'backlog_list',
@@ -134,6 +142,120 @@ registry.register({
         XL: 'Suficientemente grande como para plantearse partirla antes de comprometerla.',
       },
     };
+  },
+});
+
+
+// ---------------------------------------------------------------------------
+// Ciclos de entrega (Fase 2)
+// ---------------------------------------------------------------------------
+// Aviso de vocabulario, porque aquí hay dos "ciclos" y confundirlos sale caro:
+//
+//   delivery_cycle  — lo que el equipo se compromete a entregar. Es esto.
+//   support_cycle   — el ciclo de FACTURACIÓN del contrato, con corte el día
+//                     22. Se consulta con las herramientas de reportes y NO
+//                     se toca desde aquí.
+//
+// Un agente que confunda uno con otro reportará como entregado un periodo de
+// facturación, o al revés.
+
+registry.register({
+  name: 'cycles_list',
+  description:
+    'Ciclos de entrega de un proyecto, del más reciente al más antiguo. Son los ciclos de COMPROMISO del equipo, no los de facturación del contrato: para el cupo mensual y el consumo usa las herramientas de reportes.',
+  scope: 'projects:read',
+  inputSchema: z.object({ project_id: z.string().uuid() }),
+  meta: { since: '1.3.0', tags: ['projects', 'cycles', 'read'] },
+  async handler(ctx, input) {
+    return unwrap(await domainListCycles(toDomainContext(ctx), input.project_id));
+  },
+});
+
+registry.register({
+  name: 'cycles_create',
+  description:
+    'Crea un ciclo de entrega. committed_points es lo que el contrato compromete para ese ciclo en puntos de esfuerzo — no son los créditos de descuento por SLA incumplido. El número de ciclo es único dentro del proyecto.',
+  scope: 'projects:write',
+  inputSchema: z.object({
+    project_id: z.string().uuid(),
+    cycle_number: z.number().int().min(1),
+    name: z.string().trim().max(120).optional(),
+    starts_on: dateOnly,
+    ends_on: dateOnly,
+    committed_points: z.number().int().min(0).optional(),
+  }),
+  meta: { since: '1.3.0', tags: ['projects', 'cycles', 'write'] },
+  async handler(ctx, input) {
+    const { project_id, ...fields } = input;
+    return {
+      cycle: unwrap(await domainCreateCycle(toDomainContext(ctx), project_id, fields)),
+    };
+  },
+});
+
+registry.register({
+  name: 'cycles_assign_item',
+  description:
+    'Compromete un item del backlog a un ciclo, o lo devuelve al backlog pasando cycle_id en null — nunca lo borra. El item y el ciclo deben ser del mismo proyecto, y un ciclo cerrado no admite movimientos. Cada movimiento queda registrado automáticamente.',
+  scope: 'projects:write',
+  inputSchema: z.object({
+    ticket_id: z.string().uuid(),
+    cycle_id: z
+      .string()
+      .uuid()
+      .nullable()
+      .describe('null devuelve el item al backlog general'),
+  }),
+  meta: { since: '1.3.0', tags: ['projects', 'cycles', 'write'] },
+  async handler(ctx, input) {
+    return {
+      item: unwrap(
+        await domainAssignToCycle(toDomainContext(ctx), input.ticket_id, input.cycle_id),
+      ),
+    };
+  },
+});
+
+registry.register({
+  name: 'cycles_status',
+  description:
+    'Estado de un ciclo: puntos comprometidos, asignados, entregados y pendientes, más cuántos items faltan por estimar. over_commitment en true significa que lo asignado supera lo comprometido. Entregado cuenta solo lo que llegó a resolved o closed: comprometer no es entregar.',
+  scope: 'projects:read',
+  inputSchema: z.object({ cycle_id: z.string().uuid() }),
+  meta: { since: '1.3.0', tags: ['projects', 'cycles', 'read'] },
+  async handler(ctx, input) {
+    return unwrap(await domainCycleStatus(toDomainContext(ctx), input.cycle_id));
+  },
+});
+
+registry.register({
+  name: 'cycles_close',
+  description:
+    'Cierra un ciclo y sella lo entregado. Los puntos entregados se congelan en ese momento: un ciclo cerrado muestra lo que se entregó entonces, no lo que diría recalcularlo hoy. Después del cierre sus items ya no se mueven.',
+  scope: 'projects:write',
+  inputSchema: z.object({
+    cycle_id: z.string().uuid(),
+    notes: z.string().max(2000).optional(),
+  }),
+  meta: { since: '1.3.0', tags: ['projects', 'cycles', 'write'] },
+  async handler(ctx, input) {
+    return {
+      cycle: unwrap(
+        await domainCloseCycle(toDomainContext(ctx), input.cycle_id, input.notes ?? null),
+      ),
+    };
+  },
+});
+
+registry.register({
+  name: 'cycles_history',
+  description:
+    'Qué entró y qué salió de un ciclo, con quién y cuándo — la trazabilidad del refinamiento que pide el proceso. Lo escriben los triggers de la base, así que recoge los movimientos vengan de la interfaz, de un agente o de SQL directo.',
+  scope: 'projects:read',
+  inputSchema: z.object({ cycle_id: z.string().uuid() }),
+  meta: { since: '1.3.0', tags: ['projects', 'cycles', 'read'] },
+  async handler(ctx, input) {
+    return unwrap(await domainCycleHistory(toDomainContext(ctx), input.cycle_id));
   },
 });
 

@@ -330,5 +330,264 @@ export async function getProjectEffort(
   });
 }
 
+
+// ---------------------------------------------------------------------------
+// Ciclos de entrega (Fase 2)
+// ---------------------------------------------------------------------------
+// El ciclo de ENTREGA es lo que el equipo se compromete a entregar. No es el
+// ciclo de FACTURACIÓN de `support_cycle_for()`, que se ancla al contrato con
+// corte el día 22 y no se toca desde aquí.
+//
+// Antes de esto la pertenencia a un ciclo se derivaba de `created_at`, así que
+// un item no se podía mover sin falsear su fecha de creación. Ahora es una
+// columna explícita, y cada movimiento queda registrado por un trigger.
+// ---------------------------------------------------------------------------
+
+export const CYCLE_STATUSES = ['planned', 'active', 'closed'] as const;
+export type CycleStatus = (typeof CYCLE_STATUSES)[number];
+
+export interface CycleFields {
+  cycle_number: number;
+  name?: string | null;
+  starts_on: string;
+  ends_on: string;
+  committed_points?: number | null;
+}
+
+/** Ciclos de un proyecto, del más reciente al más antiguo. */
+export async function listCycles(
+  ctx: DomainContext,
+  projectId: string,
+): Promise<DomainResult<{ cycles: unknown[] }>> {
+  const { actor, client } = ctx;
+
+  const { data, error } = await client
+    .from('delivery_cycles')
+    .select('*')
+    .eq('tenant_id', actor.tenantId)
+    .eq('project_id', projectId)
+    .order('cycle_number', { ascending: false });
+
+  if (error) return fail(error.message, 'internal');
+  return ok({ cycles: data ?? [] });
+}
+
+export async function createCycle(
+  ctx: DomainContext,
+  projectId: string,
+  fields: CycleFields,
+): Promise<DomainResult<Record<string, unknown>>> {
+  const { actor, client } = ctx;
+
+  if (fields.ends_on < fields.starts_on) {
+    return fail('La fecha de fin no puede ser anterior a la de inicio', 'invalid_input');
+  }
+
+  const { data: project } = await client
+    .from('projects')
+    .select('id, tenant_id')
+    .eq('id', projectId)
+    .eq('tenant_id', actor.tenantId)
+    .maybeSingle();
+
+  if (!project) return fail('Proyecto no encontrado', 'not_found');
+
+  const { data, error } = await client
+    .from('delivery_cycles')
+    .insert({
+      tenant_id: actor.tenantId,
+      project_id: projectId,
+      cycle_number: fields.cycle_number,
+      name: fields.name ?? null,
+      starts_on: fields.starts_on,
+      ends_on: fields.ends_on,
+      committed_points: fields.committed_points ?? null,
+    })
+    .select('*')
+    .single();
+
+  if (error) {
+    // El índice único (project_id, cycle_number) es lo que impide dos
+    // "Ciclo 3" en el mismo proyecto; el mensaje de Postgres no se entiende.
+    if (error.code === '23505') {
+      return fail(`Ya existe el ciclo ${fields.cycle_number} en este proyecto`, 'conflict');
+    }
+    return fail(error.message, 'internal');
+  }
+
+  return ok(data as Record<string, unknown>);
+}
+
+/**
+ * Mueve un item dentro o fuera de un ciclo.
+ *
+ * `cycleId: null` lo devuelve al backlog general — nunca lo borra, que es
+ * criterio de aceptación del PRD.
+ *
+ * Un ciclo cerrado no admite movimientos: el PRD pide que lo ya entregado
+ * quede inamovible, igual que un ciclo de facturación cerrado.
+ */
+export async function assignToCycle(
+  ctx: DomainContext,
+  ticketId: string,
+  cycleId: string | null,
+): Promise<DomainResult<Record<string, unknown>>> {
+  const { actor, client } = ctx;
+
+  const { data: ticket } = await client
+    .from('tickets')
+    .select('id, organization_id, project_id, delivery_cycle_id, effort_points')
+    .eq('id', ticketId)
+    .eq('tenant_id', actor.tenantId)
+    .is('deleted_at', null)
+    .maybeSingle();
+
+  if (!ticket) return fail('Ticket no encontrado', 'not_found');
+
+  const t = ticket as {
+    project_id: string | null;
+    delivery_cycle_id: string | null;
+  };
+
+  // Sacar de un ciclo cerrado tampoco: el histórico no se reescribe.
+  if (t.delivery_cycle_id) {
+    const { data: actual } = await client
+      .from('delivery_cycles')
+      .select('status, cycle_number')
+      .eq('id', t.delivery_cycle_id)
+      .maybeSingle();
+    const a = actual as { status: string; cycle_number: number } | null;
+    if (a?.status === 'closed') {
+      return fail(
+        `El ciclo ${a.cycle_number} está cerrado; sus items no se mueven`,
+        'conflict',
+      );
+    }
+  }
+
+  if (cycleId !== null) {
+    const { data: cycle } = await client
+      .from('delivery_cycles')
+      .select('id, project_id, status, cycle_number')
+      .eq('id', cycleId)
+      .eq('tenant_id', actor.tenantId)
+      .maybeSingle();
+
+    if (!cycle) return fail('Ciclo no encontrado', 'not_found');
+
+    const c = cycle as { project_id: string; status: string; cycle_number: number };
+
+    if (c.status === 'closed') {
+      return fail(`El ciclo ${c.cycle_number} está cerrado`, 'conflict');
+    }
+
+    // Un item solo entra en un ciclo de su propio proyecto. Sin esto, el
+    // backlog de un cliente podría acabar contando en el ciclo de otro.
+    if (t.project_id !== c.project_id) {
+      return fail('El item y el ciclo pertenecen a proyectos distintos', 'invalid_input');
+    }
+  }
+
+  const { data, error } = await client
+    .from('tickets')
+    .update({ delivery_cycle_id: cycleId })
+    .eq('id', ticketId)
+    .eq('tenant_id', actor.tenantId)
+    .select('id, ticket_number, title, delivery_cycle_id, effort_points')
+    .single();
+
+  if (error) return fail(error.message, 'internal');
+  return ok(data as Record<string, unknown>);
+}
+
+/** El semáforo del PRD: comprometido contra asignado. */
+export async function getCycleStatus(
+  ctx: DomainContext,
+  cycleId: string,
+): Promise<DomainResult<Record<string, unknown>>> {
+  const { client } = ctx;
+
+  const { data, error } = await client.rpc('delivery_cycle_status', {
+    p_cycle_id: cycleId,
+  });
+
+  if (error) return fail(error.message, 'internal');
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return fail('Ciclo no encontrado', 'not_found');
+
+  return ok(row as Record<string, unknown>);
+}
+
+/**
+ * Cierra un ciclo, sellando lo entregado.
+ *
+ * Los puntos entregados se congelan en la fila, como hace
+ * `support_cycle_closures` con la facturación: un ciclo cerrado muestra lo
+ * que se entregó entonces, no lo que diría recalcularlo hoy.
+ */
+export async function closeCycle(
+  ctx: DomainContext,
+  cycleId: string,
+  notes?: string | null,
+): Promise<DomainResult<Record<string, unknown>>> {
+  const { actor, client } = ctx;
+
+  const { data: cycle } = await client
+    .from('delivery_cycles')
+    .select('id, status, cycle_number')
+    .eq('id', cycleId)
+    .eq('tenant_id', actor.tenantId)
+    .maybeSingle();
+
+  if (!cycle) return fail('Ciclo no encontrado', 'not_found');
+
+  const c = cycle as { status: string; cycle_number: number };
+  if (c.status === 'closed') {
+    return fail(`El ciclo ${c.cycle_number} ya estaba cerrado`, 'conflict');
+  }
+
+  const status = await getCycleStatus(ctx, cycleId);
+  if (status.error !== null) return fail(status.error, status.code);
+
+  const entregados = Number(status.data.delivered_points ?? 0);
+
+  const { data, error } = await client
+    .from('delivery_cycles')
+    .update({
+      status: 'closed',
+      closed_at: new Date().toISOString(),
+      closed_by: actor.agentId,
+      delivered_points: entregados,
+      notes: notes ?? null,
+    })
+    .eq('id', cycleId)
+    .eq('tenant_id', actor.tenantId)
+    .select('*')
+    .single();
+
+  if (error) return fail(error.message, 'internal');
+  return ok(data as Record<string, unknown>);
+}
+
+/** Historial de altas y bajas de un ciclo, para el refinamiento. */
+export async function getCycleHistory(
+  ctx: DomainContext,
+  cycleId: string,
+): Promise<DomainResult<{ movements: unknown[] }>> {
+  const { actor, client } = ctx;
+
+  const { data, error } = await client
+    .from('delivery_cycle_history')
+    .select('*')
+    .eq('tenant_id', actor.tenantId)
+    .or(`to_cycle_id.eq.${cycleId},from_cycle_id.eq.${cycleId}`)
+    .order('changed_at', { ascending: false })
+    .limit(200);
+
+  if (error) return fail(error.message, 'internal');
+  return ok({ movements: data ?? [] });
+}
+
 /** Marcador observado por lib/mcp/server.ts para evitar el tree-shaking. */
 export const __deliveryDomainLoaded = true;
