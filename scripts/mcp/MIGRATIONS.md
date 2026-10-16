@@ -4,9 +4,11 @@ Registro de las migraciones que este trabajo acumuló. Se mantuvieron sin
 ejecutar durante el desarrollo y se aplicaron al final, en una pasada
 controlada, revisando una por una.
 
-> **TODAS APLICADAS — 15-oct-2026. No queda ninguna pendiente.**
-> 00064, 00065 y 00066 están en producción y verificadas. Las secciones de
-> abajo quedan como referencia de qué hace cada una y cómo revertirla.
+> **00064, 00065 y 00066: aplicadas y verificadas** (15-oct-2026).
+>
+> **00067: PENDIENTE.** Es la de la Fase 1 del módulo de proyectos. Se deja
+> sin ejecutar a propósito, igual que se hizo con las anteriores: primero se
+> escribe y se revisa, después se aplica en una pasada controlada.
 >
 > No confíes en este archivo sin verificar: lo que manda es la base de datos.
 > ```bash
@@ -227,12 +229,74 @@ rm scripts/mcp/oauth-schema-audit.mjs       # schema-audit.mjs ya las cubre
 
 ---
 
+## 00067 — `project_delivery_phase1` · ⬅ PENDIENTE
+
+**Para qué va.** Fase 1 del módulo de gestión de proyectos. Une tres cosas que
+hoy existen por separado: los 16 tickets de backlog de Podenza y Prosuministros,
+la tabla `projects`, y una unidad de esfuerzo que no existía.
+
+**Qué crea.**
+
+| Objeto | Tipo | Para qué |
+|---|---|---|
+| `effort_size` | enum | Talla T-shirt: S / M / L / XL |
+| `effort_conversion` | tabla | Conversión talla → puntos, versionada por vigencia |
+| `tickets.project_id` | columna | A qué proyecto pertenece el item (NULL = soporte corriente) |
+| `tickets.effort_size` | columna | Talla estimada |
+| `tickets.effort_points` | columna | Puntos **congelados** al estimar |
+| `projects.contract_id` | columna | Contrato que gobierna cupo y día de corte |
+
+**Por qué `effort_points` y no "créditos".** En esta base "crédito" ya significa
+el descuento en pesos por incumplir SLA (`credit_cop`, `credit_tickets`, 00057 y
+00058), y esa palabra ya salió en reportes entregados al cliente. El esfuerzo del
+PRD es una tercera cosa, distinta de ese descuento y de `monthly_ticket_quota`
+(que es un conteo de tickets). Tres conceptos con un nombre producen reportes
+que mienten. La interfaz puede rotularlo "Créditos"; la columna no.
+
+**Lo que NO hace, a propósito.**
+- No añade tipos ni estados de ticket. La clasificación del PRD ya existe como
+  `ticket_type`, y un tipo nuevo entraría por omisión en el lado NO facturable
+  —y reclasificar un `support` hacia él restituiría cuota— un cambio de
+  facturación silencioso.
+- No toca `support_cycle_usage()` ni ninguna función de ciclo.
+- No asigna los 3 proyectos internos de TDX a ninguna organización.
+
+**Incluye una corrección de seguridad que no es del módulo.** `projects` tiene
+el mismo hueco de RLS que 00043 cerró en `tickets`: sus políticas solo comprueban
+`tenant_id`, pese a que `projects.organization_id` existe desde 00021. Hoy el
+riesgo es bajo —los 3 proyectos vivos son internos y sin organización— pero deja
+de serlo con el primer proyecto de cliente, que es justo lo que habilita esta
+migración. Se corrige aquí porque la fase que crea proyectos de cliente no puede
+ser la misma que los deje expuestos.
+
+**Riesgo.** Bajo. Las tres columnas de `tickets` son nullable y sin default: nada
+existente cambia de valor ni de comportamiento. La tabla y el enum son nuevos.
+Lo único que se modifica de algo en uso son las políticas RLS de `projects` y
+`project_tasks`, y solo para **restringir**, nunca para ampliar.
+
+**Antes de aplicar — anotar para poder comparar.**
+
+```sql
+SELECT * FROM support_cycle_usage(
+  (SELECT id FROM organization_support_contracts LIMIT 1));
+```
+
+**Verificación después de aplicar.** Las 4 consultas están al pie del archivo de
+migración. La que importa es la 3: `support_cycle_usage()` debe devolver
+exactamente los mismos números que antes.
+
+**Rollback.** Documentado al pie del archivo. Ojo: restaurar las políticas de
+00015 devuelve el hueco de RLS.
+
+---
+
 ## Orden de aplicación
 
 ```
 00064_mcp_actor_attribution.sql       ✅ ya aplicada
 00065_mcp_rate_bucket_gc.sql          ✅ ya aplicada
 00066_oauth_authorization_server.sql  ✅ ya aplicada
+00067_project_delivery_phase1.sql     ⬅ pendiente
 ```
 
 00064 y 00065 son independientes entre sí; el orden solo refleja prioridad.

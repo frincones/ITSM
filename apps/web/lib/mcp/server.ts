@@ -38,6 +38,7 @@ import { __changesWriteToolsLoaded } from './tools/changes-write';
 import { __reportingToolsLoaded } from './tools/reporting';
 import { __operationsToolsLoaded } from './tools/operations';
 import { __ticketsExtendedToolsLoaded } from './tools/tickets-extended';
+import { __deliveryToolsLoaded } from './tools/delivery';
 import { __engagementToolsLoaded } from './tools/engagement';
 
 // The bundler must believe these markers are observed. Without this array
@@ -63,6 +64,7 @@ const _toolModulesLoaded = [
   __operationsToolsLoaded,
   __ticketsExtendedToolsLoaded,
   __engagementToolsLoaded,
+  __deliveryToolsLoaded,
 ];
 if (_toolModulesLoaded.some((v) => v !== true)) {
   throw new Error('MCP tool module markers misconfigured');
