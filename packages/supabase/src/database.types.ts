@@ -15,9 +15,9 @@
 // not describe RPC signatures in enough detail to generate them, and a
 // wrong signature would be worse than an honest `unknown`.
 //
-// Tables: 102
-// Functions: 40
-// Generated: 2026-10-15T21:05:21.061Z
+// Tables: 107
+// Functions: 48
+// Generated: 2026-10-16T03:36:04.575Z
 // ---------------------------------------------------------------------------
 
 export type Json =
@@ -75,6 +75,42 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_capacity: {
+        Row: {
+          id: string
+          tenant_id: string
+          cycle_id: string
+          agent_id: string
+          hours_per_day: number
+          overhead_hours: number
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          cycle_id: string
+          agent_id: string
+          hours_per_day: number
+          overhead_hours?: number
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          cycle_id?: string
+          agent_id?: string
+          hours_per_day?: number
+          overhead_hours?: number
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       agent_organizations: {
         Row: {
           id: string
@@ -102,6 +138,42 @@ export type Database = {
           access_level?: string
           is_default?: boolean | null
           created_at?: string
+        }
+        Relationships: []
+      }
+      agent_time_off: {
+        Row: {
+          id: string
+          tenant_id: string
+          agent_id: string
+          starts_on: string
+          ends_on: string
+          kind: string
+          notes: string | null
+          created_at: string
+          created_by: string | null
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          agent_id: string
+          starts_on: string
+          ends_on: string
+          kind?: string
+          notes?: string | null
+          created_at?: string
+          created_by?: string | null
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          agent_id?: string
+          starts_on?: string
+          ends_on?: string
+          kind?: string
+          notes?: string | null
+          created_at?: string
+          created_by?: string | null
         }
         Relationships: []
       }
@@ -999,6 +1071,132 @@ export type Database = {
           updated_at?: string
           organization_id?: string | null
           category_id?: string | null
+        }
+        Relationships: []
+      }
+      delivery_cycle_history: {
+        Row: {
+          id: string
+          tenant_id: string
+          ticket_id: string
+          from_cycle_id: string | null
+          to_cycle_id: string | null
+          effort_points: number | null
+          changed_at: string
+          changed_by_user_id: string | null
+          changed_by_agent_id: string | null
+          reason: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          ticket_id: string
+          from_cycle_id?: string | null
+          to_cycle_id?: string | null
+          effort_points?: number | null
+          changed_at?: string
+          changed_by_user_id?: string | null
+          changed_by_agent_id?: string | null
+          reason?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          ticket_id?: string
+          from_cycle_id?: string | null
+          to_cycle_id?: string | null
+          effort_points?: number | null
+          changed_at?: string
+          changed_by_user_id?: string | null
+          changed_by_agent_id?: string | null
+          reason?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      delivery_cycles: {
+        Row: {
+          id: string
+          tenant_id: string
+          project_id: string
+          cycle_number: number
+          name: string | null
+          starts_on: string
+          ends_on: string
+          committed_points: number | null
+          status: string
+          closed_at: string | null
+          closed_by: string | null
+          delivered_points: number | null
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          project_id: string
+          cycle_number: number
+          name?: string | null
+          starts_on: string
+          ends_on: string
+          committed_points?: number | null
+          status?: string
+          closed_at?: string | null
+          closed_by?: string | null
+          delivered_points?: number | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          project_id?: string
+          cycle_number?: number
+          name?: string | null
+          starts_on?: string
+          ends_on?: string
+          committed_points?: number | null
+          status?: string
+          closed_at?: string | null
+          closed_by?: string | null
+          delivered_points?: number | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      effort_conversion: {
+        Row: {
+          id: string
+          tenant_id: string
+          size: "S" | "M" | "L" | "XL"
+          points: number
+          effective_from: string
+          effective_to: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          size: "S" | "M" | "L" | "XL"
+          points: number
+          effective_from?: string
+          effective_to?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          size?: "S" | "M" | "L" | "XL"
+          points?: number
+          effective_from?: string
+          effective_to?: string | null
+          created_at?: string
         }
         Relationships: []
       }
@@ -2854,6 +3052,7 @@ export type Database = {
           created_at: string
           updated_at: string
           organization_id: string | null
+          contract_id: string | null
         }
         Insert: {
           id?: string
@@ -2870,6 +3069,7 @@ export type Database = {
           created_at?: string
           updated_at?: string
           organization_id?: string | null
+          contract_id?: string | null
         }
         Update: {
           id?: string
@@ -2886,6 +3086,7 @@ export type Database = {
           created_at?: string
           updated_at?: string
           organization_id?: string | null
+          contract_id?: string | null
         }
         Relationships: []
       }
@@ -3146,7 +3347,7 @@ export type Database = {
           id: string | null
           ticket_number: string | null
           type: "incident" | "request" | "warranty" | "support" | "backlog" | "desarrollo_pendiente" | null
-          status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | null
+          status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed" | null
           organization_id: string | null
           created_at: string | null
           sla_due_date: string | null
@@ -3155,7 +3356,7 @@ export type Database = {
           id?: string | null
           ticket_number?: string | null
           type?: "incident" | "request" | "warranty" | "support" | "backlog" | "desarrollo_pendiente" | null
-          status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | null
+          status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed" | null
           organization_id?: string | null
           created_at?: string | null
           sla_due_date?: string | null
@@ -3164,7 +3365,7 @@ export type Database = {
           id?: string | null
           ticket_number?: string | null
           type?: "incident" | "request" | "warranty" | "support" | "backlog" | "desarrollo_pendiente" | null
-          status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | null
+          status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed" | null
           organization_id?: string | null
           created_at?: string | null
           sla_due_date?: string | null
@@ -3981,8 +4182,8 @@ export type Database = {
           ticket_id: string
           tenant_id: string
           organization_id: string | null
-          from_status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | null
-          to_status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana"
+          from_status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed" | null
+          to_status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed"
           changed_at: string
           changed_by_user_id: string | null
           changed_by_agent_id: string | null
@@ -3996,8 +4197,8 @@ export type Database = {
           ticket_id: string
           tenant_id: string
           organization_id?: string | null
-          from_status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | null
-          to_status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana"
+          from_status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed" | null
+          to_status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed"
           changed_at?: string
           changed_by_user_id?: string | null
           changed_by_agent_id?: string | null
@@ -4011,8 +4212,8 @@ export type Database = {
           ticket_id?: string
           tenant_id?: string
           organization_id?: string | null
-          from_status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | null
-          to_status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana"
+          from_status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed" | null
+          to_status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed"
           changed_at?: string
           changed_by_user_id?: string | null
           changed_by_agent_id?: string | null
@@ -4206,7 +4407,7 @@ export type Database = {
           ai_classification: Json | null
           ai_classified_at: string | null
           ai_classified_by: string | null
-          status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana"
+          status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed"
           urgency: "low" | "medium" | "high" | "critical"
           impact: "low" | "medium" | "high" | "critical"
           priority: number
@@ -4257,6 +4458,14 @@ export type Database = {
           sla_applies: boolean
           sla_contract_id: string | null
           sla_target_minutes: number | null
+          project_id: string | null
+          effort_size: "S" | "M" | "L" | "XL" | null
+          effort_points: number | null
+          delivery_cycle_id: string | null
+          proposed_by_user_id: string | null
+          proposed_at: string | null
+          triaged_at: string | null
+          triaged_by: string | null
         }
         Insert: {
           id?: string
@@ -4269,7 +4478,7 @@ export type Database = {
           ai_classification?: Json | null
           ai_classified_at?: string | null
           ai_classified_by?: string | null
-          status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana"
+          status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed"
           urgency?: "low" | "medium" | "high" | "critical"
           impact?: "low" | "medium" | "high" | "critical"
           priority?: number
@@ -4320,6 +4529,14 @@ export type Database = {
           sla_applies?: boolean
           sla_contract_id?: string | null
           sla_target_minutes?: number | null
+          project_id?: string | null
+          effort_size?: "S" | "M" | "L" | "XL" | null
+          effort_points?: number | null
+          delivery_cycle_id?: string | null
+          proposed_by_user_id?: string | null
+          proposed_at?: string | null
+          triaged_at?: string | null
+          triaged_by?: string | null
         }
         Update: {
           id?: string
@@ -4332,7 +4549,7 @@ export type Database = {
           ai_classification?: Json | null
           ai_classified_at?: string | null
           ai_classified_by?: string | null
-          status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana"
+          status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed"
           urgency?: "low" | "medium" | "high" | "critical"
           impact?: "low" | "medium" | "high" | "critical"
           priority?: number
@@ -4383,6 +4600,14 @@ export type Database = {
           sla_applies?: boolean
           sla_contract_id?: string | null
           sla_target_minutes?: number | null
+          project_id?: string | null
+          effort_size?: "S" | "M" | "L" | "XL" | null
+          effort_points?: number | null
+          delivery_cycle_id?: string | null
+          proposed_by_user_id?: string | null
+          proposed_at?: string | null
+          triaged_at?: string | null
+          triaged_by?: string | null
         }
         Relationships: []
       }
@@ -4628,7 +4853,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      accept_proposal: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
       add_business_minutes: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      agent_capacity_status: {
         Args: Record<string, unknown>
         Returns: unknown
       }
@@ -4641,6 +4874,14 @@ export type Database = {
         Returns: unknown
       }
       close_support_cycle: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      copy_cycle_capacity: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      delivery_cycle_status: {
         Args: Record<string, unknown>
         Returns: unknown
       }
@@ -4660,6 +4901,10 @@ export type Database = {
         Args: Record<string, unknown>
         Returns: unknown
       }
+      has_org_access: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
       immutable_unaccent: {
         Args: Record<string, unknown>
         Returns: unknown
@@ -4668,11 +4913,19 @@ export type Database = {
         Args: Record<string, unknown>
         Returns: unknown
       }
+      is_staff_agent: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
       match_knowledge: {
         Args: Record<string, unknown>
         Returns: unknown
       }
       redeem_authorization_code: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      reject_proposal: {
         Args: Record<string, unknown>
         Returns: unknown
       }
@@ -4785,6 +5038,10 @@ export type Database = {
         Returns: unknown
       }
       verify_oauth_token: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      working_days_between: {
         Args: Record<string, unknown>
         Returns: unknown
       }

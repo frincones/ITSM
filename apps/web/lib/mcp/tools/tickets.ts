@@ -39,7 +39,13 @@ import {
 
 // Columns we expose externally — keep the surface deliberate.
 const TICKET_LIST_COLUMNS =
-  'id, ticket_number, title, type, status, urgency, impact, priority, organization_id, category_id, requester_id, requester_email, assigned_agent_id, assigned_group_id, channel, sla_due_date, sla_breached, tags, created_at, updated_at, resolved_at, closed_at';
+  // `sla_applies` is the contractual flag, and it is not the same thing as
+  // `sla_due_date`: 40 warranty tickets carry a due date left over from the
+  // generic SLA that predates the support contract, while every one of them
+  // has sla_applies = false. Only the flag decides whether a ticket counts
+  // toward compliance, so a caller reading the date alone draws the wrong
+  // conclusion about what is billable.
+  'id, ticket_number, title, type, status, urgency, impact, priority, organization_id, category_id, requester_id, requester_email, assigned_agent_id, assigned_group_id, channel, sla_applies, sla_due_date, sla_breached, tags, created_at, updated_at, resolved_at, closed_at';
 
 const TICKET_DETAIL_COLUMNS = TICKET_LIST_COLUMNS + ', description, description_html, ai_summary, ai_suggested_solution, custom_fields, first_response_at, escalation_level';
 
