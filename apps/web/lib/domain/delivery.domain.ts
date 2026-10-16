@@ -1418,5 +1418,89 @@ export async function quotaImpactOf(
   });
 }
 
+/**
+ * Los ENTREGABLES de un ciclo, con su fase, su avance y su atraso.
+ *
+ * No sirve `listBacklog` para esto, y de ahí venía el defecto de que el
+ * planning dijera "Asignado 17" sobre una lista vacía:
+ *
+ *   · filtra por BACKLOG_TYPES, así que un entregable de tipo `warranty`
+ *     —reusado del soporte— quedaba fuera;
+ *   · devuelve los tickets planos, así que un grupo de 7 salía como 7 filas
+ *     en vez de un entregable.
+ *
+ * Aquí se excluyen los miembros de un grupo y se trae lo que la pantalla
+ * necesita para pintar una tarjeta: cuántos de sus tickets van listos, en
+ * qué fase está y cuántos días debe cada parte.
+ */
+export async function listCycleItems(
+  ctx: DomainContext,
+  cycleId: string,
+): Promise<DomainResult<Array<Record<string, unknown>>>> {
+  const { client, actor } = ctx;
+
+  const { data, error } = await client
+    .from('tickets')
+    .select(
+      'id, ticket_number, title, status, type, requirement_phase, effort_size, ' +
+        'effort_points, organization_id, created_at',
+    )
+    .eq('tenant_id', actor.tenantId)
+    .eq('delivery_cycle_id', cycleId)
+    .is('deleted_at', null)
+    .not('status', 'in', '(proposed,cancelled)')
+    .order('effort_points', { ascending: false });
+
+  if (error) return fail(error.message, 'internal');
+  const filas = (data ?? []) as unknown as Array<Record<string, unknown>>;
+  if (!filas.length) return ok([]);
+
+  // Quién es miembro de un grupo: esos no son entregables.
+  const { data: rel } = await client
+    .from('ticket_relations')
+    .select('related_ticket_id, ticket_id')
+    .eq('relation_type', 'child')
+    .in(
+      'related_ticket_id',
+      filas.map((f) => f.id as string),
+    );
+
+  const esMiembro = new Set(
+    ((rel ?? []) as Array<{ related_ticket_id: string }>).map((r) => r.related_ticket_id),
+  );
+  const entregables = filas.filter((f) => !esMiembro.has(f.id as string));
+  if (!entregables.length) return ok([]);
+
+  const ids = entregables.map((e) => e.id as string);
+
+  // Miembros y atraso, en bloque: una consulta por tarjeta se nota.
+  const [miembrosRes, retrasos] = await Promise.all([
+    listMembersBulk(ctx, ids),
+    Promise.all(
+      ids.map(async (id) => {
+        const { data: d } = await client.rpc('requirement_delay', { p_ticket_id: id });
+        const row = Array.isArray(d) ? d[0] : d;
+        return { id, delay: (row ?? {}) as Record<string, unknown> };
+      }),
+    ),
+  ]);
+
+  const miembros = miembrosRes.error === null ? miembrosRes.data : {};
+  const porId = new Map(retrasos.map((r) => [r.id, r.delay]));
+
+  return ok(
+    entregables.map((e) => {
+      const ms = miembros[e.id as string] ?? [];
+      return {
+        ...e,
+        members: ms,
+        member_count: ms.length,
+        members_done: ms.filter((m) => m.member_done).length,
+        delay: porId.get(e.id as string) ?? {},
+      };
+    }),
+  );
+}
+
 /** Marcador observado por lib/mcp/server.ts para evitar el tree-shaking. */
 export const __deliveryDomainLoaded = true;

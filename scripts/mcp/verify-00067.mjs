@@ -36,18 +36,32 @@ const H = {
 //
 // Lo que NO debe moverse nunca por una migración es la sección 3
 // (cuota, cumplimiento y crédito): esos valores son el contrato.
+// RE-BASADO el 16-oct-2026 tras cargar el cronograma de Podenza:
+// 1 proyecto, 1 ciclo, 8 entregables (17 créditos) y 35 ítems de backlog.
+//
+// La sección 2 se llamaba "las columnas nuevas nacieron vacías" y asumía
+// que project_id, effort_size y effort_points seguían en 0. Eso valía
+// mientras el módulo estuviera sin estrenar; ahora tiene datos reales y la
+// premisa caducó. Lo que comprueba hoy es que esos valores son los que se
+// cargaron, no que no existan.
+//
+// Los 5 tickets que bajaron de support (299 → 294) se reclasificaron a
+// backlog a propósito: en los ciclos solo va garantía y backlog.
+//
+// Lo que NO debe moverse nunca es la sección 3 (cuota, cumplimiento y
+// crédito): esos valores son el contrato, y siguen idénticos.
 const BASELINE = {
-  tickets_total: 715,
+  tickets_total: 764,
   por_tipo: {
-    support: 299,
+    support: 294,
     warranty: 323,
     request: 34,
-    desarrollo_pendiente: 2,
+    desarrollo_pendiente: 5,
     incident: 43,
-    backlog: 14,
+    backlog: 65,
   },
   sla_applies_true: 15,
-  projects: 3,
+  projects: 4,
   project_tasks: 6,
   organizations: 4,
   organization_users: 5,
@@ -160,9 +174,12 @@ async function main() {
   } else {
     const filas = nuevas.data;
     cmp('tickets totales', BASELINE.tickets_total, filas.length);
-    cmp('con project_id', 0, filas.filter((t) => t.project_id !== null).length);
-    cmp('con effort_size', 0, filas.filter((t) => t.effort_size !== null).length);
-    cmp('con effort_points', 0, filas.filter((t) => t.effort_points !== null).length);
+    // Ya no son 0: el cronograma de Podenza está cargado. Lo que importa de
+    // estas tres cifras es que effort_points solo lo tengan los entregables
+    // y sus miembros (que van a 0), nunca un ticket de soporte.
+    cmp('con project_id', 56, filas.filter((t) => t.project_id !== null).length);
+    cmp('con effort_size', 8, filas.filter((t) => t.effort_size !== null).length);
+    cmp('con effort_points', 21, filas.filter((t) => t.effort_points !== null).length);
   }
 
   console.log('\n\x1b[1m3. FACTURACIÓN — la comprobación que importa\x1b[0m');

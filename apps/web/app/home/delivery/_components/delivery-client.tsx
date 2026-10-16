@@ -23,6 +23,7 @@ import {
   ClipboardList,
   Gauge,
   Inbox,
+  KanbanSquare,
   Layers,
   Loader2,
   Users,
@@ -54,11 +55,13 @@ import {
   cycleStatusAction,
   estimateItemAction,
   listBacklogAction,
+  listCycleItemsAction,
   listProposalsAction,
   rejectProposalAction,
   setCapacityAction,
 } from '~/lib/actions/delivery';
 
+import { CycleBoard } from './cycle-board';
 import { GroupDialog } from './group-dialog';
 import { PhaseSlaTab } from './phase-sla-tab';
 
@@ -94,6 +97,12 @@ interface Item {
   effort_points: number | null;
   project_id: string | null;
   delivery_cycle_id?: string | null;
+  // Los trae listCycleItems para pintar un entregable: en qué fase va y
+  // cuántos de sus tickets están listos. Opcionales porque listBacklog, que
+  // alimenta la pestaña de backlog, no los devuelve.
+  requirement_phase?: string | null;
+  member_count?: number;
+  members_done?: number;
 }
 
 export interface DeliveryClientProps {
@@ -163,14 +172,19 @@ export function DeliveryClient(props: DeliveryClientProps) {
           setItems((r.data?.items ?? []) as Item[]);
           setTotals(r.data?.totals ?? {});
         }
-      } else if (tab === 'planning' && cycleId) {
-        const [st, bl] = await Promise.all([
+      } else if ((tab === 'planning' || tab === 'board') && cycleId) {
+        // El planning y el tablero miran lo mismo: los ENTREGABLES del
+        // ciclo. listBacklog no sirve aquí — filtra por tipo, así que deja
+        // fuera un entregable reusado de garantía, y devuelve los tickets
+        // planos en vez de los grupos.
+        const [st, ci] = await Promise.all([
           cycleStatusAction(cycleId),
-          listBacklogAction({ project_id: props.selectedProjectId, limit: 200 }),
+          listCycleItemsAction(cycleId),
         ]);
         if (st.error) setError(st.error);
         else setCycleStatus(st.data as Record<string, unknown>);
-        if (!bl.error) setItems((bl.data?.items ?? []) as Item[]);
+        if (ci.error) setError(ci.error);
+        else setItems((ci.data ?? []) as unknown as Item[]);
       } else if (tab === 'capacity' && cycleId) {
         const r = await capacityAction(cycleId);
         if (r.error) setError(r.error);
@@ -291,6 +305,10 @@ export function DeliveryClient(props: DeliveryClientProps) {
             <CalendarDays className="mr-1.5 h-4 w-4" />
             Planning
           </TabsTrigger>
+          <TabsTrigger value="board">
+            <KanbanSquare className="mr-1.5 h-4 w-4" />
+            Tablero
+          </TabsTrigger>
           <TabsTrigger value="capacity">
             <Users className="mr-1.5 h-4 w-4" />
             Capacidad
@@ -341,6 +359,17 @@ export function DeliveryClient(props: DeliveryClientProps) {
             }
             onCerrar={(id) => ejecutar(() => closeCycleAction(id))}
             onSacar={(id) => ejecutar(() => assignToCycleAction(id, null))}
+          />
+        </TabsContent>
+
+        {/* El tablero por fases: donde el PM gestiona el ciclo tarjeta a
+            tarjeta. Arrastrar cambia la fase y, con ella, el dueño del reloj. */}
+        <TabsContent value="board" className="mt-4">
+          <CycleBoard
+            cycleId={cycleId}
+            cycleStatus={cycleStatus}
+            organizationId={proyecto?.organization_id ?? null}
+            cycleClosed={props.cycles.find((c) => c.id === cycleId)?.status === 'closed'}
           />
         </TabsContent>
 
@@ -665,7 +694,10 @@ function VistaPlanning({
 
   if (loading) return <Cargando />;
 
-  const delCiclo = items.filter((i) => i.delivery_cycle_id === ciclo?.id);
+  // listCycleItems ya devuelve solo los ENTREGABLES de este ciclo, sin los
+  // miembros de un grupo. Filtrar otra vez por delivery_cycle_id dejaba la
+  // lista vacía cuando ese campo no venía en la fila.
+  const delCiclo = items;
   const sobre = Boolean(status?.over_commitment);
 
   return (
@@ -759,11 +791,28 @@ function VistaPlanning({
               </p>
             ) : (
               delCiclo.map((it) => (
-                <div key={it.id} className="flex items-center gap-3 p-3">
-                  <span className="text-muted-foreground w-36 shrink-0 font-mono text-xs">
+                <div key={it.id} className="flex flex-wrap items-center gap-3 p-3">
+                  <span className="text-muted-foreground w-32 shrink-0 font-mono text-xs">
                     {it.ticket_number}
                   </span>
-                  <span className="flex-1 truncate text-sm">{it.title}</span>
+                  <span className="min-w-[180px] flex-1 truncate text-sm">{it.title}</span>
+                  {/* Un grupo dice cuántos de sus tickets van listos: es lo
+                      que explica por qué sigue abierto. */}
+                  {Number(it.member_count ?? 0) > 0 ? (
+                    <Badge variant="outline" className="text-[10px]">
+                      {String(it.members_done ?? 0)} de{' '}
+                      {String(it.member_count)} listos
+                    </Badge>
+                  ) : null}
+                  {it.requirement_phase ? (
+                    <Badge className="text-[10px]">
+                      {String(it.requirement_phase)}
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[10px]">
+                      sin fase
+                    </Badge>
+                  )}
                   <Badge variant="outline">{it.status}</Badge>
                   <span className="w-16 text-right text-sm font-medium">
                     {it.effort_points ?? '—'}
