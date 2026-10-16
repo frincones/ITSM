@@ -59,6 +59,7 @@ import {
 /** Every status the ticket_status enum allows. */
 export type TicketStatus =
   | 'new'
+  | 'proposed'
   | 'backlog'
   | 'assigned'
   | 'in_progress'
@@ -72,6 +73,11 @@ export type TicketStatus =
   | 'cancelled';
 
 export const VALID_TRANSITIONS: Record<string, string[]> = {
+  // Lo que el cliente propuso desde el portal y aún no se ha triado (00073).
+  // accept_proposal() / reject_proposal() mueven la fila por SQL, pero sin
+  // estas aristas un ticket propuesto quedaba congelado por cualquier otra
+  // vía: VALID_TRANSITIONS[status] ?? [] rechaza toda transición.
+  proposed: ['new', 'backlog', 'assigned', 'cancelled'],
   new: ['backlog', 'assigned', 'in_progress', 'pending', 'detenido', 'testing', 'closed', 'cancelled'],
   backlog: ['new', 'assigned', 'in_progress', 'pending', 'detenido', 'testing', 'closed', 'cancelled'],
   assigned: ['backlog', 'in_progress', 'pending', 'detenido', 'testing', 'closed', 'cancelled'],
