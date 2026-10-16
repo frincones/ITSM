@@ -25,6 +25,10 @@ export const ticketTypeEnum = z.enum([
 
 export const ticketStatusEnum = z.enum([
   'new',
+  // Propuesta del portal pendiente de triage (00073). Sin este valor,
+  // ticketStatusEnum.parse('proposed') lanzaba y /api/v1/tickets descartaba
+  // en silencio el filtro ?status=proposed.
+  'proposed',
   'backlog',
   'assigned',
   'in_progress',

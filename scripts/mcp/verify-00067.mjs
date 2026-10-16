@@ -105,17 +105,44 @@ async function rpc(fn, body) {
 async function main() {
   console.log('\n\x1b[1m1. La migración se aplicó\x1b[0m');
 
-  const scale = await get('effort_conversion?select=size,points&effective_to=is.null');
+  const scale = await get(
+    'effort_conversion?select=size,points,organization_id&effective_to=is.null',
+  );
   if (scale.error) {
     fail('effort_conversion existe', 'la tabla', scale.error);
     console.log('\n  La migración 00067 no está aplicada. Nada más que verificar.\n');
     process.exit(1);
   }
-  const puntos = Object.fromEntries(scale.data.map((r) => [r.size, r.points]));
-  cmp('escala S', 1, puntos.S);
-  cmp('escala M', 3, puntos.M);
-  cmp('escala L', 8, puntos.L);
-  cmp('escala XL', 13, puntos.XL);
+  // Desde 00080 la escala es POR ORGANIZACIÓN: coexisten la general del
+  // tenant (organization_id NULL) y la pactada con un cliente. Hay que
+  // separarlas, porque un Object.fromEntries sobre las dos se queda con la
+  // última fila que devuelva la base — no determinista, y es el mismo bug
+  // que 00080 corrigió en getEffortScale().
+  const general = Object.fromEntries(
+    scale.data
+      .filter((r) => r.organization_id === null || r.organization_id === undefined)
+      .map((r) => [r.size, r.points]),
+  );
+
+  // La general no la toca 00080: sigue siendo la Fibonacci de 00067, y la
+  // heredan todos los clientes sin escala propia.
+  cmp('escala general S', 1, general.S);
+  cmp('escala general M', 3, general.M);
+  cmp('escala general L', 8, general.L);
+  cmp('escala general XL', 13, general.XL);
+
+  // La de Podenza, la del Anexo C. Sin XL a propósito: el contrato no la
+  // define, así que un ítem XL cae en la general y hay que decidirlo a mano.
+  const porOrg = scale.data.filter(
+    (r) => r.organization_id !== null && r.organization_id !== undefined,
+  );
+  if (porOrg.length) {
+    const pod = Object.fromEntries(porOrg.map((r) => [r.size, r.points]));
+    cmp('escala Podenza S', 1, pod.S);
+    cmp('escala Podenza M', 2, pod.M);
+    cmp('escala Podenza L', 4, pod.L);
+    cmp('escala Podenza sin XL', undefined, pod.XL);
+  }
 
   console.log('\n\x1b[1m2. Las columnas nuevas nacieron vacías\x1b[0m');
 

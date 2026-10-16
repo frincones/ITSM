@@ -17,8 +17,12 @@ import { notFound } from 'next/navigation';
 import { resolveOrgByPortalToken } from '~/lib/services/portal-token.service';
 import {
   getCreditMeter,
+  getPhaseCatalog,
   getPortalBacklog,
   getPortalCycles,
+  getPortalDelaySummary,
+  getPortalRequirements,
+  getPortalWaits,
   resolvePortalAccess,
 } from '~/lib/services/portal-delivery.service';
 
@@ -74,11 +78,16 @@ export default async function PortalProjectPage({
     );
   }
 
-  const [meter, backlog, cycles] = await Promise.all([
-    getCreditMeter(org.id),
-    getPortalBacklog(org.id),
-    getPortalCycles(org.id),
-  ]);
+  const [meter, backlog, cycles, requirements, waits, summary, phaseCatalog] =
+    await Promise.all([
+      getCreditMeter(org.id),
+      getPortalBacklog(org.id),
+      getPortalCycles(org.id),
+      getPortalRequirements(org.id),
+      getPortalWaits(org.id),
+      getPortalDelaySummary(org.id),
+      getPhaseCatalog(),
+    ]);
 
   return (
     <PortalProjectClient
@@ -89,6 +98,10 @@ export default async function PortalProjectPage({
       items={backlog.items}
       totals={backlog.totals}
       cycles={cycles}
+      requirements={requirements}
+      waits={waits}
+      summary={summary}
+      phaseCatalog={phaseCatalog}
     />
   );
 }

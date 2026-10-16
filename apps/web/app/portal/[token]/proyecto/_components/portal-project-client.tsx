@@ -69,7 +69,19 @@ export interface PortalProjectClientProps {
   items: Item[];
   totals: Record<string, number>;
   cycles: Cycle[];
+  /** Requerimientos con fase y el reparto de días por responsable. */
+  requirements: PhaseRequirement[];
+  waits: PhaseWait[];
+  summary: PhaseSummary;
+  phaseCatalog: Array<{ phase: string; name: string; owner: string; sort_order: number }>;
 }
+
+import {
+  PortalPhases,
+  type PhaseRequirement,
+  type PhaseSummary,
+  type PhaseWait,
+} from './portal-phases';
 
 /** Etiquetas en el idioma del cliente, no en el del sistema. */
 const ESTADO: Record<string, { texto: string; clase: string }> = {
@@ -281,6 +293,16 @@ export function PortalProjectClient(props: PortalProjectClientProps) {
           </div>
         </section>
       ) : null}
+
+      {/* ---- Fases y esperas (Anexo C) ----
+           Va antes del backlog porque "lo que esperamos de ti" es lo único
+           que el cliente puede resolver al entrar. */}
+      <PortalPhases
+        requirements={props.requirements}
+        waits={props.waits}
+        summary={props.summary}
+        phaseCatalog={props.phaseCatalog}
+      />
 
       {/* ---- Backlog ---- */}
       <section className="rounded-xl border bg-white p-6 shadow-sm dark:bg-gray-900">

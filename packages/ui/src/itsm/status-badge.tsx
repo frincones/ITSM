@@ -10,6 +10,7 @@ import { cn } from '../lib/utils';
  */
 export type TicketStatus =
   | 'new'
+  | 'proposed'
   | 'backlog'
   | 'assigned'
   | 'in_progress'
@@ -34,6 +35,11 @@ const STATUS_CONFIG: Record<
     label: 'New',
     color: 'text-blue-700 dark:text-blue-300',
     bg: 'bg-blue-50 dark:bg-blue-500/20',
+  },
+  proposed: {
+    label: 'Propuesto',
+    color: 'text-cyan-700 dark:text-cyan-300',
+    bg: 'bg-cyan-50 dark:bg-cyan-500/20',
   },
   backlog: {
     label: 'Backlog',

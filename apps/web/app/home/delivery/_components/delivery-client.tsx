@@ -21,6 +21,7 @@ import {
   CalendarDays,
   CheckCircle2,
   ClipboardList,
+  Gauge,
   Inbox,
   Loader2,
   Users,
@@ -56,6 +57,8 @@ import {
   rejectProposalAction,
   setCapacityAction,
 } from '~/lib/actions/delivery';
+
+import { PhaseSlaTab } from './phase-sla-tab';
 
 const TALLAS = ['S', 'M', 'L', 'XL'] as const;
 type Talla = (typeof TALLAS)[number];
@@ -299,6 +302,10 @@ export function DeliveryClient(props: DeliveryClientProps) {
               </Badge>
             ) : null}
           </TabsTrigger>
+          <TabsTrigger value="sla">
+            <Gauge className="mr-1.5 h-4 w-4" />
+            SLA por fase
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="backlog" className="mt-4">
@@ -368,6 +375,22 @@ export function DeliveryClient(props: DeliveryClientProps) {
               )
             }
             onRechazar={(id, motivo) => ejecutar(() => rejectProposalAction(id, motivo))}
+          />
+        </TabsContent>
+
+        {/* El SLA de fases del Anexo C. Vive en su propio componente porque
+            lee de otras funciones (00076-00079) y no comparte estado con las
+            otras cuatro vistas. */}
+        <TabsContent value="sla" className="mt-4">
+          <PhaseSlaTab
+            cycles={props.cycles}
+            selectedCycleId={cycleId}
+            projectId={props.selectedProjectId}
+            organizationId={proyecto?.organization_id ?? null}
+            onCycleChange={(id) => {
+              setCycleId(id);
+              navegar({ cycle: id });
+            }}
           />
         </TabsContent>
       </Tabs>
