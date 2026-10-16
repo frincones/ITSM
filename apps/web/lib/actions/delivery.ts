@@ -48,6 +48,7 @@ import {
   setPhase as domainSetPhase,
   groupTickets as domainGroupTickets,
   listMembers as domainListMembers,
+  listCycleItems as domainListCycleItems,
   listMembersBulk as domainListMembersBulk,
   quotaImpactOf as domainQuotaImpact,
   resizeRequirement as domainResize,
@@ -347,4 +348,9 @@ export async function listMembersBulkAction(parentIds: string[]) {
 /** Cuántos de los seleccionados seguirán consumiendo cuota de soporte. */
 export async function quotaImpactAction(ticketIds: string[]) {
   return run((ctx) => domainQuotaImpact(ctx, ticketIds));
+}
+
+/** Los entregables de un ciclo: lo que pintan el planning y el tablero. */
+export async function listCycleItemsAction(cycleId: string) {
+  return run((ctx) => domainListCycleItems(ctx, cycleId));
 }
