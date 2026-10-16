@@ -1502,5 +1502,134 @@ export async function listCycleItems(
   );
 }
 
+/**
+ * Todo lo que el panel lateral necesita de un ticket, en una llamada.
+ *
+ * Cinco consultas en paralelo en vez de cinco idas y vueltas desde el
+ * navegador: el panel se abre al hacer clic y la latencia se nota.
+ *
+ * Sirve igual para un entregable que para uno de sus miembros, porque el
+ * checklist y los comentarios son DEL TICKET: cada miembro lleva los suyos.
+ */
+export async function getCardDetail(
+  ctx: DomainContext,
+  ticketId: string,
+): Promise<DomainResult<Record<string, unknown>>> {
+  const { client, actor } = ctx;
+
+  const { data: t } = await client
+    .from('tickets')
+    .select(
+      'id, ticket_number, title, description, status, type, requirement_phase, ' +
+        'effort_size, effort_points, organization_id, project_id, delivery_cycle_id, ' +
+        'assigned_agent_id, created_at',
+    )
+    .eq('id', ticketId)
+    .eq('tenant_id', actor.tenantId)
+    .is('deleted_at', null)
+    .maybeSingle();
+
+  if (!t) return fail('Requerimiento no encontrado', 'not_found');
+
+  const [tareas, comentarios, miembros, tramos, esperas] = await Promise.all([
+    // El checklist: pasos internos que no necesitan su propio ticket.
+    client
+      .from('ticket_tasks')
+      .select('id, title, status, assigned_agent_id, due_date, created_at')
+      .eq('ticket_id', ticketId)
+      .order('created_at'),
+
+    // La conversación. Son los MISMOS followups que muestra
+    // /home/tickets/[id]: una sola conversación, dos ventanas.
+    client
+      .from('ticket_followups')
+      .select('id, content, is_private, author_type, author_id, created_at')
+      .eq('ticket_id', ticketId)
+      .order('created_at', { ascending: false })
+      .limit(50),
+
+    listMembers(ctx, ticketId),
+    getPhaseSla(ctx, ticketId),
+
+    client
+      .from('phase_waits')
+      .select('id, what, owed_by, owed_by_name, reason, requested_at, received_at, target_days')
+      .eq('ticket_id', ticketId)
+      .order('requested_at', { ascending: false }),
+  ]);
+
+  // El nombre de quien escribió cada comentario. author_id apunta a
+  // auth.users, no a agents, así que se resuelve por user_id.
+  const autores = [
+    ...new Set(
+      ((comentarios.data ?? []) as Array<{ author_id: string | null }>)
+        .map((f) => f.author_id)
+        .filter(Boolean) as string[],
+    ),
+  ];
+
+  const nombres = new Map<string, string>();
+  if (autores.length) {
+    const { data: ags } = await client
+      .from('agents')
+      .select('user_id, name')
+      .in('user_id', autores);
+    for (const a of (ags ?? []) as Array<{ user_id: string; name: string }>) {
+      nombres.set(a.user_id, a.name);
+    }
+  }
+
+  return ok({
+    ticket: t,
+    tasks: tareas.data ?? [],
+    comments: ((comentarios.data ?? []) as Array<Record<string, unknown>>).map((f) => ({
+      ...f,
+      author_name: nombres.get(String(f.author_id)) ?? null,
+    })),
+    members: miembros.error === null ? miembros.data : [],
+    phases: tramos.error === null ? tramos.data : [],
+    waits: esperas.data ?? [],
+  });
+}
+
+/** Marca una tarea del checklist como hecha o pendiente. */
+export async function toggleTask(
+  ctx: DomainContext,
+  taskId: string,
+  done: boolean,
+): Promise<DomainResult<Record<string, unknown>>> {
+  const { client, actor } = ctx;
+
+  // `status` es texto libre en ticket_tasks (00004), y el resto de la
+  // aplicación usa 'done' / 'pending'.
+  const { data, error } = await client
+    .from('ticket_tasks')
+    .update({ status: done ? 'done' : 'pending' })
+    .eq('id', taskId)
+    .eq('tenant_id', actor.tenantId)
+    .select('id, title, status')
+    .single();
+
+  if (error) return fail(error.message, 'internal');
+  return ok(data as Record<string, unknown>);
+}
+
+/** Borra una tarea del checklist. */
+export async function deleteTask(
+  ctx: DomainContext,
+  taskId: string,
+): Promise<DomainResult<{ deleted: boolean }>> {
+  const { client, actor } = ctx;
+
+  const { error } = await client
+    .from('ticket_tasks')
+    .delete()
+    .eq('id', taskId)
+    .eq('tenant_id', actor.tenantId);
+
+  if (error) return fail(error.message, 'internal');
+  return ok({ deleted: true });
+}
+
 /** Marcador observado por lib/mcp/server.ts para evitar el tree-shaking. */
 export const __deliveryDomainLoaded = true;

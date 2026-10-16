@@ -37,13 +37,12 @@ import {
 } from '@kit/ui/select';
 
 import {
-  closeWaitAction,
   listCycleItemsAction,
   listOpenWaitsAction,
-  openWaitAction,
-  phaseSlaAction,
   setPhaseAction,
 } from '~/lib/actions/delivery';
+
+import { CardPanel } from './card-panel';
 
 type Row = Record<string, unknown>;
 
@@ -299,13 +298,8 @@ export function CycleBoard(props: Props) {
                       espera={esperaDe[String(it.id)]}
                       moviendo={moviendo === String(it.id)}
                       bloqueado={props.cycleClosed}
-                      abierta={abierta === String(it.id)}
-                      onAbrir={() =>
-                        setAbierta(abierta === String(it.id) ? null : String(it.id))
-                      }
+                      onAbrir={() => setAbierta(String(it.id))}
                       onDragStart={() => setArrastrando(String(it.id))}
-                      onCambio={() => void cargar()}
-                      onError={setError}
                     />
                   ))
                 )}
@@ -314,6 +308,19 @@ export function CycleBoard(props: Props) {
           );
         })}
       </div>
+
+      {/* El panel lateral: se gestiona el requerimiento como un ticket
+          —checklist, comentarios, menciones— sin salir del tablero. */}
+      {abierta ? (
+        <CardPanel
+          ticketId={abierta}
+          hermanos={items.map((i) => ({ id: String(i.id), title: String(i.title) }))}
+          bloqueado={props.cycleClosed}
+          onCerrar={() => setAbierta(null)}
+          onIr={setAbierta}
+          onCambio={() => void cargar()}
+        />
+      ) : null}
 
       <p className="text-muted-foreground text-xs">
         Arrastra una tarjeta a otro carril para cambiar su fase. El tramo anterior se
@@ -330,21 +337,15 @@ function Tarjeta({
   espera,
   moviendo,
   bloqueado,
-  abierta,
   onAbrir,
   onDragStart,
-  onCambio,
-  onError,
 }: {
   item: Row;
   espera: Row | undefined;
   moviendo: boolean;
   bloqueado: boolean;
-  abierta: boolean;
   onAbrir: () => void;
   onDragStart: () => void;
-  onCambio: () => void;
-  onError: (m: string) => void;
 }) {
   const d = (item.delay ?? {}) as Record<string, number>;
   const expuesto = Number(d.exposed_over ?? 0);
@@ -430,211 +431,7 @@ function Tarjeta({
         </p>
       ) : null}
 
-      {abierta ? (
-        <PanelTarjeta
-          item={item}
-          espera={espera}
-          miembros={miembros}
-          bloqueado={bloqueado}
-          onCambio={onCambio}
-          onError={onError}
-        />
-      ) : null}
-    </div>
-  );
-}
 
-// ---------------------------------------------------------------------------
-// El panel: miembros, esperas y el historial de fases
-// ---------------------------------------------------------------------------
-
-function PanelTarjeta({
-  item,
-  espera,
-  miembros,
-  bloqueado,
-  onCambio,
-  onError,
-}: {
-  item: Row;
-  espera: Row | undefined;
-  miembros: Row[];
-  bloqueado: boolean;
-  onCambio: () => void;
-  onError: (m: string) => void;
-}) {
-  const [tramos, setTramos] = useState<Row[] | null>(null);
-  const [abriendo, setAbriendo] = useState(false);
-  const [que, setQue] = useState('');
-  const [quien, setQuien] = useState<'cliente' | 'tercero' | 'tdx'>('cliente');
-  const [motivo, setMotivo] = useState<string>('espera_cliente_validacion');
-  const [guardando, setGuardando] = useState(false);
-
-  useEffect(() => {
-    let vivo = true;
-    void phaseSlaAction(String(item.id)).then((r) => {
-      if (vivo) setTramos((r.data as Row[]) ?? []);
-    });
-    return () => {
-      vivo = false;
-    };
-  }, [item.id]);
-
-  async function abrirEspera() {
-    if (!que.trim()) return;
-    setGuardando(true);
-    const r = await openWaitAction({
-      ticket_id: String(item.id),
-      what: que.trim(),
-      owed_by: quien,
-      reason: motivo as never,
-    });
-    setGuardando(false);
-    if (r.error) onError(r.error);
-    else {
-      setQue('');
-      setAbriendo(false);
-      onCambio();
-    }
-  }
-
-  async function cerrarEspera() {
-    if (!espera) return;
-    setGuardando(true);
-    const r = await closeWaitAction({ wait_id: String(espera.wait_id) });
-    setGuardando(false);
-    if (r.error) onError(r.error);
-    else onCambio();
-  }
-
-  return (
-    <div className="mt-2 space-y-2 border-t pt-2">
-      <p className="text-muted-foreground font-mono text-[9px]">
-        {String(item.ticket_number)} · {String(item.status)}
-      </p>
-
-      {miembros.length ? (
-        <div>
-          <p className="text-muted-foreground mb-1 text-[10px] font-medium">
-            Tickets que agrupa
-          </p>
-          {miembros.map((m) => (
-            <div key={String(m.member_id)} className="flex items-center gap-1.5 text-[10px]">
-              <span className={m.member_done ? 'text-emerald-600' : 'text-muted-foreground'}>
-                {m.member_done ? '✓' : '○'}
-              </span>
-              <span className="min-w-0 flex-1 truncate">{String(m.member_title)}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {/* La espera: lo que pausa el reloj */}
-      {espera ? (
-        <div className="rounded border border-violet-400/50 bg-violet-50 p-1.5 dark:bg-violet-950/20">
-          <p className="text-[10px] font-medium">{String(espera.what)}</p>
-          <p className="text-muted-foreground text-[9px]">
-            {String(espera.waiting_days)} días · a cargo de{' '}
-            {OWNER_LABEL[String(espera.owed_by)] ?? String(espera.owed_by)}
-          </p>
-          {!bloqueado ? (
-            <Button
-              size="sm"
-              className="mt-1.5 h-6 w-full text-[10px]"
-              onClick={() => void cerrarEspera()}
-              disabled={guardando}
-            >
-              Ya llegó
-            </Button>
-          ) : null}
-        </div>
-      ) : abriendo ? (
-        <div className="space-y-1.5 rounded border p-1.5">
-          <Input
-            value={que}
-            onChange={(e) => setQue(e.target.value)}
-            placeholder="Qué se está esperando"
-            className="h-7 text-[11px]"
-            autoFocus
-          />
-          <Select value={quien} onValueChange={(v) => setQuien(v as typeof quien)}>
-            <SelectTrigger className="h-7 text-[11px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="cliente" className="text-xs">Del cliente</SelectItem>
-              <SelectItem value="tercero" className="text-xs">De un tercero</SelectItem>
-              <SelectItem value="tdx" className="text-xs">De TDX</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={motivo} onValueChange={setMotivo}>
-            <SelectTrigger className="h-7 text-[11px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {MOTIVOS.map((m) => (
-                <SelectItem key={m.v} value={m.v} className="text-xs">
-                  {m.l}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <div className="flex gap-1">
-            <Button
-              size="sm"
-              className="h-6 flex-1 text-[10px]"
-              onClick={() => void abrirEspera()}
-              disabled={guardando}
-            >
-              Registrar
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 text-[10px]"
-              onClick={() => setAbriendo(false)}
-            >
-              Cancelar
-            </Button>
-          </div>
-        </div>
-      ) : !bloqueado ? (
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-6 w-full text-[10px]"
-          onClick={() => setAbriendo(true)}
-        >
-          Esperando algo…
-        </Button>
-      ) : null}
-
-      {/* El historial: para auditar la cifra en vez de creérsela */}
-      {tramos && tramos.length > 0 ? (
-        <div>
-          <p className="text-muted-foreground mb-1 text-[10px] font-medium">Fases</p>
-          {tramos.map((t, i) => (
-            <div key={i} className="flex items-center gap-1.5 text-[9px]">
-              <span className="text-muted-foreground w-20 shrink-0 truncate">
-                {String(t.phase)}
-              </span>
-              <span className="font-mono">{String(t.net_days ?? '—')}d</span>
-              {t.target_days ? (
-                <span
-                  className={
-                    t.breached ? 'text-destructive font-medium' : 'text-muted-foreground'
-                  }
-                >
-                  / {String(t.target_days)}d
-                </span>
-              ) : (
-                <span className="text-muted-foreground">sin plazo</span>
-              )}
-              {t.is_open ? <CheckCircle2 className="h-2.5 w-2.5 text-sky-600" /> : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }
