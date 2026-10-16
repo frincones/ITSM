@@ -1,0 +1,112 @@
+[
+  {
+    "id": "5cf1c17a-5bb4-44dc-ab94-5ebf3b3e8811",
+    "tenant_id": "8be06573-2e43-4d8f-b81d-48b9cddb060d",
+    "agent_id": "de69bae2-0a83-4ed7-8da1-a9c6c02591c2",
+    "organization_id": "7336ab13-209c-4fc5-922f-dff97897fdc2",
+    "access_level": "full",
+    "is_default": false,
+    "created_at": "2026-03-27T20:54:53.794Z",
+    "agent_name": "Admin NovaDesk",
+    "org_name": "Podenza"
+  },
+  {
+    "id": "c98fec5b-73e7-4cd3-9a96-12cf8886e6eb",
+    "tenant_id": "8be06573-2e43-4d8f-b81d-48b9cddb060d",
+    "agent_id": "02dca64f-efa8-4b8d-9c99-ded27c5ec068",
+    "organization_id": "5c32a495-68f5-4f83-aff2-d8050347bb71",
+    "access_level": "full",
+    "is_default": false,
+    "created_at": "2026-04-22T15:32:08.732Z",
+    "agent_name": "Andres Valbuena",
+    "org_name": "Prosuministros"
+  },
+  {
+    "id": "1c8b2a04-a500-4a55-b424-8a29637d9714",
+    "tenant_id": "8be06573-2e43-4d8f-b81d-48b9cddb060d",
+    "agent_id": "e484f91e-3c6d-47ba-9cbb-68570d06e775",
+    "organization_id": "7336ab13-209c-4fc5-922f-dff97897fdc2",
+    "access_level": "full",
+    "is_default": true,
+    "created_at": "2026-03-27T20:54:53.101Z",
+    "agent_name": "Bibiana Carvajal",
+    "org_name": "Podenza"
+  },
+  {
+    "id": "90e7e9db-11e8-42ee-b5b7-642502385920",
+    "tenant_id": "8be06573-2e43-4d8f-b81d-48b9cddb060d",
+    "agent_id": "44b48491-544b-4046-9533-20d6d6a0f3d4",
+    "organization_id": "7336ab13-209c-4fc5-922f-dff97897fdc2",
+    "access_level": "full",
+    "is_default": true,
+    "created_at": "2026-03-27T21:13:09.075Z",
+    "agent_name": "Camilo Mayorga",
+    "org_name": "Podenza"
+  },
+  {
+    "id": "920ecf36-fab9-4311-84d4-19fc30529628",
+    "tenant_id": "8be06573-2e43-4d8f-b81d-48b9cddb060d",
+    "agent_id": "1c8dcbde-a16c-45e7-b782-c904af768ede",
+    "organization_id": "5c32a495-68f5-4f83-aff2-d8050347bb71",
+    "access_level": "full",
+    "is_default": true,
+    "created_at": "2026-04-16T23:13:15.402Z",
+    "agent_name": "Daniel Valbuena",
+    "org_name": "Prosuministros"
+  },
+  {
+    "id": "dfb4ed41-34ee-4409-9ee3-8fcdd670b55d",
+    "tenant_id": "8be06573-2e43-4d8f-b81d-48b9cddb060d",
+    "agent_id": "2c38f449-ec8d-4e99-882a-78602ae47b0d",
+    "organization_id": "7336ab13-209c-4fc5-922f-dff97897fdc2",
+    "access_level": "full",
+    "is_default": false,
+    "created_at": "2026-04-16T23:13:18.979Z",
+    "agent_name": "Emma Castillo",
+    "org_name": "Podenza"
+  },
+  {
+    "id": "94a7eb4e-de32-445d-a30e-35f20b202b1b",
+    "tenant_id": "8be06573-2e43-4d8f-b81d-48b9cddb060d",
+    "agent_id": "2c38f449-ec8d-4e99-882a-78602ae47b0d",
+    "organization_id": "5c32a495-68f5-4f83-aff2-d8050347bb71",
+    "access_level": "full",
+    "is_default": false,
+    "created_at": "2026-04-16T23:13:19.494Z",
+    "agent_name": "Emma Castillo",
+    "org_name": "Prosuministros"
+  },
+  {
+    "id": "a48033ea-660c-4a80-aeec-6734ed7db7be",
+    "tenant_id": "8be06573-2e43-4d8f-b81d-48b9cddb060d",
+    "agent_id": "9f44a9cf-a058-4adc-af6b-b351e66ff25d",
+    "organization_id": "2f7b4c5e-69ff-417b-aba8-b1174bbeedf2",
+    "access_level": "full",
+    "is_default": false,
+    "created_at": "2026-06-19T17:06:37.960Z",
+    "agent_name": "Freddy Rincones",
+    "org_name": "ITSM- TDX"
+  },
+  {
+    "id": "239c73c8-cc72-4d75-8ced-201617f9dba6",
+    "tenant_id": "8be06573-2e43-4d8f-b81d-48b9cddb060d",
+    "agent_id": "9f44a9cf-a058-4adc-af6b-b351e66ff25d",
+    "organization_id": "7336ab13-209c-4fc5-922f-dff97897fdc2",
+    "access_level": "full",
+    "is_default": false,
+    "created_at": "2026-03-27T21:13:03.943Z",
+    "agent_name": "Freddy Rincones",
+    "org_name": "Podenza"
+  },
+  {
+    "id": "ac77c4c8-e2d6-4876-ab2e-ada0890ee59c",
+    "tenant_id": "8be06573-2e43-4d8f-b81d-48b9cddb060d",
+    "agent_id": "9f44a9cf-a058-4adc-af6b-b351e66ff25d",
+    "organization_id": "5c32a495-68f5-4f83-aff2-d8050347bb71",
+    "access_level": "full",
+    "is_default": false,
+    "created_at": "2026-06-19T17:06:37.960Z",
+    "agent_name": "Freddy Rincones",
+    "org_name": "Prosuministros"
+  }
+]

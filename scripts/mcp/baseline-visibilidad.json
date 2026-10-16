@@ -1,0 +1,37 @@
+{
+  "Admin NovaDesk": {
+    "rls": 714,
+    "pagina": 470,
+    "agent_orgs": 1
+  },
+  "Andres Valbuena": {
+    "rls": 240,
+    "pagina": 240,
+    "agent_orgs": 1
+  },
+  "Bibiana Carvajal": {
+    "rls": 470,
+    "pagina": 470,
+    "agent_orgs": 1
+  },
+  "Camilo Mayorga": {
+    "rls": 470,
+    "pagina": 470,
+    "agent_orgs": 1
+  },
+  "Daniel Valbuena": {
+    "rls": 240,
+    "pagina": 240,
+    "agent_orgs": 1
+  },
+  "Emma Castillo": {
+    "rls": 714,
+    "pagina": 710,
+    "agent_orgs": 2
+  },
+  "Freddy Rincones": {
+    "rls": 714,
+    "pagina": 713,
+    "agent_orgs": 3
+  }
+}
