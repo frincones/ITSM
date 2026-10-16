@@ -15,9 +15,9 @@
 // not describe RPC signatures in enough detail to generate them, and a
 // wrong signature would be worse than an honest `unknown`.
 //
-// Tables: 112
-// Functions: 58
-// Generated: 2026-10-16T17:13:40.958Z
+// Tables: 113
+// Functions: 62
+// Generated: 2026-10-16T20:46:46.957Z
 // ---------------------------------------------------------------------------
 
 export type Json =
@@ -1257,6 +1257,7 @@ export type Database = {
           effective_from: string
           effective_to: string | null
           created_at: string
+          organization_id: string | null
         }
         Insert: {
           id?: string
@@ -1266,6 +1267,7 @@ export type Database = {
           effective_from?: string
           effective_to?: string | null
           created_at?: string
+          organization_id?: string | null
         }
         Update: {
           id?: string
@@ -1275,6 +1277,7 @@ export type Database = {
           effective_from?: string
           effective_to?: string | null
           created_at?: string
+          organization_id?: string | null
         }
         Relationships: []
       }
@@ -3276,6 +3279,63 @@ export type Database = {
         }
         Relationships: []
       }
+      requirement_members: {
+        Row: {
+          requirement_id: string | null
+          requirement_number: string | null
+          requirement_title: string | null
+          requirement_size: "S" | "M" | "L" | "XL" | null
+          requirement_points: number | null
+          requirement_phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado" | null
+          delivery_cycle_id: string | null
+          organization_id: string | null
+          tenant_id: string | null
+          member_id: string | null
+          member_number: string | null
+          member_title: string | null
+          member_type: "incident" | "request" | "warranty" | "support" | "backlog" | "desarrollo_pendiente" | null
+          member_status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed" | null
+          member_done: boolean | null
+          member_consumes_quota: boolean | null
+        }
+        Insert: {
+          requirement_id?: string | null
+          requirement_number?: string | null
+          requirement_title?: string | null
+          requirement_size?: "S" | "M" | "L" | "XL" | null
+          requirement_points?: number | null
+          requirement_phase?: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado" | null
+          delivery_cycle_id?: string | null
+          organization_id?: string | null
+          tenant_id?: string | null
+          member_id?: string | null
+          member_number?: string | null
+          member_title?: string | null
+          member_type?: "incident" | "request" | "warranty" | "support" | "backlog" | "desarrollo_pendiente" | null
+          member_status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed" | null
+          member_done?: boolean | null
+          member_consumes_quota?: boolean | null
+        }
+        Update: {
+          requirement_id?: string | null
+          requirement_number?: string | null
+          requirement_title?: string | null
+          requirement_size?: "S" | "M" | "L" | "XL" | null
+          requirement_points?: number | null
+          requirement_phase?: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado" | null
+          delivery_cycle_id?: string | null
+          organization_id?: string | null
+          tenant_id?: string | null
+          member_id?: string | null
+          member_number?: string | null
+          member_title?: string | null
+          member_type?: "incident" | "request" | "warranty" | "support" | "backlog" | "desarrollo_pendiente" | null
+          member_status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed" | null
+          member_done?: boolean | null
+          member_consumes_quota?: boolean | null
+        }
+        Relationships: []
+      }
       response_templates: {
         Row: {
           id: string
@@ -5141,6 +5201,10 @@ export type Database = {
         Args: Record<string, unknown>
         Returns: unknown
       }
+      effort_points_for: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
       end_of_business_day: {
         Args: Record<string, unknown>
         Returns: unknown
@@ -5154,6 +5218,10 @@ export type Database = {
         Returns: unknown
       }
       get_current_tenant_id: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      group_tickets_into_requirement: {
         Args: Record<string, unknown>
         Returns: unknown
       }
@@ -5202,6 +5270,10 @@ export type Database = {
         Returns: unknown
       }
       requirement_delay: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      resize_requirement: {
         Args: Record<string, unknown>
         Returns: unknown
       }
@@ -5310,6 +5382,10 @@ export type Database = {
         Returns: unknown
       }
       ticket_type_counts_for_sla: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      ungroup_requirement: {
         Args: Record<string, unknown>
         Returns: unknown
       }

@@ -46,6 +46,12 @@ import {
   rejectProposal as domainRejectProposal,
   setCapacity as domainSetCapacity,
   setPhase as domainSetPhase,
+  groupTickets as domainGroupTickets,
+  listMembers as domainListMembers,
+  listMembersBulk as domainListMembersBulk,
+  quotaImpactOf as domainQuotaImpact,
+  resizeRequirement as domainResize,
+  ungroupRequirement as domainUngroup,
 } from '~/lib/domain/delivery.domain';
 import type { DomainContext } from '~/lib/domain/types';
 
@@ -305,4 +311,40 @@ export async function closeWaitAction(input: {
   return_what?: string | null;
 }) {
   return run((ctx) => domainCloseWait(ctx, input), RUTA);
+}
+
+// ---------------------------------------------------------------------------
+// Agrupación en requerimientos facturables
+// ---------------------------------------------------------------------------
+
+export async function groupTicketsAction(input: {
+  child_ids: string[];
+  title: string;
+  size: EffortSize;
+  cycle_id?: string | null;
+  project_id?: string | null;
+}) {
+  return run((ctx) => domainGroupTickets(ctx, input), RUTA);
+}
+
+export async function ungroupRequirementAction(parentId: string) {
+  return run((ctx) => domainUngroup(ctx, parentId), RUTA);
+}
+
+/** Re-estimar: la base exige rol admin y ciclo abierto. */
+export async function resizeRequirementAction(ticketId: string, size: EffortSize) {
+  return run((ctx) => domainResize(ctx, ticketId, size), RUTA);
+}
+
+export async function listMembersAction(parentId: string) {
+  return run((ctx) => domainListMembers(ctx, parentId));
+}
+
+export async function listMembersBulkAction(parentIds: string[]) {
+  return run((ctx) => domainListMembersBulk(ctx, parentIds));
+}
+
+/** Cuántos de los seleccionados seguirán consumiendo cuota de soporte. */
+export async function quotaImpactAction(ticketIds: string[]) {
+  return run((ctx) => domainQuotaImpact(ctx, ticketIds));
 }
