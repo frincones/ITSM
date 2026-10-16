@@ -21,7 +21,18 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { AlertTriangle, CheckCircle2, Clock, Loader2, Users } from 'lucide-react';
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Layers,
+  Loader2,
+  Rows3,
+  Rows4,
+  Ticket,
+  Users,
+} from 'lucide-react';
 
 import { Badge } from '@kit/ui/badge';
 import { Button } from '@kit/ui/button';
@@ -106,6 +117,10 @@ export function CycleBoard(props: Props) {
   const [sobre, setSobre] = useState<string | null>(null);
   const [abierta, setAbierta] = useState<string | null>(null);
   const [moviendo, setMoviendo] = useState<string | null>(null);
+  // Azure Boards llama a esto "vista condensada" y muestra solo el ID y el
+  // título. Compacto por defecto: con 8 entregables y títulos de 150
+  // caracteres, el modo completo no deja ver una columna entera.
+  const [densidad, setDensidad] = useState<'compacta' | 'completa'>('compacta');
 
   const cargar = useCallback(async () => {
     if (!props.cycleId) return;
@@ -204,6 +219,23 @@ export function CycleBoard(props: Props) {
           variant="outline"
           size="sm"
           className="ml-auto"
+          onClick={() => setDensidad(densidad === 'compacta' ? 'completa' : 'compacta')}
+          title={
+            densidad === 'compacta'
+              ? 'Mostrar el reloj y los miembros en todas'
+              : 'Mostrar solo número y título'
+          }
+        >
+          {densidad === 'compacta' ? (
+            <Rows4 className="mr-1.5 h-3.5 w-3.5" />
+          ) : (
+            <Rows3 className="mr-1.5 h-3.5 w-3.5" />
+          )}
+          {densidad === 'compacta' ? 'Expandir todas' : 'Compactar'}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
           onClick={() => void cargar()}
           disabled={cargando}
         >
@@ -298,6 +330,7 @@ export function CycleBoard(props: Props) {
                       espera={esperaDe[String(it.id)]}
                       moviendo={moviendo === String(it.id)}
                       bloqueado={props.cycleClosed}
+                      densidad={densidad}
                       onAbrir={() => setAbierta(String(it.id))}
                       onDragStart={() => setArrastrando(String(it.id))}
                     />
@@ -322,7 +355,16 @@ export function CycleBoard(props: Props) {
         />
       ) : null}
 
-      <p className="text-muted-foreground text-xs">
+      <p className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+        <span className="flex items-center gap-1">
+          <Layers className="h-3 w-3 text-violet-500" />
+          agrupa varios tickets
+        </span>
+        <span className="flex items-center gap-1">
+          <Ticket className="h-3 w-3" />
+          un solo ticket
+        </span>
+        <span>·</span>
         Arrastra una tarjeta a otro carril para cambiar su fase. El tramo anterior se
         cierra con sus días hábiles y empieza el nuevo, con su propio responsable.
       </p>
@@ -337,6 +379,7 @@ function Tarjeta({
   espera,
   moviendo,
   bloqueado,
+  densidad,
   onAbrir,
   onDragStart,
 }: {
@@ -344,9 +387,17 @@ function Tarjeta({
   espera: Row | undefined;
   moviendo: boolean;
   bloqueado: boolean;
+  /** 'compacta' muestra solo número y título; 'completa' añade el reloj. */
+  densidad: 'compacta' | 'completa';
   onAbrir: () => void;
   onDragStart: () => void;
 }) {
+  // Cada tarjeta recuerda si el PM la expandió, aunque el tablero esté en
+  // modo compacto: en una reunión se sigue una o dos de cerca y el resto
+  // estorba.
+  const [expandida, setExpandida] = useState(false);
+  const abierta = densidad === 'completa' || expandida;
+
   const d = (item.delay ?? {}) as Record<string, number>;
   const expuesto = Number(d.exposed_over ?? 0);
   const tdx = Number(d.tdx_days ?? 0);
@@ -354,12 +405,15 @@ function Tarjeta({
   const total = tdx + cli + Number(d.tercero_days ?? 0);
   const miembros = (item.members ?? []) as Row[];
   const listos = Number(item.members_done ?? 0);
+  const esGrupo = miembros.length > 0;
 
   const borde = expuesto > 0
     ? 'border-destructive bg-destructive/5'
     : espera
       ? 'border-l-4 border-l-violet-500'
-      : '';
+      : esGrupo
+        ? 'border-l-4 border-l-violet-400/70'
+        : '';
 
   return (
     <div
@@ -368,70 +422,136 @@ function Tarjeta({
         e.dataTransfer.setData('text/plain', String(item.id));
         onDragStart();
       }}
-      className={`rounded border bg-background p-2 text-xs ${borde} ${
+      className={`rounded border bg-background text-xs ${borde} ${
         bloqueado ? '' : 'cursor-grab active:cursor-grabbing'
       }`}
     >
-      <button type="button" onClick={onAbrir} className="w-full text-left">
-        <p className="mb-1.5 font-medium leading-snug">{String(item.title)}</p>
-        <div className="flex flex-wrap items-center gap-1">
-          {item.effort_size ? (
-            <Badge variant="outline" className="text-[9px]">
-              {String(item.effort_size)} · {String(item.effort_points ?? 0)}cr
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="text-[9px]">
-              sin estimar
-            </Badge>
-          )}
-          {miembros.length ? (
-            <Badge
-              variant={listos === miembros.length ? 'secondary' : 'outline'}
-              className="text-[9px]"
-            >
-              <Users className="mr-0.5 inline h-2.5 w-2.5" />
-              {listos} de {miembros.length}
-            </Badge>
-          ) : null}
-          {expuesto > 0 ? (
-            <Badge variant="destructive" className="text-[9px]">
-              +{expuesto}d
-            </Badge>
-          ) : null}
-          {espera ? (
-            <Badge variant="outline" className="border-violet-400 text-[9px]">
-              esperando {String(espera.waiting_days)}d
-            </Badge>
-          ) : null}
-        </div>
-      </button>
+      {/* Identidad y taxonomía, siempre visibles: el número es cómo el
+          equipo se refiere a las cosas en la reunión, y el icono dice de un
+          vistazo si la tarjeta agrupa varios tickets o es uno solo. */}
+      <div className="flex items-start gap-1.5 p-2 pb-1">
+        {esGrupo ? (
+          <Layers
+            className="mt-0.5 h-3 w-3 shrink-0 text-violet-500"
+            aria-label="Agrupa varios tickets"
+          />
+        ) : (
+          <Ticket
+            className="text-muted-foreground mt-0.5 h-3 w-3 shrink-0"
+            aria-label="Un solo ticket"
+          />
+        )}
 
-      {/* El ancho es tiempo real: con total 0 no se dibuja nada. */}
-      {total > 0 ? (
-        <div className="mt-1.5">
-          <div className="bg-muted flex h-1 overflow-hidden rounded">
-            {cli > 0 ? (
-              <div className="bg-violet-500" style={{ width: `${(cli / total) * 100}%` }} />
-            ) : null}
-            {tdx > 0 ? (
-              <div className="bg-sky-700" style={{ width: `${(tdx / total) * 100}%` }} />
-            ) : null}
-          </div>
-          <p className="text-muted-foreground mt-1 font-mono text-[9px]">
-            {tdx}d TDX · {cli}d cliente
-            {expuesto > 0 ? ` · expone ${cop(expuesto * 790714.29)}` : ''}
+        <button type="button" onClick={onAbrir} className="min-w-0 flex-1 text-left">
+          <p className="text-muted-foreground font-mono text-[9px] leading-none">
+            {String(item.ticket_number ?? '')}
           </p>
+          {/* Dos líneas y corta: un título de 150 caracteres ocupaba seis.
+              El texto completo está en el panel. */}
+          <p className="mt-1 line-clamp-2 font-medium leading-snug" title={String(item.title)}>
+            {String(item.title)}
+          </p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setExpandida(!expandida)}
+          className="text-muted-foreground hover:text-foreground shrink-0 rounded p-0.5"
+          aria-label={abierta ? 'Colapsar' : 'Expandir'}
+          aria-expanded={abierta}
+        >
+          {abierta ? (
+            <ChevronUp className="h-3 w-3" />
+          ) : (
+            <ChevronDown className="h-3 w-3" />
+          )}
+        </button>
+      </div>
+
+      {/* La fila de señales: cabe en compacto porque es una sola línea. */}
+      <div className="flex flex-wrap items-center gap-1 px-2 pb-2">
+        {item.effort_size ? (
+          <Badge variant="outline" className="text-[9px]">
+            {String(item.effort_size)} · {String(item.effort_points ?? 0)}cr
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="text-[9px]">
+            sin estimar
+          </Badge>
+        )}
+        {esGrupo ? (
+          <Badge
+            variant={listos === miembros.length ? 'secondary' : 'outline'}
+            className="text-[9px]"
+          >
+            <Users className="mr-0.5 inline h-2.5 w-2.5" />
+            {listos}/{miembros.length}
+          </Badge>
+        ) : null}
+        {expuesto > 0 ? (
+          <Badge variant="destructive" className="text-[9px]">
+            +{expuesto}d
+          </Badge>
+        ) : null}
+        {espera ? (
+          <Badge variant="outline" className="border-violet-400 text-[9px]">
+            {String(espera.waiting_days)}d en espera
+          </Badge>
+        ) : null}
+      </div>
+
+      {/* Lo que solo se ve al expandir */}
+      {abierta ? (
+        <div className="border-t px-2 py-1.5">
+          {total > 0 ? (
+            <>
+              <div className="bg-muted flex h-1 overflow-hidden rounded">
+                {cli > 0 ? (
+                  <div className="bg-violet-500" style={{ width: `${(cli / total) * 100}%` }} />
+                ) : null}
+                {tdx > 0 ? (
+                  <div className="bg-sky-700" style={{ width: `${(tdx / total) * 100}%` }} />
+                ) : null}
+              </div>
+              <p className="text-muted-foreground mt-1 font-mono text-[9px]">
+                {tdx}d TDX · {cli}d cliente
+                {expuesto > 0 ? ` · expone ${cop(expuesto * 790714.29)}` : ''}
+              </p>
+            </>
+          ) : (
+            <p className="text-muted-foreground font-mono text-[9px]">sin tiempo acumulado</p>
+          )}
+
+          {/* Los miembros, para saber qué falta sin abrir el panel */}
+          {esGrupo ? (
+            <div className="mt-1.5 space-y-0.5">
+              {miembros.slice(0, 4).map((m) => (
+                <div
+                  key={String(m.member_id)}
+                  className="text-muted-foreground flex items-center gap-1 text-[9px]"
+                >
+                  <span className={m.member_done ? 'text-emerald-600' : ''}>
+                    {m.member_done ? '✓' : '○'}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{String(m.member_title)}</span>
+                </div>
+              ))}
+              {miembros.length > 4 ? (
+                <p className="text-muted-foreground text-[9px]">
+                  y {miembros.length - 4} más…
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
       {moviendo ? (
-        <p className="text-muted-foreground mt-1 text-[10px]">
+        <p className="text-muted-foreground px-2 pb-1.5 text-[10px]">
           <Loader2 className="mr-1 inline h-2.5 w-2.5 animate-spin" />
           moviendo…
         </p>
       ) : null}
-
-
     </div>
   );
 }
