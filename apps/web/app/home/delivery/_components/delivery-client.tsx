@@ -23,6 +23,7 @@ import {
   ClipboardList,
   Gauge,
   Inbox,
+  Layers,
   Loader2,
   Users,
   XCircle,
@@ -58,6 +59,7 @@ import {
   setCapacityAction,
 } from '~/lib/actions/delivery';
 
+import { GroupDialog } from './group-dialog';
 import { PhaseSlaTab } from './phase-sla-tab';
 
 const TALLAS = ['S', 'M', 'L', 'XL'] as const;
@@ -316,6 +318,9 @@ export function DeliveryClient(props: DeliveryClientProps) {
             cycles={props.cycles}
             loading={loading}
             pending={pending}
+            projectId={props.selectedProjectId}
+            cycleIdActual={cycleId}
+            onAgrupado={() => void recargar()}
             onEstimar={(id, talla) => ejecutar(() => estimateItemAction(id, talla))}
             onACiclo={(id, cid) => ejecutar(() => assignToCycleAction(id, cid))}
           />
@@ -443,8 +448,11 @@ function VistaBacklog({
   cycles,
   loading,
   pending,
+  projectId,
+  cycleIdActual,
   onEstimar,
   onACiclo,
+  onAgrupado,
 }: {
   items: Item[];
   totals: Record<string, number>;
@@ -452,12 +460,29 @@ function VistaBacklog({
   cycles: Ciclo[];
   loading: boolean;
   pending: boolean;
+  projectId: string | null;
+  cycleIdActual: string | null;
   onEstimar: (id: string, talla: Talla) => void;
   onACiclo: (id: string, cycleId: string | null) => void;
+  onAgrupado: () => void;
 }) {
+  // La selección vive aquí y no en el componente padre: es estado de esta
+  // vista y se pierde al cambiar de pestaña, que es lo que se espera.
+  const [marcados, setMarcados] = useState<Set<string>>(new Set());
+  const [agrupando, setAgrupando] = useState(false);
+
   if (loading) return <Cargando />;
 
   const abiertos = cycles.filter((c) => c.status !== 'closed');
+  const seleccionados = items.filter((i) => marcados.has(i.id));
+
+  const alternar = (id: string) =>
+    setMarcados((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   return (
     <div className="space-y-4">
@@ -479,6 +504,45 @@ function VistaBacklog({
         </p>
       ) : null}
 
+      {/* Agrupar es la decisión de la reunión de refinement: varios tickets
+          pasan a ser un entregable con una talla y unos créditos. */}
+      {agrupando ? (
+        <GroupDialog
+          seleccionados={seleccionados.map((s) => ({
+            id: s.id,
+            ticket_number: s.ticket_number,
+            title: s.title,
+            type: s.type,
+          }))}
+          scale={scale}
+          cycles={cycles}
+          cycleIdSugerido={cycleIdActual}
+          projectId={projectId}
+          onCancelar={() => setAgrupando(false)}
+          onListo={() => {
+            setAgrupando(false);
+            setMarcados(new Set());
+            onAgrupado();
+          }}
+        />
+      ) : marcados.size > 0 ? (
+        <Card className="border-primary/40 bg-primary/5 flex flex-wrap items-center gap-3 p-3">
+          <span className="text-sm font-medium">
+            {marcados.size} seleccionado{marcados.size === 1 ? '' : 's'}
+          </span>
+          <Button size="sm" onClick={() => setAgrupando(true)} disabled={pending}>
+            <Layers className="mr-1.5 h-3.5 w-3.5" />
+            Agrupar en un requerimiento
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setMarcados(new Set())}>
+            Quitar selección
+          </Button>
+          <span className="text-muted-foreground ml-auto text-[11px]">
+            Un ticket que no se agrupe sigue siendo su propio entregable.
+          </span>
+        </Card>
+      ) : null}
+
       {!items.length ? (
         <Card className="p-8 text-center">
           <p className="text-muted-foreground text-sm">
@@ -488,8 +552,20 @@ function VistaBacklog({
       ) : (
         <Card className="divide-y">
           {items.map((it) => (
-            <div key={it.id} className="flex flex-wrap items-center gap-3 p-3">
-              <span className="text-muted-foreground w-36 shrink-0 font-mono text-xs">
+            <div
+              key={it.id}
+              className={`flex flex-wrap items-center gap-3 p-3 ${
+                marcados.has(it.id) ? 'bg-primary/5' : ''
+              }`}
+            >
+              <input
+                type="checkbox"
+                className="h-4 w-4 shrink-0 accent-violet-600"
+                checked={marcados.has(it.id)}
+                onChange={() => alternar(it.id)}
+                aria-label={`Seleccionar ${it.ticket_number}`}
+              />
+              <span className="text-muted-foreground w-32 shrink-0 font-mono text-xs">
                 {it.ticket_number}
               </span>
               <span className="min-w-[200px] flex-1 truncate text-sm" title={it.title}>
