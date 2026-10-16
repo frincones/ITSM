@@ -25,7 +25,7 @@ const TICKET_SELECT = `
   requester_email,
   custom_fields,
   requester:contacts(id, name, email),
-  assigned_agent:agents(id, name, avatar_url),
+  assigned_agent:agents!tickets_assigned_agent_id_fkey(id, name, avatar_url),
   category:categories!tickets_category_id_fkey(id, name)
 `;
 
