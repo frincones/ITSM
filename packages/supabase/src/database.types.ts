@@ -15,9 +15,9 @@
 // not describe RPC signatures in enough detail to generate them, and a
 // wrong signature would be worse than an honest `unknown`.
 //
-// Tables: 107
-// Functions: 48
-// Generated: 2026-10-16T03:36:04.575Z
+// Tables: 112
+// Functions: 58
+// Generated: 2026-10-16T17:13:40.958Z
 // ---------------------------------------------------------------------------
 
 export type Json =
@@ -603,6 +603,48 @@ export type Database = {
         }
         Relationships: []
       }
+      billing_plans: {
+        Row: {
+          id: string
+          tenant_id: string
+          organization_id: string
+          plan_name: string
+          monthly_credits: number
+          monthly_fee_cop: number
+          retention_threshold_pct: number
+          effective_from: string
+          effective_to: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          organization_id: string
+          plan_name: string
+          monthly_credits: number
+          monthly_fee_cop: number
+          retention_threshold_pct?: number
+          effective_from?: string
+          effective_to?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          organization_id?: string
+          plan_name?: string
+          monthly_credits?: number
+          monthly_fee_cop?: number
+          retention_threshold_pct?: number
+          effective_from?: string
+          effective_to?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       calendar_holidays: {
         Row: {
           id: string
@@ -1167,6 +1209,42 @@ export type Database = {
           notes?: string | null
           created_at?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      delivery_phases: {
+        Row: {
+          id: string
+          tenant_id: string
+          phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          sort_order: number
+          name: string
+          owner: string
+          generates_credit: boolean
+          is_terminal: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          sort_order: number
+          name: string
+          owner: string
+          generates_credit?: boolean
+          is_terminal?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          phase?: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          sort_order?: number
+          name?: string
+          owner?: string
+          generates_credit?: boolean
+          is_terminal?: boolean
+          created_at?: string
         }
         Relationships: []
       }
@@ -2697,6 +2775,114 @@ export type Database = {
         }
         Relationships: []
       }
+      phase_sla_targets: {
+        Row: {
+          id: string
+          tenant_id: string
+          organization_id: string | null
+          phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          size: "S" | "M" | "L" | "XL" | null
+          target_days: number
+          effective_from: string
+          effective_to: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          organization_id?: string | null
+          phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          size?: "S" | "M" | "L" | "XL" | null
+          target_days: number
+          effective_from?: string
+          effective_to?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          organization_id?: string | null
+          phase?: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          size?: "S" | "M" | "L" | "XL" | null
+          target_days?: number
+          effective_from?: string
+          effective_to?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      phase_waits: {
+        Row: {
+          id: string
+          tenant_id: string
+          ticket_id: string
+          phase_log_id: string | null
+          phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          what: string
+          owed_by: string
+          owed_by_name: string | null
+          reason: "espera_cliente_info" | "espera_cliente_validacion" | "dependencia_tercero" | "ventana_mantenimiento" | "fuerza_mayor" | "priorizacion_interna"
+          pauses_clock: boolean
+          requested_at: string
+          received_at: string | null
+          target_days: number | null
+          business_days: number | null
+          previous_wait_id: string | null
+          turn_number: number
+          requested_by_user_id: string | null
+          requested_by_agent_id: string | null
+          received_note: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          ticket_id: string
+          phase_log_id?: string | null
+          phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          what: string
+          owed_by: string
+          owed_by_name?: string | null
+          reason: "espera_cliente_info" | "espera_cliente_validacion" | "dependencia_tercero" | "ventana_mantenimiento" | "fuerza_mayor" | "priorizacion_interna"
+          pauses_clock?: boolean
+          requested_at?: string
+          received_at?: string | null
+          target_days?: number | null
+          business_days?: number | null
+          previous_wait_id?: string | null
+          turn_number?: number
+          requested_by_user_id?: string | null
+          requested_by_agent_id?: string | null
+          received_note?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          ticket_id?: string
+          phase_log_id?: string | null
+          phase?: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          what?: string
+          owed_by?: string
+          owed_by_name?: string | null
+          reason?: "espera_cliente_info" | "espera_cliente_validacion" | "dependencia_tercero" | "ventana_mantenimiento" | "fuerza_mayor" | "priorizacion_interna"
+          pauses_clock?: boolean
+          requested_at?: string
+          received_at?: string | null
+          target_days?: number | null
+          business_days?: number | null
+          previous_wait_id?: string | null
+          turn_number?: number
+          requested_by_user_id?: string | null
+          requested_by_agent_id?: string | null
+          received_note?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       portal_activity_log: {
         Row: {
           id: string
@@ -4041,6 +4227,57 @@ export type Database = {
         }
         Relationships: []
       }
+      ticket_phase_log: {
+        Row: {
+          id: string
+          tenant_id: string
+          ticket_id: string
+          phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          owner: string
+          entered_at: string
+          exited_at: string | null
+          business_days: number | null
+          paused_days: number
+          target_days: number | null
+          effort_size: "S" | "M" | "L" | "XL" | null
+          entered_by_user_id: string | null
+          entered_by_agent_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          ticket_id: string
+          phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          owner: string
+          entered_at?: string
+          exited_at?: string | null
+          business_days?: number | null
+          paused_days?: number
+          target_days?: number | null
+          effort_size?: "S" | "M" | "L" | "XL" | null
+          entered_by_user_id?: string | null
+          entered_by_agent_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          ticket_id?: string
+          phase?: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          owner?: string
+          entered_at?: string
+          exited_at?: string | null
+          business_days?: number | null
+          paused_days?: number
+          target_days?: number | null
+          effort_size?: "S" | "M" | "L" | "XL" | null
+          entered_by_user_id?: string | null
+          entered_by_agent_id?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       ticket_recurrents: {
         Row: {
           id: string
@@ -4466,6 +4703,7 @@ export type Database = {
           proposed_at: string | null
           triaged_at: string | null
           triaged_by: string | null
+          requirement_phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado" | null
         }
         Insert: {
           id?: string
@@ -4537,6 +4775,7 @@ export type Database = {
           proposed_at?: string | null
           triaged_at?: string | null
           triaged_by?: string | null
+          requirement_phase?: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado" | null
         }
         Update: {
           id?: string
@@ -4608,6 +4847,7 @@ export type Database = {
           proposed_at?: string | null
           triaged_at?: string | null
           triaged_by?: string | null
+          requirement_phase?: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado" | null
         }
         Relationships: []
       }
@@ -4865,6 +5105,10 @@ export type Database = {
         Args: Record<string, unknown>
         Returns: unknown
       }
+      billing_plan_at: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
       business_minutes_between: {
         Args: Record<string, unknown>
         Returns: unknown
@@ -4873,11 +5117,23 @@ export type Database = {
         Args: Record<string, unknown>
         Returns: unknown
       }
+      close_phase_wait: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
       close_support_cycle: {
         Args: Record<string, unknown>
         Returns: unknown
       }
       copy_cycle_capacity: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      cycle_delivery_compliance: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      cycle_sla_breaches: {
         Args: Record<string, unknown>
         Returns: unknown
       }
@@ -4921,11 +5177,31 @@ export type Database = {
         Args: Record<string, unknown>
         Returns: unknown
       }
+      open_phase_wait: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      open_phase_waits: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      organization_delay_summary: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      phase_target_days: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
       redeem_authorization_code: {
         Args: Record<string, unknown>
         Returns: unknown
       }
       reject_proposal: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      requirement_delay: {
         Args: Record<string, unknown>
         Returns: unknown
       }
@@ -5018,6 +5294,10 @@ export type Database = {
         Returns: unknown
       }
       ticket_paused_business_minutes: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      ticket_phase_sla: {
         Args: Record<string, unknown>
         Returns: unknown
       }

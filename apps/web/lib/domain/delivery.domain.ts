@@ -832,5 +832,341 @@ export async function rejectProposal(
   return ok(row as Record<string, unknown>);
 }
 
+// ---------------------------------------------------------------------------
+// Fases del contrato (Anexo C)
+// ---------------------------------------------------------------------------
+// El SLA por fases es un mecanismo distinto del SLA de respuesta de soporte,
+// sobre otro tipo de trabajo. Las funciones de abajo leen las de 00076-00079 y
+// no tocan nada de support_cycle_* (00047-00063), que mide la respuesta de
+// soporte y cuyo crédito ya se factura.
+//
+// El CHECK `tickets_phase_only_project` (00076) garantiza que una fase solo
+// puede existir en un ticket de tipo backlog/desarrollo_pendiente, así que
+// nada de aquí puede alcanzar una fila de soporte.
+
+/** Las nueve fases del Anexo C, en orden de recorrido. */
+export const REQUIREMENT_PHASES = [
+  'propuesto',
+  'levantamiento',
+  'documentacion',
+  'accesos',
+  'desarrollo',
+  'uat',
+  'despliegue',
+  'entregado',
+  'descartado',
+] as const;
+export type RequirementPhase = (typeof REQUIREMENT_PHASES)[number];
+
+/** De quién es el reloj mientras un ítem está en una fase. */
+export const PHASE_OWNERS = ['tdx', 'cliente', 'tercero', 'ninguno'] as const;
+export type PhaseOwner = (typeof PHASE_OWNERS)[number];
+
+/**
+ * Motivos de pausa. Reutiliza el catálogo de 00048 en vez de crear otro: sus
+ * seis valores ya mapean a cláusulas del contrato.
+ *
+ * `priorizacion_interna` registra la espera pero NO descuenta días, porque
+ * aparcar algo por decisión propia no es atraso de nadie más.
+ */
+export const PAUSE_REASONS = [
+  'espera_cliente_info',
+  'espera_cliente_validacion',
+  'dependencia_tercero',
+  'ventana_mantenimiento',
+  'fuerza_mayor',
+  'priorizacion_interna',
+] as const;
+export type PauseReason = (typeof PAUSE_REASONS)[number];
+
+/** El catálogo de fases: orden, responsable y si su atraso cuesta dinero. */
+export async function listPhases(
+  ctx: DomainContext,
+): Promise<DomainResult<Array<Record<string, unknown>>>> {
+  const { client, actor } = ctx;
+
+  const { data, error } = await client
+    .from('delivery_phases')
+    .select('phase, sort_order, name, owner, generates_credit, is_terminal')
+    .eq('tenant_id', actor.tenantId)
+    .order('sort_order');
+
+  if (error) return fail(error.message, 'internal');
+  return ok((data ?? []) as Array<Record<string, unknown>>);
+}
+
+/**
+ * Mueve un requerimiento de fase.
+ *
+ * No se valida la secuencia a propósito: un ítem puede volver de UAT a
+ * desarrollo (una devolución), saltarse accesos si no hacen falta, o
+ * descartarse desde cualquier punto. El trigger de 00077 registra el tramo
+ * pase lo que pase, y el histórico es el que manda.
+ */
+export async function setPhase(
+  ctx: DomainContext,
+  ticketId: string,
+  phase: RequirementPhase | null,
+): Promise<DomainResult<Record<string, unknown>>> {
+  const { client, actor } = ctx;
+
+  const { data: existing } = await client
+    .from('tickets')
+    .select('id, type, requirement_phase, organization_id')
+    .eq('id', ticketId)
+    .eq('tenant_id', actor.tenantId)
+    .maybeSingle();
+
+  if (!existing) return fail('Requerimiento no encontrado', 'not_found');
+
+  const t = existing as { type: string; requirement_phase: string | null };
+
+  // El CHECK de la base lo impediría igual, pero un mensaje que dice qué pasó
+  // es mejor que uno que cita una restricción.
+  if (phase !== null && !BACKLOG_TYPES.includes(t.type as never)) {
+    return fail(
+      `Las fases son del trabajo de proyecto; este ticket es de tipo '${t.type}'`,
+      'invalid_input',
+    );
+  }
+
+  const { data, error } = await client
+    .from('tickets')
+    .update({ requirement_phase: phase })
+    .eq('id', ticketId)
+    .eq('tenant_id', actor.tenantId)
+    .select('id, ticket_number, requirement_phase')
+    .single();
+
+  if (error) return fail(error.message, 'internal');
+  return ok(data as Record<string, unknown>);
+}
+
+/** Los tramos de fase de un requerimiento, con sus días netos y su plazo. */
+export async function getPhaseSla(
+  ctx: DomainContext,
+  ticketId: string,
+): Promise<DomainResult<Array<Record<string, unknown>>>> {
+  const { client } = ctx;
+
+  const { data, error } = await client.rpc('ticket_phase_sla', {
+    p_ticket_id: ticketId,
+  });
+
+  if (error) return fail(error.message, 'internal');
+  return ok((data ?? []) as Array<Record<string, unknown>>);
+}
+
+/** El atraso de un requerimiento, separado por responsable. */
+export async function getRequirementDelay(
+  ctx: DomainContext,
+  ticketId: string,
+): Promise<DomainResult<Record<string, unknown>>> {
+  const { client } = ctx;
+
+  const { data, error } = await client.rpc('requirement_delay', {
+    p_ticket_id: ticketId,
+  });
+
+  if (error) return fail(error.message, 'internal');
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return fail('Requerimiento no encontrado', 'not_found');
+  return ok(row as Record<string, unknown>);
+}
+
+/** Qué rompió plazo en un ciclo y de quién es, ordenado por exposición. */
+export async function getCycleBreaches(
+  ctx: DomainContext,
+  cycleId: string,
+): Promise<DomainResult<Array<Record<string, unknown>>>> {
+  const { client } = ctx;
+
+  const { data, error } = await client.rpc('cycle_sla_breaches', {
+    p_cycle_id: cycleId,
+  });
+
+  if (error) return fail(error.message, 'internal');
+  return ok((data ?? []) as Array<Record<string, unknown>>);
+}
+
+/**
+ * El cumplimiento de entrega del ciclo y el descuento aplicable.
+ *
+ * La misma función que lee el portal del cliente, para que los números no
+ * puedan discrepar. Sin plan de entrega vigente devuelve `discount_cop` en
+ * null y lo explica en `basis`, en vez de calcular con un valor inventado.
+ */
+export async function getDeliveryCompliance(
+  ctx: DomainContext,
+  cycleId: string,
+): Promise<DomainResult<Record<string, unknown>>> {
+  const { client } = ctx;
+
+  const { data, error } = await client.rpc('cycle_delivery_compliance', {
+    p_cycle_id: cycleId,
+  });
+
+  if (error) return fail(error.message, 'internal');
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return fail('Ciclo no encontrado', 'not_found');
+  return ok(row as Record<string, unknown>);
+}
+
+/** Las cifras de cabecera de una organización: días por responsable. */
+export async function getDelaySummary(
+  ctx: DomainContext,
+  organizationId: string,
+): Promise<DomainResult<Record<string, unknown>>> {
+  const { client } = ctx;
+
+  const { data, error } = await client.rpc('organization_delay_summary', {
+    p_organization_id: organizationId,
+  });
+
+  if (error) return fail(error.message, 'internal');
+  const row = Array.isArray(data) ? data[0] : data;
+  return ok((row ?? {}) as Record<string, unknown>);
+}
+
+/** Las esperas sin cerrar: la bandeja del PM. */
+export async function listOpenWaits(
+  ctx: DomainContext,
+  options: { organization_id?: string | null; project_id?: string | null } = {},
+): Promise<DomainResult<Array<Record<string, unknown>>>> {
+  const { client } = ctx;
+
+  const { data, error } = await client.rpc('open_phase_waits', {
+    p_organization_id: options.organization_id ?? undefined,
+    p_project_id: options.project_id ?? undefined,
+  });
+
+  if (error) return fail(error.message, 'internal');
+  return ok((data ?? []) as Array<Record<string, unknown>>);
+}
+
+/** Registra que se pidió algo y se está esperando. */
+export async function openWait(
+  ctx: DomainContext,
+  input: {
+    ticket_id: string;
+    what: string;
+    owed_by: 'cliente' | 'tercero' | 'tdx';
+    reason: PauseReason;
+    owed_by_name?: string | null;
+    target_days?: number | null;
+    previous_wait_id?: string | null;
+  },
+): Promise<DomainResult<Record<string, unknown>>> {
+  const { client } = ctx;
+
+  if (!input.what?.trim()) {
+    return fail('Hay que decir qué se está esperando', 'invalid_input');
+  }
+
+  const { data, error } = await client.rpc('open_phase_wait', {
+    p_ticket_id: input.ticket_id,
+    p_what: input.what.trim(),
+    p_owed_by: input.owed_by,
+    p_reason: input.reason,
+    p_owed_by_name: input.owed_by_name ?? undefined,
+    p_target_days: input.target_days ?? undefined,
+    p_previous_wait_id: input.previous_wait_id ?? undefined,
+    p_actor_agent_id: ctx.actor.agentId ?? undefined,
+  });
+
+  if (error) {
+    // La función lanza con mensajes en español ya listos para mostrar.
+    if (error.code === 'P0001') return fail(error.message, 'invalid_input');
+    return fail(error.message, 'internal');
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return fail('No se pudo registrar la espera', 'internal');
+  return ok(row as Record<string, unknown>);
+}
+
+/**
+ * El botón "ya llegó": cierra la espera y descuenta sus días del reloj.
+ *
+ * `return_what` abre el turno de vuelta en la misma operación, invirtiendo
+ * quién debe. Es el ida y vuelta de la fase de documentación: al recibir los
+ * comentarios del cliente, la pelota vuelve a nuestro campo.
+ */
+export async function closeWait(
+  ctx: DomainContext,
+  input: {
+    wait_id: string;
+    note?: string | null;
+    received_at?: string | null;
+    return_what?: string | null;
+  },
+): Promise<DomainResult<Record<string, unknown>>> {
+  const { client } = ctx;
+
+  const { data, error } = await client.rpc('close_phase_wait', {
+    p_wait_id: input.wait_id,
+    p_note: input.note ?? undefined,
+    p_received_at: input.received_at ?? undefined,
+    p_open_return_wait: input.return_what ?? undefined,
+    p_actor_agent_id: ctx.actor.agentId ?? undefined,
+  });
+
+  if (error) {
+    if (error.code === 'P0001') return fail(error.message, 'invalid_input');
+    return fail(error.message, 'internal');
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return fail('No se pudo cerrar la espera', 'internal');
+  return ok(row as Record<string, unknown>);
+}
+
+/**
+ * Los requerimientos de un proyecto con su fase y su atraso.
+ *
+ * Una sola consulta en vez de N llamadas a requirement_delay: la pantalla
+ * lista decenas de ítems y hacer una ida y vuelta por cada uno se nota.
+ */
+export async function listRequirements(
+  ctx: DomainContext,
+  options: { project_id?: string | null; organization_id?: string | null } = {},
+): Promise<DomainResult<Array<Record<string, unknown>>>> {
+  const { client, actor } = ctx;
+
+  let q = client
+    .from('tickets')
+    .select(
+      'id, ticket_number, title, status, type, requirement_phase, effort_size, ' +
+        'effort_points, delivery_cycle_id, project_id, organization_id, created_at',
+    )
+    .eq('tenant_id', actor.tenantId)
+    .is('deleted_at', null)
+    .not('requirement_phase', 'is', null);
+
+  if (options.project_id) q = q.eq('project_id', options.project_id);
+  if (options.organization_id) q = q.eq('organization_id', options.organization_id);
+
+  const { data, error } = await q.order('created_at', { ascending: false });
+  if (error) return fail(error.message, 'internal');
+
+  const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
+  if (rows.length === 0) return ok([]);
+
+  // El atraso de cada uno. Se piden en paralelo porque son lecturas
+  // independientes y el número de ítems de un proyecto es manejable.
+  const delays = await Promise.all(
+    rows.map(async (r) => {
+      const { data: d } = await client.rpc('requirement_delay', {
+        p_ticket_id: r.id as string,
+      });
+      const row = Array.isArray(d) ? d[0] : d;
+      return { id: r.id as string, delay: (row ?? {}) as Record<string, unknown> };
+    }),
+  );
+
+  const byId = new Map(delays.map((d) => [d.id, d.delay]));
+  return ok(rows.map((r) => ({ ...r, delay: byId.get(r.id as string) ?? {} })));
+}
+
 /** Marcador observado por lib/mcp/server.ts para evitar el tree-shaking. */
 export const __deliveryDomainLoaded = true;
