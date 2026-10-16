@@ -15,9 +15,9 @@
 // not describe RPC signatures in enough detail to generate them, and a
 // wrong signature would be worse than an honest `unknown`.
 //
-// Tables: 102
+// Tables: 103
 // Functions: 40
-// Generated: 2026-10-15T21:05:21.061Z
+// Generated: 2026-10-16T02:07:58.012Z
 // ---------------------------------------------------------------------------
 
 export type Json =
@@ -999,6 +999,36 @@ export type Database = {
           updated_at?: string
           organization_id?: string | null
           category_id?: string | null
+        }
+        Relationships: []
+      }
+      effort_conversion: {
+        Row: {
+          id: string
+          tenant_id: string
+          size: "S" | "M" | "L" | "XL"
+          points: number
+          effective_from: string
+          effective_to: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          size: "S" | "M" | "L" | "XL"
+          points: number
+          effective_from?: string
+          effective_to?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          size?: "S" | "M" | "L" | "XL"
+          points?: number
+          effective_from?: string
+          effective_to?: string | null
+          created_at?: string
         }
         Relationships: []
       }
@@ -2854,6 +2884,7 @@ export type Database = {
           created_at: string
           updated_at: string
           organization_id: string | null
+          contract_id: string | null
         }
         Insert: {
           id?: string
@@ -2870,6 +2901,7 @@ export type Database = {
           created_at?: string
           updated_at?: string
           organization_id?: string | null
+          contract_id?: string | null
         }
         Update: {
           id?: string
@@ -2886,6 +2918,7 @@ export type Database = {
           created_at?: string
           updated_at?: string
           organization_id?: string | null
+          contract_id?: string | null
         }
         Relationships: []
       }
@@ -4257,6 +4290,9 @@ export type Database = {
           sla_applies: boolean
           sla_contract_id: string | null
           sla_target_minutes: number | null
+          project_id: string | null
+          effort_size: "S" | "M" | "L" | "XL" | null
+          effort_points: number | null
         }
         Insert: {
           id?: string
@@ -4320,6 +4356,9 @@ export type Database = {
           sla_applies?: boolean
           sla_contract_id?: string | null
           sla_target_minutes?: number | null
+          project_id?: string | null
+          effort_size?: "S" | "M" | "L" | "XL" | null
+          effort_points?: number | null
         }
         Update: {
           id?: string
@@ -4383,6 +4422,9 @@ export type Database = {
           sla_applies?: boolean
           sla_contract_id?: string | null
           sla_target_minutes?: number | null
+          project_id?: string | null
+          effort_size?: "S" | "M" | "L" | "XL" | null
+          effort_points?: number | null
         }
         Relationships: []
       }

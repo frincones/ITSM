@@ -38,8 +38,9 @@
 --   * No asigna los 3 proyectos internos de TDX a ninguna organización. Nacieron
 --     sin cliente y así se quedan; el módulo arranca con proyectos nuevos.
 --
--- Depende de: 00015 (projects), 00021 (organizations), 00043 (has_org_access),
+-- Depende de: 00015 (projects), 00021 (organizations),
 --             00048 (organization_support_contracts)
+-- NO depende de 00043: ver la nota de la sección 5.
 -- ═══════════════════════════════════════════════════════════════
 
 -- ---------------------------------------------------------------
@@ -172,21 +173,29 @@ COMMENT ON COLUMN projects.contract_id IS
   'Contrato de soporte que gobierna el cupo y el día de corte de ciclo de este proyecto. NULL en los proyectos internos de TDX, que no tienen cliente.';
 
 -- ---------------------------------------------------------------
--- 5. RLS DE projects — cerrar el hueco que 00043 cerró en tickets
+-- 5. RLS DE projects — cerrar el hueco antes de que importe
 -- ---------------------------------------------------------------
 -- Esto NO es parte del módulo nuevo: es un defecto que ya existe.
---
--- 00043 endureció `tickets` porque "un usuario de la organización A podía
--- consultar Supabase directamente y leer todos los tickets de la organización
--- B dentro del mismo tenant". `projects` tiene exactamente ese hueco: sus
--- políticas solo comprueban `tenant_id`, y `projects.organization_id` existe
--- desde 00021 pero ninguna política lo lee.
+-- `projects` solo comprueba `tenant_id`, pese a que `projects.organization_id`
+-- existe desde 00021. Verificado contra producción: Camilo (Podenza) ve hoy
+-- los 3 proyectos, y vería también cualquier proyecto nuevo de Prosuministros.
 --
 -- Hoy el riesgo es bajo porque los 3 proyectos vivos son internos de TDX y no
--- tienen organización. Deja de serlo en cuanto exista el primer proyecto de
--- un cliente — que es justo lo que habilita esta migración. Por eso se corrige
--- aquí y no después: la fase que crea proyectos de cliente no puede ser la
--- misma que los deje expuestos.
+-- tienen organización. Deja de serlo con el primer proyecto de cliente — que
+-- es justo lo que habilita esta migración. Por eso se corrige aquí: la fase
+-- que crea proyectos de cliente no puede ser la que los deje expuestos.
+--
+-- Las condiciones van EN LÍNEA, no a través de is_staff_agent() /
+-- has_org_access(). Esas funciones las crea 00043, que NO está aplicada en
+-- producción (verificado 15-oct-2026: `to_regproc('is_staff_agent')` es NULL),
+-- y aplicarla ahora cambiaría de golpe lo que ven cuatro usuarios de cliente
+-- en `tickets` — una decisión que merece su propia ventana coordinada.
+--
+-- El patrón en línea es además el que ya usan las 5 tablas de esta base que
+-- sí aíslan por organización (support_cycle_closures, ticket_type_history,
+-- organization_support_contracts...), así que es el precedente local, no una
+-- invención. Cuando 00043 se aplique, estas políticas pueden simplificarse
+-- para usar las funciones; mientras tanto no dependen de ella.
 --
 -- Un proyecto sin organización (interno) solo lo ve el personal.
 
@@ -195,7 +204,18 @@ CREATE POLICY projects_select ON projects
   FOR SELECT TO authenticated
   USING (
     tenant_id = get_current_tenant_id()
-    AND (is_staff_agent() OR has_org_access(organization_id))
+    AND (
+      EXISTS (
+        SELECT 1 FROM agents a
+        WHERE a.user_id = auth.uid()
+          AND a.is_active = true
+          AND a.role IN ('admin', 'supervisor', 'agent')
+      )
+      OR organization_id IN (
+        SELECT ou.organization_id FROM organization_users ou
+        WHERE ou.user_id = auth.uid() AND ou.is_active = true
+      )
+    )
   );
 
 -- La escritura sigue siendo solo del personal: un cliente nunca crea ni edita
@@ -203,20 +223,34 @@ CREATE POLICY projects_select ON projects
 DROP POLICY IF EXISTS projects_insert ON projects;
 CREATE POLICY projects_insert ON projects
   FOR INSERT TO authenticated
-  WITH CHECK (tenant_id = get_current_tenant_id() AND is_staff_agent());
+  WITH CHECK (
+    tenant_id = get_current_tenant_id()
+    AND EXISTS (SELECT 1 FROM agents a
+                WHERE a.user_id = auth.uid() AND a.is_active = true
+                  AND a.role IN ('admin', 'supervisor', 'agent'))
+  );
 
 DROP POLICY IF EXISTS projects_update ON projects;
 CREATE POLICY projects_update ON projects
   FOR UPDATE TO authenticated
-  USING (tenant_id = get_current_tenant_id() AND is_staff_agent());
+  USING (
+    tenant_id = get_current_tenant_id()
+    AND EXISTS (SELECT 1 FROM agents a
+                WHERE a.user_id = auth.uid() AND a.is_active = true
+                  AND a.role IN ('admin', 'supervisor', 'agent'))
+  );
 
 DROP POLICY IF EXISTS projects_delete ON projects;
 CREATE POLICY projects_delete ON projects
   FOR DELETE TO authenticated
-  USING (tenant_id = get_current_tenant_id() AND is_staff_agent());
+  USING (
+    tenant_id = get_current_tenant_id()
+    AND EXISTS (SELECT 1 FROM agents a
+                WHERE a.user_id = auth.uid() AND a.is_active = true
+                  AND a.role = 'admin')
+  );
 
--- project_tasks hereda el alcance de su proyecto. Mismo razonamiento: la
--- tarea de un proyecto de cliente no debe ser legible por otro cliente.
+-- project_tasks hereda el alcance de su proyecto.
 DROP POLICY IF EXISTS project_tasks_select ON project_tasks;
 CREATE POLICY project_tasks_select ON project_tasks
   FOR SELECT TO authenticated
@@ -225,24 +259,45 @@ CREATE POLICY project_tasks_select ON project_tasks
     AND EXISTS (
       SELECT 1 FROM projects p
       WHERE p.id = project_tasks.project_id
-        AND (is_staff_agent() OR has_org_access(p.organization_id))
+        AND (
+          EXISTS (SELECT 1 FROM agents a
+                  WHERE a.user_id = auth.uid() AND a.is_active = true
+                    AND a.role IN ('admin', 'supervisor', 'agent'))
+          OR p.organization_id IN (SELECT ou.organization_id FROM organization_users ou
+                                   WHERE ou.user_id = auth.uid() AND ou.is_active = true)
+        )
     )
   );
 
 DROP POLICY IF EXISTS project_tasks_insert ON project_tasks;
 CREATE POLICY project_tasks_insert ON project_tasks
   FOR INSERT TO authenticated
-  WITH CHECK (tenant_id = get_current_tenant_id() AND is_staff_agent());
+  WITH CHECK (
+    tenant_id = get_current_tenant_id()
+    AND EXISTS (SELECT 1 FROM agents a
+                WHERE a.user_id = auth.uid() AND a.is_active = true
+                  AND a.role IN ('admin', 'supervisor', 'agent'))
+  );
 
 DROP POLICY IF EXISTS project_tasks_update ON project_tasks;
 CREATE POLICY project_tasks_update ON project_tasks
   FOR UPDATE TO authenticated
-  USING (tenant_id = get_current_tenant_id() AND is_staff_agent());
+  USING (
+    tenant_id = get_current_tenant_id()
+    AND EXISTS (SELECT 1 FROM agents a
+                WHERE a.user_id = auth.uid() AND a.is_active = true
+                  AND a.role IN ('admin', 'supervisor', 'agent'))
+  );
 
 DROP POLICY IF EXISTS project_tasks_delete ON project_tasks;
 CREATE POLICY project_tasks_delete ON project_tasks
   FOR DELETE TO authenticated
-  USING (tenant_id = get_current_tenant_id() AND is_staff_agent());
+  USING (
+    tenant_id = get_current_tenant_id()
+    AND EXISTS (SELECT 1 FROM agents a
+                WHERE a.user_id = auth.uid() AND a.is_active = true
+                  AND a.role = 'admin')
+  );
 
 -- ---------------------------------------------------------------
 -- 6. PostgREST

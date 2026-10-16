@@ -43,17 +43,6 @@ export type EffortSize = (typeof EFFORT_SIZES)[number];
  */
 export const BACKLOG_TYPES = ['backlog', 'desarrollo_pendiente'] as const;
 
-/**
- * Hasta que 00067 se aplique, los tipos generados no conocen `project_id`,
- * `effort_size` ni `effort_points`. El cast se aísla aquí, en las consultas
- * que los tocan, en vez de desactivar el tipado del módulo entero.
- *
- * DESPUÉS DE APLICAR 00067: regenerar tipos y borrar este alias junto con sus
- * usos — si no, deja de avisar cuando una columna no exista de verdad.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- ver comentario
-type UntypedQuery = any;
-
 // ---------------------------------------------------------------------------
 // Conversión talla → puntos
 // ---------------------------------------------------------------------------
@@ -70,7 +59,7 @@ export async function getEffortScale(
 ): Promise<DomainResult<Record<EffortSize, number>>> {
   const { actor, client } = ctx;
 
-  const { data, error } = await (client as UntypedQuery)
+  const { data, error } = await client
     .from('effort_conversion')
     .select('size, points')
     .eq('tenant_id', actor.tenantId)
@@ -140,7 +129,7 @@ export async function estimateItem(
     return fail('Sin acceso a este ticket', 'forbidden');
   }
 
-  const { data, error } = await (client as UntypedQuery)
+  const { data, error } = await client
     .from('tickets')
     .update({ effort_size: size, effort_points: points })
     .eq('id', ticketId)
@@ -177,7 +166,7 @@ export async function assignToProject(
   if (!ticket) return fail('Ticket no encontrado', 'not_found');
 
   if (projectId !== null) {
-    const { data: project } = await (client as UntypedQuery)
+    const { data: project } = await client
       .from('projects')
       .select('id, organization_id')
       .eq('id', projectId)
@@ -199,7 +188,7 @@ export async function assignToProject(
     }
   }
 
-  const { data, error } = await (client as UntypedQuery)
+  const { data, error } = await client
     .from('tickets')
     .update({ project_id: projectId })
     .eq('id', ticketId)
@@ -236,7 +225,7 @@ export async function listBacklog(
 ): Promise<DomainResult<{ items: unknown[]; totals: Record<string, number> }>> {
   const { actor, client } = ctx;
 
-  let query = (client as UntypedQuery)
+  let query = client
     .from('tickets')
     .select(
       'id, ticket_number, title, type, status, urgency, priority, organization_id, project_id, effort_size, effort_points, assigned_agent_id, created_at, updated_at',
@@ -299,7 +288,7 @@ export async function getProjectEffort(
 ): Promise<DomainResult<Record<string, unknown>>> {
   const { actor, client } = ctx;
 
-  const { data: project } = await (client as UntypedQuery)
+  const { data: project } = await client
     .from('projects')
     .select('id, name, status, organization_id, contract_id')
     .eq('id', projectId)
@@ -308,7 +297,7 @@ export async function getProjectEffort(
 
   if (!project) return fail('Proyecto no encontrado', 'not_found');
 
-  const { data, error } = await (client as UntypedQuery)
+  const { data, error } = await client
     .from('tickets')
     .select('id, type, status, effort_size, effort_points')
     .eq('tenant_id', actor.tenantId)
