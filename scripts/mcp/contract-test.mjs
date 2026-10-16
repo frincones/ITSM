@@ -505,6 +505,69 @@ async function suiteIsolation() {
   return sandboxOnly && leak.length === 0;
 }
 
+/**
+ * Billing invariants.
+ *
+ * These are the rules that decide what a client is charged. They live in SQL
+ * (ticket_type_consumes_quota / ticket_type_counts_for_sla) and nothing in the
+ * TypeScript build would notice if a migration moved a type from one side to
+ * the other — the result would simply be a different invoice.
+ *
+ * The project-management work adds columns and a status to `tickets`, so these
+ * assertions exist to prove it did not move anything. A failure here means
+ * money changed hands differently, not that a test is stale.
+ *
+ * Needs a key that can SEE billed tickets. An org-restricted sandbox key
+ * pointed at an empty organization cannot verify anything, and a suite that
+ * silently passes on no data is worse than no suite at all — so that case is
+ * reported as a failure of the gate, not as a pass.
+ */
+async function suiteBilling() {
+  if (!JSON_OUT) console.log('\n\x1b[1mBilling invariants (quota / SLA)\x1b[0m');
+
+  // Types that must NEVER count toward SLA compliance. `warranty` is the
+  // contractual one: a correction at no cost. `backlog` and
+  // `desarrollo_pendiente` are work not yet committed to a cycle.
+  //
+  // This is the half that is genuinely invariant. The converse — "a support
+  // ticket always has an SLA" — is NOT true and must not be asserted: only
+  // 15 tickets in the whole database carry sla_applies = true, all of them
+  // from the one organization with an active support contract. A ticket
+  // predating its contract legitimately has no SLA.
+  const FREE_TYPES = ['warranty', 'backlog', 'desarrollo_pendiente'];
+
+  let verified = 0;
+
+  for (const type of FREE_TYPES) {
+    const res = await callTool('tickets_list', { type: [type], limit: 20 });
+    const rows = res?.data ?? [];
+    if (!rows.length) {
+      check(`${type} invariant is verifiable`, false,
+        `0 ${type} tickets visible to this key — the gate cannot confirm the billing rule. Point MCP_SANDBOX_ORG at an organization with data.`);
+      continue;
+    }
+
+    // `sla_applies`, not `sla_due_date`. Forty warranty tickets carry a due
+    // date inherited from the generic SLA that predates the support contract,
+    // and every one of them has sla_applies = false. The flag is what
+    // support_cycle_compliance() counts; the date is decoration on these rows.
+    const billed = rows.filter((t) => t.sla_applies === true);
+    check(`${type} never counts toward SLA compliance`, billed.length === 0,
+      `${billed.length}/${rows.length} rows have sla_applies=true — a migration moved this type into the billed set`);
+    verified += rows.length;
+  }
+
+  // The flag must be present in the projection at all, or every assertion
+  // above passes vacuously on undefined.
+  const sample = (await callTool('tickets_list', { limit: 1 }))?.data ?? [];
+  check('tickets_list projects sla_applies', sample.length === 0 || 'sla_applies' in sample[0],
+    'without this field the invariants above cannot be checked');
+
+  if (!JSON_OUT && verified) {
+    console.log(`         (${verified} rows inspected)`);
+  }
+}
+
 async function suiteResourcesAndPrompts() {
   if (!JSON_OUT) console.log('\n\x1b[1mResources and prompts\x1b[0m');
 
@@ -758,6 +821,7 @@ async function main() {
   if (authed) {
     const tools = await suiteCatalog();
     const isolated = await suiteIsolation();
+    await suiteBilling();
     await suiteResourcesAndPrompts();
     await suiteReads(tools);
     await suiteWrites(isolated);
