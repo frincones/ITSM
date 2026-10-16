@@ -149,10 +149,19 @@ registry.register({
       .boolean()
       .default(false)
       .describe('Añade una descripción de qué tipo de trabajo cabe en cada talla'),
+    organization_id: z
+      .string()
+      .uuid()
+      .optional()
+      .describe(
+        'La escala pactada con esta organización, si tiene una. Sin este parámetro se devuelve la escala general del tenant, que NO es la que se factura a un cliente con escala propia.',
+      ),
   }),
   meta: { since: '1.2.0', tags: ['projects', 'read'] },
   async handler(ctx, input) {
-    const scale = unwrap(await domainGetScale(toDomainContext(ctx)));
+    const scale = unwrap(
+      await domainGetScale(toDomainContext(ctx), input.organization_id ?? null),
+    );
     if (!input.include_examples) return { scale };
     return {
       scale,

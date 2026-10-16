@@ -56,18 +56,24 @@ export const BACKLOG_TYPES = ['backlog', 'desarrollo_pendiente'] as const;
  */
 export async function getEffortScale(
   ctx: DomainContext,
+  organizationId?: string | null,
 ): Promise<DomainResult<Record<EffortSize, number>>> {
   const { actor, client } = ctx;
 
   const { data, error } = await client
     .from('effort_conversion')
-    .select('size, points')
+    .select('size, points, organization_id')
     .eq('tenant_id', actor.tenantId)
     .is('effective_to', null);
 
   if (error) return fail(error.message, 'internal');
 
-  const rows = (data ?? []) as Array<{ size: EffortSize; points: number }>;
+  const rows = (data ?? []) as unknown as Array<{
+    size: EffortSize;
+    points: number;
+    organization_id: string | null;
+  }>;
+
   if (!rows.length) {
     return fail(
       'No hay escala de esfuerzo configurada para este tenant',
@@ -75,8 +81,27 @@ export async function getEffortScale(
     );
   }
 
+  // PRECEDENCIA EXPLÍCITA. Desde 00080 pueden coexistir la escala general del
+  // tenant (organization_id NULL) y la pactada con una organización, porque
+  // las tres organizaciones comparten tenant y el Anexo C solo rige para
+  // Podenza.
+  //
+  // Un bucle que asignara sin mirar el origen dependería del orden que
+  // devuelva la base, que no está garantizado: el mismo ítem podría
+  // estimarse con una escala u otra entre dos llamadas. Y estimar un ítem de
+  // un cliente con la tabla pactada con otro es facturar de más o de menos.
   const scale = {} as Record<EffortSize, number>;
-  for (const row of rows) scale[row.size] = row.points;
+
+  for (const row of rows) {
+    if (row.organization_id === null) scale[row.size] = row.points;
+  }
+  // Lo pactado con la organización gana, y se aplica después para sobrescribir
+  // la escala general solo en las tallas que el contrato define.
+  if (organizationId) {
+    for (const row of rows) {
+      if (row.organization_id === organizationId) scale[row.size] = row.points;
+    }
+  }
 
   const missing = EFFORT_SIZES.filter((s) => scale[s] === undefined);
   if (missing.length) {
@@ -108,11 +133,9 @@ export async function estimateItem(
 ): Promise<DomainResult<Record<string, unknown>>> {
   const { actor, client } = ctx;
 
-  const scaleResult = await getEffortScale(ctx);
-  if (scaleResult.error !== null) return fail(scaleResult.error, scaleResult.code);
-
-  const points = scaleResult.data[size];
-
+  // El ticket se carga ANTES de la escala, al contrario que antes de 00080:
+  // desde esa migración la escala depende de la organización del ítem, así
+  // que hay que saber de quién es antes de poder convertir la talla.
   const { data: ticket } = await client
     .from('tickets')
     .select('id, type, organization_id')
@@ -128,6 +151,13 @@ export async function estimateItem(
   if (orgScope && row.organization_id && !orgScope.includes(row.organization_id)) {
     return fail('Sin acceso a este ticket', 'forbidden');
   }
+
+  // La escala de SU organización: Podenza factura por el Anexo C (S=1 M=2
+  // L=4) y el resto por la escala general del tenant.
+  const scaleResult = await getEffortScale(ctx, row.organization_id);
+  if (scaleResult.error !== null) return fail(scaleResult.error, scaleResult.code);
+
+  const points = scaleResult.data[size];
 
   const { data, error } = await client
     .from('tickets')
