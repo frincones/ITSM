@@ -18,21 +18,34 @@ import { getSupabaseServerClient } from '@kit/supabase/server-client';
 
 import {
   type EffortSize,
+  type PauseReason,
+  type RequirementPhase,
   type TimeOffKind,
   acceptProposal as domainAcceptProposal,
   addTimeOff as domainAddTimeOff,
   assignToCycle as domainAssignToCycle,
   assignToProject as domainAssignToProject,
   closeCycle as domainCloseCycle,
+  closeWait as domainCloseWait,
   copyCapacity as domainCopyCapacity,
   createCycle as domainCreateCycle,
   estimateItem as domainEstimate,
   getCapacity as domainGetCapacity,
+  getCycleBreaches as domainCycleBreaches,
   getCycleStatus as domainCycleStatus,
+  getDelaySummary as domainDelaySummary,
+  getDeliveryCompliance as domainDeliveryCompliance,
+  getPhaseSla as domainGetPhaseSla,
+  getRequirementDelay as domainRequirementDelay,
   listBacklog as domainListBacklog,
+  listOpenWaits as domainListOpenWaits,
+  listPhases as domainListPhases,
   listProposals as domainListProposals,
+  listRequirements as domainListRequirements,
+  openWait as domainOpenWait,
   rejectProposal as domainRejectProposal,
   setCapacity as domainSetCapacity,
+  setPhase as domainSetPhase,
 } from '~/lib/domain/delivery.domain';
 import type { DomainContext } from '~/lib/domain/types';
 
@@ -217,4 +230,79 @@ export async function acceptProposalAction(
 
 export async function rejectProposalAction(ticketId: string, reason?: string | null) {
   return run((ctx) => domainRejectProposal(ctx, ticketId, reason ?? null), RUTA);
+}
+
+// ---------------------------------------------------------------------------
+// Fases del contrato y esperas (Anexo C)
+// ---------------------------------------------------------------------------
+// Solo lee y escribe sobre las tablas de 00076-00079. No alcanza nada del SLA
+// de soporte: el CHECK `tickets_phase_only_project` impide que una fase exista
+// en un ticket de tipo support, incident, request o warranty.
+
+export async function listPhasesAction() {
+  return run((ctx) => domainListPhases(ctx));
+}
+
+export async function setPhaseAction(ticketId: string, phase: RequirementPhase | null) {
+  return run((ctx) => domainSetPhase(ctx, ticketId, phase), RUTA);
+}
+
+export async function phaseSlaAction(ticketId: string) {
+  return run((ctx) => domainGetPhaseSla(ctx, ticketId));
+}
+
+export async function requirementDelayAction(ticketId: string) {
+  return run((ctx) => domainRequirementDelay(ctx, ticketId));
+}
+
+export async function cycleBreachesAction(cycleId: string) {
+  return run((ctx) => domainCycleBreaches(ctx, cycleId));
+}
+
+export async function deliveryComplianceAction(cycleId: string) {
+  return run((ctx) => domainDeliveryCompliance(ctx, cycleId));
+}
+
+export async function delaySummaryAction(organizationId: string) {
+  return run((ctx) => domainDelaySummary(ctx, organizationId));
+}
+
+export async function listRequirementsAction(
+  options: { project_id?: string | null; organization_id?: string | null } = {},
+) {
+  return run((ctx) => domainListRequirements(ctx, options));
+}
+
+export async function listOpenWaitsAction(
+  options: { organization_id?: string | null; project_id?: string | null } = {},
+) {
+  return run((ctx) => domainListOpenWaits(ctx, options));
+}
+
+export async function openWaitAction(input: {
+  ticket_id: string;
+  what: string;
+  owed_by: 'cliente' | 'tercero' | 'tdx';
+  reason: PauseReason;
+  owed_by_name?: string | null;
+  target_days?: number | null;
+  previous_wait_id?: string | null;
+}) {
+  return run((ctx) => domainOpenWait(ctx, input), RUTA);
+}
+
+/**
+ * El botón "ya llegó".
+ *
+ * `return_what` abre el turno de vuelta en la misma operación: al recibir los
+ * comentarios del cliente, la espera pasa a ser nuestra. Es el ida y vuelta de
+ * 24 horas del proceso de documentación.
+ */
+export async function closeWaitAction(input: {
+  wait_id: string;
+  note?: string | null;
+  received_at?: string | null;
+  return_what?: string | null;
+}) {
+  return run((ctx) => domainCloseWait(ctx, input), RUTA);
 }
