@@ -322,3 +322,273 @@ export async function getPortalCycles(organizationId: string): Promise<PortalCyc
 
   return estados;
 }
+
+// ---------------------------------------------------------------------------
+// Fases del contrato (Anexo C)
+// ---------------------------------------------------------------------------
+// Lo que el equipo pidió que viera el cliente:
+//
+//   "el dolor mayor que tenemos es que Podenza se demora mucho en aprobar un
+//    documento funcional (...) y el PM asignado debe lograr revisarlos,
+//    gestionarlos y usar la herramienta para decir ya recibimos"
+//
+// Así que el portal muestra las dos mitades: en qué fase va cada
+// requerimiento, y QUÉ ESTAMOS ESPERANDO DE ELLOS con los días acumulados.
+// Una pantalla que solo mostrara los atrasos de TDX cuenta media historia y
+// convierte cada revisión de ciclo en una discusión sin datos.
+//
+// IMPORTANTE SOBRE EL AISLAMIENTO. Este servicio usa service_role, que se
+// salta el RLS, así que las políticas de 00077/00078 no protegen aquí. Cada
+// consulta de abajo filtra por organización EXPLÍCITAMENTE, y los ids de
+// ticket se validan contra la organización antes de pedir su detalle. Si
+// alguna vez se añade una consulta sin ese filtro, el cliente vería trabajo
+// ajeno.
+
+export interface PortalPhaseSpan {
+  phase: string;
+  owner: string;
+  entered_at: string;
+  exited_at: string | null;
+  is_open: boolean;
+  business_days: number | null;
+  paused_days: number;
+  net_days: number | null;
+  target_days: number | null;
+  over_days: number | null;
+  breached: boolean | null;
+}
+
+export interface PortalRequirement {
+  id: string;
+  ticket_number: string;
+  title: string;
+  status: string;
+  phase: string | null;
+  effort_size: string | null;
+  effort_points: number | null;
+  /** Días netos de cada parte. Separados a propósito: son dos historias. */
+  tdx_days: number;
+  client_days: number;
+  third_party_days: number;
+  /** Atraso imputable a TDX en una fase que genera descuento. */
+  tdx_over: number;
+  client_over: number;
+  spans: PortalPhaseSpan[];
+}
+
+export interface PortalWait {
+  wait_id: string;
+  ticket_number: string;
+  ticket_title: string;
+  phase: string;
+  what: string;
+  owed_by: string;
+  requested_at: string;
+  waiting_days: number;
+  target_days: number | null;
+  over_days: number | null;
+  turn_number: number;
+}
+
+export interface PortalDelaySummary {
+  open_requirements: number;
+  tdx_delay_days: number;
+  client_delay_days: number;
+  third_party_days: number;
+  exposed_credits: number;
+  items_at_risk: number;
+  open_waits: number;
+  oldest_wait_days: number;
+}
+
+/**
+ * Los requerimientos del cliente con su fase y el reparto de días.
+ *
+ * Filtra por `organization_id` en la consulta, no después: el portal no pasa
+ * por RLS y un filtro en memoria dejaría los datos ajenos viajando hasta
+ * aquí.
+ */
+export async function getPortalRequirements(
+  organizationId: string,
+): Promise<PortalRequirement[]> {
+  const svc = serviceClient();
+
+  const { data } = await svc
+    .from('tickets')
+    .select(
+      'id, ticket_number, title, status, requirement_phase, effort_size, effort_points',
+    )
+    .eq('organization_id', organizationId)
+    .is('deleted_at', null)
+    .not('requirement_phase', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(100);
+
+  const rows = (data ?? []) as unknown as Array<{
+    id: string;
+    ticket_number: string;
+    title: string;
+    status: string;
+    requirement_phase: string | null;
+    effort_size: string | null;
+    effort_points: number | null;
+  }>;
+
+  if (!rows.length) return [];
+
+  return Promise.all(
+    rows.map(async (t) => {
+      const [delayRes, spanRes] = await Promise.all([
+        svc.rpc('requirement_delay', { p_ticket_id: t.id }),
+        svc.rpc('ticket_phase_sla', { p_ticket_id: t.id }),
+      ]);
+
+      const d = (Array.isArray(delayRes.data) ? delayRes.data[0] : delayRes.data) as
+        | Record<string, number>
+        | undefined;
+
+      const spans = ((spanRes.data ?? []) as unknown as PortalPhaseSpan[]).map((s) => ({
+        ...s,
+        paused_days: Number(s.paused_days ?? 0),
+      }));
+
+      return {
+        id: t.id,
+        ticket_number: t.ticket_number,
+        title: t.title,
+        status: t.status,
+        phase: t.requirement_phase,
+        effort_size: t.effort_size,
+        effort_points: t.effort_points,
+        tdx_days: Number(d?.tdx_days ?? 0),
+        client_days: Number(d?.cliente_days ?? 0),
+        third_party_days: Number(d?.tercero_days ?? 0),
+        tdx_over: Number(d?.tdx_over ?? 0),
+        client_over: Number(d?.cliente_over ?? 0),
+        spans,
+      };
+    }),
+  );
+}
+
+/**
+ * Lo que esperamos del cliente, con los días que lleva esperando.
+ *
+ * La función de SQL ya filtra por organización cuando se le pasa el
+ * parámetro, así que no hace falta filtrar aquí otra vez — pero el parámetro
+ * NO es opcional en esta llamada, precisamente porque omitirlo devolvería las
+ * esperas de todos los clientes.
+ *
+ * Se muestran también las esperas a cargo de TDX: esconder las nuestras
+ * mientras se muestran las suyas sería una pantalla deshonesta, y el equipo
+ * pidió explícitamente lo contrario.
+ */
+export async function getPortalWaits(organizationId: string): Promise<PortalWait[]> {
+  const svc = serviceClient();
+
+  const { data } = await svc.rpc('open_phase_waits', {
+    p_organization_id: organizationId,
+  });
+
+  const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
+
+  return rows.map((w) => ({
+    wait_id: String(w.wait_id),
+    ticket_number: String(w.ticket_number),
+    ticket_title: String(w.ticket_title),
+    phase: String(w.phase),
+    what: String(w.what),
+    owed_by: String(w.owed_by),
+    requested_at: String(w.requested_at),
+    waiting_days: Number(w.waiting_days ?? 0),
+    target_days: w.target_days === null ? null : Number(w.target_days),
+    over_days: w.over_days === null ? null : Number(w.over_days),
+    turn_number: Number(w.turn_number ?? 1),
+  }));
+}
+
+/** Las cifras de cabecera: días de cada parte y esperas abiertas. */
+export async function getPortalDelaySummary(
+  organizationId: string,
+): Promise<PortalDelaySummary> {
+  const svc = serviceClient();
+
+  const { data } = await svc.rpc('organization_delay_summary', {
+    p_organization_id: organizationId,
+  });
+
+  const r = (Array.isArray(data) ? data[0] : data) as
+    | Record<string, number>
+    | undefined;
+
+  return {
+    open_requirements: Number(r?.open_requirements ?? 0),
+    tdx_delay_days: Number(r?.tdx_delay_days ?? 0),
+    client_delay_days: Number(r?.client_delay_days ?? 0),
+    third_party_days: Number(r?.third_party_days ?? 0),
+    exposed_credits: Number(r?.exposed_credits ?? 0),
+    items_at_risk: Number(r?.items_at_risk ?? 0),
+    open_waits: Number(r?.open_waits ?? 0),
+    oldest_wait_days: Number(r?.oldest_wait_days ?? 0),
+  };
+}
+
+/**
+ * El cumplimiento del ciclo tal como lo ve el equipo.
+ *
+ * Es LA MISMA función que lee la pantalla interna: si el portal calculara por
+ * su cuenta, el día que una de las dos cambiara habría dos verdades sobre la
+ * misma factura.
+ *
+ * El ciclo se valida contra la organización antes de leerlo: un id de ciclo
+ * ajeno no devuelve nada en vez de devolver el cumplimiento de otro cliente.
+ */
+export async function getPortalCompliance(
+  organizationId: string,
+  cycleId: string,
+): Promise<Record<string, unknown> | null> {
+  const svc = serviceClient();
+
+  const { data: cyc } = await svc
+    .from('delivery_cycles')
+    .select('id, project_id')
+    .eq('id', cycleId)
+    .maybeSingle();
+
+  const c = cyc as { project_id: string } | null;
+  if (!c) return null;
+
+  const { data: proj } = await svc
+    .from('projects')
+    .select('id, organization_id')
+    .eq('id', c.project_id)
+    .maybeSingle();
+
+  // La comprobación que sustituye al RLS en este camino.
+  if ((proj as { organization_id: string | null } | null)?.organization_id !== organizationId) {
+    return null;
+  }
+
+  const { data } = await svc.rpc('cycle_delivery_compliance', { p_cycle_id: cycleId });
+  const row = Array.isArray(data) ? data[0] : data;
+  return (row as Record<string, unknown>) ?? null;
+}
+
+/** El catálogo de fases, para rotular el avance en el portal. */
+export async function getPhaseCatalog(): Promise<
+  Array<{ phase: string; name: string; owner: string; sort_order: number }>
+> {
+  const svc = serviceClient();
+
+  const { data } = await svc
+    .from('delivery_phases')
+    .select('phase, name, owner, sort_order')
+    .order('sort_order');
+
+  return (data ?? []) as unknown as Array<{
+    phase: string;
+    name: string;
+    owner: string;
+    sort_order: number;
+  }>;
+}
