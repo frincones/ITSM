@@ -589,5 +589,248 @@ export async function getCycleHistory(
   return ok({ movements: data ?? [] });
 }
 
+
+// ---------------------------------------------------------------------------
+// Capacidad del equipo (Fase 3)
+// ---------------------------------------------------------------------------
+// Cuidado con un falso amigo: `support_plan_band()` se documenta como
+// "capacity band", pero eso es la tolerancia comercial del plan contratado
+// —cuándo subir o bajar de tier— y no tiene nada que ver con horas de
+// personas. Lo de aquí es la capacidad real del equipo.
+// ---------------------------------------------------------------------------
+
+export const TIME_OFF_KINDS = ['vacation', 'sick', 'training', 'other'] as const;
+export type TimeOffKind = (typeof TIME_OFF_KINDS)[number];
+
+/** Carga por persona en un ciclo, con festivos y ausencias ya descontados. */
+export async function getCapacity(
+  ctx: DomainContext,
+  cycleId: string,
+): Promise<DomainResult<{ agents: unknown[]; totals: Record<string, number> }>> {
+  const { client } = ctx;
+
+  const { data, error } = await client.rpc('agent_capacity_status', {
+    p_cycle_id: cycleId,
+  });
+
+  if (error) return fail(error.message, 'internal');
+
+  const rows = (data ?? []) as Array<{
+    available_hours: number | string;
+    assigned_hours: number | string;
+    over_allocated: boolean;
+  }>;
+
+  const num = (v: number | string | null) => Number(v ?? 0);
+
+  return ok({
+    agents: rows,
+    totals: {
+      people: rows.length,
+      available_hours: rows.reduce((s, r) => s + num(r.available_hours), 0),
+      assigned_hours: rows.reduce((s, r) => s + num(r.assigned_hours), 0),
+      over_allocated: rows.filter((r) => r.over_allocated).length,
+    },
+  });
+}
+
+/** Fija la dedicación de una persona a un ciclo. */
+export async function setCapacity(
+  ctx: DomainContext,
+  cycleId: string,
+  agentId: string,
+  hoursPerDay: number,
+  overheadHours = 0,
+): Promise<DomainResult<Record<string, unknown>>> {
+  const { actor, client } = ctx;
+
+  if (hoursPerDay <= 0 || hoursPerDay > 24) {
+    return fail('Las horas por día deben estar entre 0 y 24', 'invalid_input');
+  }
+
+  const { data: cycle } = await client
+    .from('delivery_cycles')
+    .select('id, status')
+    .eq('id', cycleId)
+    .eq('tenant_id', actor.tenantId)
+    .maybeSingle();
+
+  if (!cycle) return fail('Ciclo no encontrado', 'not_found');
+  if ((cycle as { status: string }).status === 'closed') {
+    return fail('El ciclo está cerrado', 'conflict');
+  }
+
+  const { data, error } = await client
+    .from('agent_capacity')
+    .upsert(
+      {
+        tenant_id: actor.tenantId,
+        cycle_id: cycleId,
+        agent_id: agentId,
+        hours_per_day: hoursPerDay,
+        overhead_hours: overheadHours,
+      },
+      { onConflict: 'cycle_id,agent_id' },
+    )
+    .select('*')
+    .single();
+
+  if (error) return fail(error.message, 'internal');
+  return ok(data as Record<string, unknown>);
+}
+
+/** Copia la plantilla de capacidad de un ciclo al siguiente. */
+export async function copyCapacity(
+  ctx: DomainContext,
+  fromCycleId: string,
+  toCycleId: string,
+): Promise<DomainResult<{ copied: number }>> {
+  const { client } = ctx;
+
+  const { data, error } = await client.rpc('copy_cycle_capacity', {
+    p_from_cycle: fromCycleId,
+    p_to_cycle: toCycleId,
+  });
+
+  if (error) return fail(error.message, 'internal');
+  return ok({ copied: Number(data ?? 0) });
+}
+
+/** Registra una ausencia. Se descuenta de la capacidad de los ciclos que solape. */
+export async function addTimeOff(
+  ctx: DomainContext,
+  agentId: string,
+  startsOn: string,
+  endsOn: string,
+  kind: TimeOffKind = 'vacation',
+  notes?: string | null,
+): Promise<DomainResult<Record<string, unknown>>> {
+  const { actor, client } = ctx;
+
+  if (endsOn < startsOn) {
+    return fail('La fecha de fin no puede ser anterior a la de inicio', 'invalid_input');
+  }
+
+  const { data, error } = await client
+    .from('agent_time_off')
+    .insert({
+      tenant_id: actor.tenantId,
+      agent_id: agentId,
+      starts_on: startsOn,
+      ends_on: endsOn,
+      kind,
+      notes: notes ?? null,
+      created_by: actor.agentId,
+    })
+    .select('*')
+    .single();
+
+  if (error) return fail(error.message, 'internal');
+  return ok(data as Record<string, unknown>);
+}
+
+// ---------------------------------------------------------------------------
+// Intake del portal (Fase 4)
+// ---------------------------------------------------------------------------
+// Las tres capas del PRD: el cliente propone, el equipo decide, y solo lo
+// aceptado llega al backlog y consume cupo.
+//
+// Antes de esto lo que el cliente escribía en el chat del portal entraba
+// directo al ciclo: 374 tickets consumieron cuota sin que nadie lo decidiera.
+// ---------------------------------------------------------------------------
+
+/** La cola de triage: lo que los clientes han propuesto y nadie ha decidido. */
+export async function listProposals(
+  ctx: DomainContext,
+  organizationId?: string | null,
+): Promise<DomainResult<{ proposals: unknown[]; total: number }>> {
+  const { actor, client } = ctx;
+
+  let query = client
+    .from('tickets')
+    .select(
+      'id, ticket_number, title, description, type, organization_id, effort_size, effort_points, proposed_at, proposed_by_user_id, created_at',
+    )
+    .eq('tenant_id', actor.tenantId)
+    .eq('status', 'proposed')
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(200);
+
+  const orgScope = resolveOrgScope(actor, organizationId ? [organizationId] : null);
+  if (orgScope) query = query.in('organization_id', orgScope);
+
+  const { data, error } = await query;
+  if (error) return fail(error.message, 'internal');
+
+  return ok({ proposals: data ?? [], total: (data ?? []).length });
+}
+
+/**
+ * Acepta una propuesta: pasa a backlog con su talla y, opcionalmente, su ciclo.
+ *
+ * La comprobación de rol vive dentro de la función SQL, que es SECURITY
+ * DEFINER: aceptar compromete capacidad del equipo, así que no basta con
+ * confiar en que la interfaz no ofrezca el botón.
+ */
+export async function acceptProposal(
+  ctx: DomainContext,
+  ticketId: string,
+  options: {
+    size?: EffortSize | null;
+    cycle_id?: string | null;
+    project_id?: string | null;
+  } = {},
+): Promise<DomainResult<Record<string, unknown>>> {
+  const { client } = ctx;
+
+  // El agente va explícito porque por MCP la conexión usa service_role y
+  // auth.uid() es NULL: sin esto, un agente con API key nunca podría aceptar.
+  // La función sigue comprobando que ese agente tenga rol de equipo.
+  const { data, error } = await client.rpc('accept_proposal', {
+    p_ticket_id: ticketId,
+    p_size: options.size ?? undefined,
+    p_cycle_id: options.cycle_id ?? undefined,
+    p_project_id: options.project_id ?? undefined,
+    p_actor_agent_id: ctx.actor.agentId ?? undefined,
+  });
+
+  if (error) {
+    // 42501 es el error que lanza la función cuando quien pide no es del
+    // equipo; traducirlo evita que suba como un fallo interno.
+    if (error.code === '42501') return fail(error.message, 'forbidden');
+    if (error.code === 'P0002') return fail('Propuesta no encontrada', 'not_found');
+    return fail(error.message, 'invalid_input');
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return fail('No se pudo aceptar la propuesta', 'internal');
+  return ok(row as Record<string, unknown>);
+}
+
+/** Rechaza una propuesta. La cancela con su motivo; nunca la borra. */
+export async function rejectProposal(
+  ctx: DomainContext,
+  ticketId: string,
+  reason?: string | null,
+): Promise<DomainResult<Record<string, unknown>>> {
+  const { client } = ctx;
+
+  const { data, error } = await client.rpc('reject_proposal', {
+    p_ticket_id: ticketId,
+    p_reason: reason ?? undefined,
+    p_actor_agent_id: ctx.actor.agentId ?? undefined,
+  });
+
+  if (error) {
+    if (error.code === '42501') return fail(error.message, 'forbidden');
+    return fail(error.message, 'internal');
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return fail('Propuesta no encontrada o ya decidida', 'not_found');
+  return ok(row as Record<string, unknown>);
+}
+
 /** Marcador observado por lib/mcp/server.ts para evitar el tree-shaking. */
 export const __deliveryDomainLoaded = true;

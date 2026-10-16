@@ -26,6 +26,14 @@ import {
   getCycleHistory as domainCycleHistory,
   getCycleStatus as domainCycleStatus,
   listCycles as domainListCycles,
+  TIME_OFF_KINDS,
+  acceptProposal as domainAcceptProposal,
+  addTimeOff as domainAddTimeOff,
+  copyCapacity as domainCopyCapacity,
+  getCapacity as domainGetCapacity,
+  listProposals as domainListProposals,
+  rejectProposal as domainRejectProposal,
+  setCapacity as domainSetCapacity,
 } from '~/lib/domain/delivery.domain';
 
 import { toDomainContext, unwrap } from '../domain-bridge';
@@ -256,6 +264,160 @@ registry.register({
   meta: { since: '1.3.0', tags: ['projects', 'cycles', 'read'] },
   async handler(ctx, input) {
     return unwrap(await domainCycleHistory(toDomainContext(ctx), input.cycle_id));
+  },
+});
+
+
+// ---------------------------------------------------------------------------
+// Capacidad del equipo (Fase 3)
+// ---------------------------------------------------------------------------
+
+registry.register({
+  name: 'capacity_status',
+  description:
+    'Carga de cada persona en un ciclo: horas disponibles tras descontar festivos, ausencias y overhead, contra las horas ya asignadas. over_allocated marca a quien está por encima de su capacidad. No confundir con support_plan_band, que es la tolerancia comercial del plan contratado y no tiene que ver con horas de personas.',
+  scope: 'projects:read',
+  inputSchema: z.object({ cycle_id: z.string().uuid() }),
+  meta: { since: '1.4.0', tags: ['projects', 'capacity', 'read'] },
+  async handler(ctx, input) {
+    return unwrap(await domainGetCapacity(toDomainContext(ctx), input.cycle_id));
+  },
+});
+
+registry.register({
+  name: 'capacity_set',
+  description:
+    'Fija la dedicación de una persona a un ciclo. hours_per_day son las horas diarias dedicadas a ESTE ciclo, no la jornada completa: alguien puede repartirse entre varios proyectos. overhead_hours son las horas del ciclo que se van en reuniones, levantamiento o soporte, y se restan de la capacidad.',
+  scope: 'projects:write',
+  inputSchema: z.object({
+    cycle_id: z.string().uuid(),
+    agent_id: z.string().uuid(),
+    hours_per_day: z.number().min(0.5).max(24),
+    overhead_hours: z.number().min(0).max(500).default(0),
+  }),
+  meta: { since: '1.4.0', tags: ['projects', 'capacity', 'write'] },
+  async handler(ctx, input) {
+    return {
+      capacity: unwrap(
+        await domainSetCapacity(
+          toDomainContext(ctx),
+          input.cycle_id,
+          input.agent_id,
+          input.hours_per_day,
+          input.overhead_hours,
+        ),
+      ),
+    };
+  },
+});
+
+registry.register({
+  name: 'capacity_copy',
+  description:
+    'Copia la plantilla de capacidad de un ciclo a otro, para no reconfigurar al equipo desde cero cada mes. No pisa lo que el ciclo destino ya tenga configurado.',
+  scope: 'projects:write',
+  inputSchema: z.object({
+    from_cycle_id: z.string().uuid(),
+    to_cycle_id: z.string().uuid(),
+  }),
+  meta: { since: '1.4.0', tags: ['projects', 'capacity', 'write'] },
+  async handler(ctx, input) {
+    return unwrap(
+      await domainCopyCapacity(toDomainContext(ctx), input.from_cycle_id, input.to_cycle_id),
+    );
+  },
+});
+
+registry.register({
+  name: 'time_off_add',
+  description:
+    'Registra una ausencia de una persona. Se descuenta automáticamente de su capacidad en los ciclos que solape, contando solo días hábiles: unas vacaciones que incluyen un fin de semana no restan capacidad por esos días. Los festivos del equipo ya están en el calendario y no hace falta registrarlos aquí.',
+  scope: 'projects:write',
+  inputSchema: z.object({
+    agent_id: z.string().uuid(),
+    starts_on: dateOnly,
+    ends_on: dateOnly,
+    kind: z.enum(TIME_OFF_KINDS).default('vacation'),
+    notes: z.string().max(500).optional(),
+  }),
+  meta: { since: '1.4.0', tags: ['projects', 'capacity', 'write'] },
+  async handler(ctx, input) {
+    return {
+      time_off: unwrap(
+        await domainAddTimeOff(
+          toDomainContext(ctx),
+          input.agent_id,
+          input.starts_on,
+          input.ends_on,
+          input.kind,
+          input.notes ?? null,
+        ),
+      ),
+    };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Intake del portal (Fase 4)
+// ---------------------------------------------------------------------------
+
+registry.register({
+  name: 'proposals_list',
+  description:
+    'La cola de triage: lo que los clientes han propuesto desde el portal y nadie ha decidido todavía. Una propuesta NO consume cupo del contrato ni cuenta en el esfuerzo del ciclo hasta que se acepta — ese es el punto de que exista esta cola.',
+  scope: 'projects:read',
+  inputSchema: z.object({
+    organization_id: z.string().uuid().optional(),
+  }),
+  meta: { since: '1.4.0', tags: ['projects', 'intake', 'read'] },
+  async handler(ctx, input) {
+    return unwrap(
+      await domainListProposals(toDomainContext(ctx), input.organization_id ?? null),
+    );
+  },
+});
+
+registry.register({
+  name: 'proposals_accept',
+  description:
+    'Acepta una propuesta y la convierte en item del backlog, congelando sus puntos según la talla. Es la decisión económica del proceso: aquí se le pone precio a lo que el cliente pidió. Solo el equipo puede hacerlo, aunque la propuesta sea del propio cliente, porque aceptar compromete capacidad.',
+  scope: 'projects:write',
+  inputSchema: z.object({
+    ticket_id: z.string().uuid(),
+    size: z.enum(EFFORT_SIZES).optional(),
+    cycle_id: z.string().uuid().optional(),
+    project_id: z.string().uuid().optional(),
+  }),
+  meta: { since: '1.4.0', tags: ['projects', 'intake', 'write'] },
+  async handler(ctx, input) {
+    return {
+      item: unwrap(
+        await domainAcceptProposal(toDomainContext(ctx), input.ticket_id, {
+          size: input.size ?? null,
+          cycle_id: input.cycle_id ?? null,
+          project_id: input.project_id ?? null,
+        }),
+      ),
+    };
+  },
+});
+
+registry.register({
+  name: 'proposals_reject',
+  description:
+    'Rechaza una propuesta dejándola cancelada con su motivo. No la borra: el cliente debe poder ver qué pasó con lo que pidió, y por qué.',
+  scope: 'projects:write',
+  inputSchema: z.object({
+    ticket_id: z.string().uuid(),
+    reason: z.string().max(1000).optional(),
+  }),
+  meta: { since: '1.4.0', tags: ['projects', 'intake', 'write'] },
+  async handler(ctx, input) {
+    return {
+      item: unwrap(
+        await domainRejectProposal(toDomainContext(ctx), input.ticket_id, input.reason ?? null),
+      ),
+    };
   },
 });
 

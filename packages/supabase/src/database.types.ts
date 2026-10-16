@@ -15,9 +15,9 @@
 // not describe RPC signatures in enough detail to generate them, and a
 // wrong signature would be worse than an honest `unknown`.
 //
-// Tables: 105
-// Functions: 43
-// Generated: 2026-10-16T03:08:52.377Z
+// Tables: 107
+// Functions: 48
+// Generated: 2026-10-16T03:36:04.575Z
 // ---------------------------------------------------------------------------
 
 export type Json =
@@ -75,6 +75,42 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_capacity: {
+        Row: {
+          id: string
+          tenant_id: string
+          cycle_id: string
+          agent_id: string
+          hours_per_day: number
+          overhead_hours: number
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          cycle_id: string
+          agent_id: string
+          hours_per_day: number
+          overhead_hours?: number
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          cycle_id?: string
+          agent_id?: string
+          hours_per_day?: number
+          overhead_hours?: number
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       agent_organizations: {
         Row: {
           id: string
@@ -102,6 +138,42 @@ export type Database = {
           access_level?: string
           is_default?: boolean | null
           created_at?: string
+        }
+        Relationships: []
+      }
+      agent_time_off: {
+        Row: {
+          id: string
+          tenant_id: string
+          agent_id: string
+          starts_on: string
+          ends_on: string
+          kind: string
+          notes: string | null
+          created_at: string
+          created_by: string | null
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          agent_id: string
+          starts_on: string
+          ends_on: string
+          kind?: string
+          notes?: string | null
+          created_at?: string
+          created_by?: string | null
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          agent_id?: string
+          starts_on?: string
+          ends_on?: string
+          kind?: string
+          notes?: string | null
+          created_at?: string
+          created_by?: string | null
         }
         Relationships: []
       }
@@ -3275,7 +3347,7 @@ export type Database = {
           id: string | null
           ticket_number: string | null
           type: "incident" | "request" | "warranty" | "support" | "backlog" | "desarrollo_pendiente" | null
-          status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | null
+          status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed" | null
           organization_id: string | null
           created_at: string | null
           sla_due_date: string | null
@@ -3284,7 +3356,7 @@ export type Database = {
           id?: string | null
           ticket_number?: string | null
           type?: "incident" | "request" | "warranty" | "support" | "backlog" | "desarrollo_pendiente" | null
-          status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | null
+          status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed" | null
           organization_id?: string | null
           created_at?: string | null
           sla_due_date?: string | null
@@ -3293,7 +3365,7 @@ export type Database = {
           id?: string | null
           ticket_number?: string | null
           type?: "incident" | "request" | "warranty" | "support" | "backlog" | "desarrollo_pendiente" | null
-          status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | null
+          status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed" | null
           organization_id?: string | null
           created_at?: string | null
           sla_due_date?: string | null
@@ -4110,8 +4182,8 @@ export type Database = {
           ticket_id: string
           tenant_id: string
           organization_id: string | null
-          from_status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | null
-          to_status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana"
+          from_status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed" | null
+          to_status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed"
           changed_at: string
           changed_by_user_id: string | null
           changed_by_agent_id: string | null
@@ -4125,8 +4197,8 @@ export type Database = {
           ticket_id: string
           tenant_id: string
           organization_id?: string | null
-          from_status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | null
-          to_status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana"
+          from_status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed" | null
+          to_status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed"
           changed_at?: string
           changed_by_user_id?: string | null
           changed_by_agent_id?: string | null
@@ -4140,8 +4212,8 @@ export type Database = {
           ticket_id?: string
           tenant_id?: string
           organization_id?: string | null
-          from_status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | null
-          to_status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana"
+          from_status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed" | null
+          to_status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed"
           changed_at?: string
           changed_by_user_id?: string | null
           changed_by_agent_id?: string | null
@@ -4335,7 +4407,7 @@ export type Database = {
           ai_classification: Json | null
           ai_classified_at: string | null
           ai_classified_by: string | null
-          status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana"
+          status: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed"
           urgency: "low" | "medium" | "high" | "critical"
           impact: "low" | "medium" | "high" | "critical"
           priority: number
@@ -4390,6 +4462,10 @@ export type Database = {
           effort_size: "S" | "M" | "L" | "XL" | null
           effort_points: number | null
           delivery_cycle_id: string | null
+          proposed_by_user_id: string | null
+          proposed_at: string | null
+          triaged_at: string | null
+          triaged_by: string | null
         }
         Insert: {
           id?: string
@@ -4402,7 +4478,7 @@ export type Database = {
           ai_classification?: Json | null
           ai_classified_at?: string | null
           ai_classified_by?: string | null
-          status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana"
+          status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed"
           urgency?: "low" | "medium" | "high" | "critical"
           impact?: "low" | "medium" | "high" | "critical"
           priority?: number
@@ -4457,6 +4533,10 @@ export type Database = {
           effort_size?: "S" | "M" | "L" | "XL" | null
           effort_points?: number | null
           delivery_cycle_id?: string | null
+          proposed_by_user_id?: string | null
+          proposed_at?: string | null
+          triaged_at?: string | null
+          triaged_by?: string | null
         }
         Update: {
           id?: string
@@ -4469,7 +4549,7 @@ export type Database = {
           ai_classification?: Json | null
           ai_classified_at?: string | null
           ai_classified_by?: string | null
-          status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana"
+          status?: "new" | "assigned" | "in_progress" | "pending" | "testing" | "resolved" | "closed" | "cancelled" | "backlog" | "detenido" | "reopened" | "esperando_ventana" | "proposed"
           urgency?: "low" | "medium" | "high" | "critical"
           impact?: "low" | "medium" | "high" | "critical"
           priority?: number
@@ -4524,6 +4604,10 @@ export type Database = {
           effort_size?: "S" | "M" | "L" | "XL" | null
           effort_points?: number | null
           delivery_cycle_id?: string | null
+          proposed_by_user_id?: string | null
+          proposed_at?: string | null
+          triaged_at?: string | null
+          triaged_by?: string | null
         }
         Relationships: []
       }
@@ -4769,7 +4853,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      accept_proposal: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
       add_business_minutes: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      agent_capacity_status: {
         Args: Record<string, unknown>
         Returns: unknown
       }
@@ -4782,6 +4874,10 @@ export type Database = {
         Returns: unknown
       }
       close_support_cycle: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      copy_cycle_capacity: {
         Args: Record<string, unknown>
         Returns: unknown
       }
@@ -4826,6 +4922,10 @@ export type Database = {
         Returns: unknown
       }
       redeem_authorization_code: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      reject_proposal: {
         Args: Record<string, unknown>
         Returns: unknown
       }
@@ -4938,6 +5038,10 @@ export type Database = {
         Returns: unknown
       }
       verify_oauth_token: {
+        Args: Record<string, unknown>
+        Returns: unknown
+      }
+      working_days_between: {
         Args: Record<string, unknown>
         Returns: unknown
       }
