@@ -1,0 +1,33 @@
+-- ═══════════════════════════════════════════════════════════════
+-- MIGRATION 00073: ESTADO 'proposed'
+-- NovaDesk ITSM — módulo de gestión de proyectos, Fase 4
+-- ═══════════════════════════════════════════════════════════════
+-- Por qué va sola
+-- ---------------
+-- Postgres no deja usar un valor de enum recién añadido en la misma
+-- transacción que lo añade. Por eso esta migración solo agrega el valor y
+-- la siguiente lo usa — el mismo patrón de 00025, 00026, 00027, 00031 y
+-- 00047.
+--
+-- Para qué sirve
+-- --------------
+-- Hoy el chat del portal inserta con `status: 'new'` y la pertenencia al
+-- ciclo se deriva de `created_at`, así que lo que un cliente pide entra al
+-- ciclo y se cuenta contra su cupo en el instante en que lo escribe. Medido:
+-- 374 tickets consumieron cuota sin pasar por ninguna decisión humana.
+--
+-- `proposed` es el estado de espera que faltaba: lo propuesto queda
+-- registrado, visible y trazable, pero fuera del ciclo hasta que alguien
+-- del equipo lo acepta.
+-- ═══════════════════════════════════════════════════════════════
+
+ALTER TYPE ticket_status ADD VALUE IF NOT EXISTS 'proposed';
+
+-- ═══════════════════════════════════════════════════════════════
+-- ROLLBACK
+-- ═══════════════════════════════════════════════════════════════
+-- Postgres no permite quitar un valor de un enum. Para revertir habría que
+-- recrear el tipo entero, y no vale la pena: un valor sin usar no molesta.
+-- Si hiciera falta, primero mover las filas:
+--   UPDATE tickets SET status = 'backlog' WHERE status = 'proposed';
+-- ═══════════════════════════════════════════════════════════════

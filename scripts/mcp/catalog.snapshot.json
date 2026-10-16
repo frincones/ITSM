@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-10-13T16:42:40.152Z",
-  "count": 31,
+  "generatedAt": "2026-10-15T23:55:41.479Z",
+  "count": 116,
   "tools": [
     {
       "name": "agents_get",
@@ -15,14 +15,51 @@
       "required": []
     },
     {
+      "name": "assets_assign",
+      "scope": "assets:write",
+      "required": [
+        "asset_id",
+        "agent_id"
+      ]
+    },
+    {
+      "name": "assets_create",
+      "scope": "assets:write",
+      "required": [
+        "asset_tag",
+        "name"
+      ]
+    },
+    {
       "name": "assets_get",
       "scope": "assets:read",
       "required": []
     },
     {
+      "name": "assets_history",
+      "scope": "assets:read",
+      "required": [
+        "asset_id"
+      ]
+    },
+    {
       "name": "assets_list",
       "scope": "assets:read",
       "required": []
+    },
+    {
+      "name": "assets_return",
+      "scope": "assets:write",
+      "required": [
+        "asset_id"
+      ]
+    },
+    {
+      "name": "assets_update",
+      "scope": "assets:write",
+      "required": [
+        "asset_id"
+      ]
     },
     {
       "name": "audit_list",
@@ -35,6 +72,25 @@
       "required": []
     },
     {
+      "name": "catalog_list",
+      "scope": "catalog:read",
+      "required": []
+    },
+    {
+      "name": "changes_approve",
+      "scope": "changes:approve",
+      "required": [
+        "change_id"
+      ]
+    },
+    {
+      "name": "changes_create",
+      "scope": "changes:write",
+      "required": [
+        "title"
+      ]
+    },
+    {
       "name": "changes_get",
       "scope": "changes:read",
       "required": []
@@ -43,6 +99,43 @@
       "name": "changes_list",
       "scope": "changes:read",
       "required": []
+    },
+    {
+      "name": "changes_reject",
+      "scope": "changes:approve",
+      "required": [
+        "change_id",
+        "comment"
+      ]
+    },
+    {
+      "name": "changes_submit",
+      "scope": "changes:write",
+      "required": [
+        "change_id"
+      ]
+    },
+    {
+      "name": "changes_transition",
+      "scope": "changes:write",
+      "required": [
+        "change_id",
+        "status"
+      ]
+    },
+    {
+      "name": "changes_update",
+      "scope": "changes:write",
+      "required": [
+        "change_id"
+      ]
+    },
+    {
+      "name": "changes_validations",
+      "scope": "changes:read",
+      "required": [
+        "change_id"
+      ]
     },
     {
       "name": "contacts_get",
@@ -55,6 +148,13 @@
       "required": []
     },
     {
+      "name": "contacts_update",
+      "scope": "contacts:write",
+      "required": [
+        "contact_id"
+      ]
+    },
+    {
       "name": "contacts_upsert",
       "scope": "contacts:write",
       "required": [
@@ -62,7 +162,109 @@
       ]
     },
     {
+      "name": "contract_cycle_compliance",
+      "scope": "reports:read",
+      "required": [
+        "organization_id"
+      ]
+    },
+    {
+      "name": "contract_cycle_usage",
+      "scope": "reports:read",
+      "required": [
+        "organization_id"
+      ]
+    },
+    {
+      "name": "contract_daily_activity",
+      "scope": "reports:read",
+      "required": [
+        "organization_id"
+      ]
+    },
+    {
+      "name": "contract_termination_risk",
+      "scope": "reports:read",
+      "required": [
+        "organization_id"
+      ]
+    },
+    {
+      "name": "inbox_assign_conversation",
+      "scope": "inbox:write",
+      "required": [
+        "conversation_id"
+      ]
+    },
+    {
+      "name": "inbox_create_ticket",
+      "scope": "inbox:write",
+      "required": [
+        "conversation_id"
+      ]
+    },
+    {
+      "name": "inbox_get_conversation",
+      "scope": "inbox:read",
+      "required": [
+        "conversation_id"
+      ]
+    },
+    {
+      "name": "inbox_list_channels",
+      "scope": "inbox:read",
+      "required": []
+    },
+    {
+      "name": "inbox_list_conversations",
+      "scope": "inbox:read",
+      "required": []
+    },
+    {
+      "name": "inbox_send_reply",
+      "scope": "inbox:reply",
+      "required": [
+        "conversation_id",
+        "content"
+      ]
+    },
+    {
+      "name": "inbox_set_status",
+      "scope": "inbox:write",
+      "required": [
+        "conversation_id",
+        "status"
+      ]
+    },
+    {
+      "name": "kb_archive_article",
+      "scope": "kb:write",
+      "required": [
+        "article_id"
+      ]
+    },
+    {
+      "name": "kb_article_revisions",
+      "scope": "kb:read",
+      "required": [
+        "article_id"
+      ]
+    },
+    {
+      "name": "kb_create_article",
+      "scope": "kb:write",
+      "required": [
+        "title",
+        "content_markdown"
+      ]
+    },
+    {
       "name": "kb_get_article",
+      "scope": "kb:read",
+      "required": []
+    },
+    {
+      "name": "kb_list_articles",
       "scope": "kb:read",
       "required": []
     },
@@ -72,10 +274,31 @@
       "required": []
     },
     {
+      "name": "kb_publish_article",
+      "scope": "kb:publish",
+      "required": [
+        "article_id"
+      ]
+    },
+    {
       "name": "kb_search",
       "scope": "kb:search",
       "required": [
         "query"
+      ]
+    },
+    {
+      "name": "kb_unpublish_article",
+      "scope": "kb:publish",
+      "required": [
+        "article_id"
+      ]
+    },
+    {
+      "name": "kb_update_article",
+      "scope": "kb:write",
+      "required": [
+        "article_id"
       ]
     },
     {
@@ -89,6 +312,48 @@
       "required": []
     },
     {
+      "name": "notifications_list",
+      "scope": "notifications:read",
+      "required": []
+    },
+    {
+      "name": "notifications_templates",
+      "scope": "notifications:read",
+      "required": []
+    },
+    {
+      "name": "nps_list_surveys",
+      "scope": "nps:read",
+      "required": []
+    },
+    {
+      "name": "nps_summary",
+      "scope": "nps:read",
+      "required": []
+    },
+    {
+      "name": "organizations_assign_agent",
+      "scope": "organizations:write",
+      "required": [
+        "organization_id",
+        "agent_id"
+      ]
+    },
+    {
+      "name": "organizations_contracts",
+      "scope": "organizations:read",
+      "required": [
+        "organization_id"
+      ]
+    },
+    {
+      "name": "organizations_create",
+      "scope": "organizations:write",
+      "required": [
+        "name"
+      ]
+    },
+    {
       "name": "organizations_get",
       "scope": "organizations:read",
       "required": []
@@ -96,6 +361,56 @@
     {
       "name": "organizations_list",
       "scope": "organizations:read",
+      "required": []
+    },
+    {
+      "name": "organizations_list_agents",
+      "scope": "organizations:read",
+      "required": [
+        "organization_id"
+      ]
+    },
+    {
+      "name": "organizations_list_users",
+      "scope": "organizations:read",
+      "required": [
+        "organization_id"
+      ]
+    },
+    {
+      "name": "organizations_remove_agent",
+      "scope": "organizations:write",
+      "required": [
+        "organization_id",
+        "agent_id"
+      ]
+    },
+    {
+      "name": "organizations_set_active",
+      "scope": "organizations:deactivate",
+      "required": [
+        "organization_id",
+        "is_active"
+      ]
+    },
+    {
+      "name": "organizations_update",
+      "scope": "organizations:write",
+      "required": [
+        "organization_id"
+      ]
+    },
+    {
+      "name": "organizations_update_user",
+      "scope": "organizations:write",
+      "required": [
+        "organization_id",
+        "user_row_id"
+      ]
+    },
+    {
+      "name": "portal_activity",
+      "scope": "portal:read",
       "required": []
     },
     {
@@ -111,8 +426,140 @@
       "required": []
     },
     {
+      "name": "problems_link_ticket",
+      "scope": "problems:write",
+      "required": [
+        "problem_id",
+        "ticket_id"
+      ]
+    },
+    {
       "name": "problems_list",
       "scope": "problems:read",
+      "required": []
+    },
+    {
+      "name": "problems_tickets",
+      "scope": "problems:read",
+      "required": [
+        "problem_id"
+      ]
+    },
+    {
+      "name": "problems_transition",
+      "scope": "problems:write",
+      "required": [
+        "problem_id",
+        "status"
+      ]
+    },
+    {
+      "name": "problems_update",
+      "scope": "problems:write",
+      "required": [
+        "problem_id"
+      ]
+    },
+    {
+      "name": "projects_add_task",
+      "scope": "projects:write",
+      "required": [
+        "project_id",
+        "title"
+      ]
+    },
+    {
+      "name": "projects_get",
+      "scope": "projects:read",
+      "required": [
+        "project_id"
+      ]
+    },
+    {
+      "name": "projects_list",
+      "scope": "projects:read",
+      "required": []
+    },
+    {
+      "name": "projects_update_task",
+      "scope": "projects:write",
+      "required": [
+        "task_id"
+      ]
+    },
+    {
+      "name": "reports_agent_workload",
+      "scope": "reports:read",
+      "required": []
+    },
+    {
+      "name": "reports_ticket_stats",
+      "scope": "reports:read",
+      "required": []
+    },
+    {
+      "name": "rules_create",
+      "scope": "automation:write",
+      "required": [
+        "name",
+        "rule_type",
+        "actions"
+      ]
+    },
+    {
+      "name": "rules_execution_logs",
+      "scope": "automation:read",
+      "required": []
+    },
+    {
+      "name": "rules_get",
+      "scope": "automation:read",
+      "required": [
+        "rule_id"
+      ]
+    },
+    {
+      "name": "rules_list",
+      "scope": "automation:read",
+      "required": []
+    },
+    {
+      "name": "rules_toggle",
+      "scope": "automation:activate",
+      "required": [
+        "rule_id",
+        "is_active"
+      ]
+    },
+    {
+      "name": "rules_update",
+      "scope": "automation:write",
+      "required": [
+        "rule_id"
+      ]
+    },
+    {
+      "name": "search_everything",
+      "scope": "search:read",
+      "required": [
+        "query"
+      ]
+    },
+    {
+      "name": "sla_coverage",
+      "scope": "slas:read",
+      "required": []
+    },
+    {
+      "name": "sla_ticket_status",
+      "scope": "slas:read",
+      "required": [
+        "ticket_id"
+      ]
+    },
+    {
+      "name": "sla_tickets_at_risk",
+      "scope": "slas:read",
       "required": []
     },
     {
@@ -134,10 +581,40 @@
       ]
     },
     {
+      "name": "tickets_add_solution",
+      "scope": "tickets:write",
+      "required": [
+        "ticket_id",
+        "content"
+      ]
+    },
+    {
+      "name": "tickets_add_task",
+      "scope": "tickets:write",
+      "required": [
+        "ticket_id",
+        "title"
+      ]
+    },
+    {
       "name": "tickets_assign",
       "scope": "tickets:assign",
       "required": [
         "ticket_id"
+      ]
+    },
+    {
+      "name": "tickets_attachments",
+      "scope": "tickets:read",
+      "required": [
+        "ticket_id"
+      ]
+    },
+    {
+      "name": "tickets_complete_task",
+      "scope": "tickets:write",
+      "required": [
+        "task_id"
       ]
     },
     {
@@ -146,6 +623,21 @@
       "required": [
         "title",
         "description"
+      ]
+    },
+    {
+      "name": "tickets_follow",
+      "scope": "tickets:write",
+      "required": [
+        "ticket_id",
+        "agent_id"
+      ]
+    },
+    {
+      "name": "tickets_followers",
+      "scope": "tickets:read",
+      "required": [
+        "ticket_id"
       ]
     },
     {
@@ -159,10 +651,57 @@
       "required": []
     },
     {
+      "name": "tickets_list_tasks",
+      "scope": "tickets:read",
+      "required": [
+        "ticket_id"
+      ]
+    },
+    {
+      "name": "tickets_record_correction_plan",
+      "scope": "tickets:write",
+      "required": [
+        "ticket_id",
+        "committed_date",
+        "note"
+      ]
+    },
+    {
+      "name": "tickets_record_mitigation",
+      "scope": "tickets:write",
+      "required": [
+        "ticket_id",
+        "note"
+      ]
+    },
+    {
+      "name": "tickets_relate",
+      "scope": "tickets:write",
+      "required": [
+        "ticket_id",
+        "related_ticket_id",
+        "relation_type"
+      ]
+    },
+    {
       "name": "tickets_search",
       "scope": "tickets:read",
       "required": [
         "query"
+      ]
+    },
+    {
+      "name": "tickets_set_client_rank",
+      "scope": "tickets:write",
+      "required": [
+        "ticket_id"
+      ]
+    },
+    {
+      "name": "tickets_set_testing_result",
+      "scope": "tickets:write",
+      "required": [
+        "ticket_id"
       ]
     },
     {
@@ -174,10 +713,56 @@
       ]
     },
     {
-      "name": "tickets_update",
+      "name": "tickets_unfollow",
       "scope": "tickets:write",
       "required": [
-        "id"
+        "ticket_id",
+        "agent_id"
+      ]
+    },
+    {
+      "name": "tickets_update",
+      "scope": "tickets:write",
+      "required": []
+    },
+    {
+      "name": "workflows_create",
+      "scope": "automation:write",
+      "required": [
+        "name",
+        "trigger_type"
+      ]
+    },
+    {
+      "name": "workflows_executions",
+      "scope": "automation:read",
+      "required": []
+    },
+    {
+      "name": "workflows_get",
+      "scope": "automation:read",
+      "required": [
+        "workflow_id"
+      ]
+    },
+    {
+      "name": "workflows_list",
+      "scope": "automation:read",
+      "required": []
+    },
+    {
+      "name": "workflows_toggle",
+      "scope": "automation:activate",
+      "required": [
+        "workflow_id",
+        "is_active"
+      ]
+    },
+    {
+      "name": "workflows_update",
+      "scope": "automation:write",
+      "required": [
+        "workflow_id"
       ]
     }
   ]
