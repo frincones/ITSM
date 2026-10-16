@@ -133,7 +133,7 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
       organization_id,
       custom_fields,
       requester:contacts(id, name, email),
-      assigned_agent:agents(id, name, avatar_url, email),
+      assigned_agent:agents!tickets_assigned_agent_id_fkey(id, name, avatar_url, email),
       category:categories!tickets_category_id_fkey(id, name)
 `,
       // 'estimated' lets PostgREST use the planner's row estimate for big
