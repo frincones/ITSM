@@ -30,10 +30,16 @@ const H = {
 };
 
 /** Estado medido en producción el 15-oct-2026, antes de aplicar 00067. */
+// Los conteos de tickets suben con el tráfico normal: el portal crea
+// tickets mientras se trabaja. Re-basados el 16-oct-2026 tras
+// TKT-2610-00729 (Prosuministros, creado por el cliente a las 14:52).
+//
+// Lo que NO debe moverse nunca por una migración es la sección 3
+// (cuota, cumplimiento y crédito): esos valores son el contrato.
 const BASELINE = {
-  tickets_total: 714,
+  tickets_total: 715,
   por_tipo: {
-    support: 298,
+    support: 299,
     warranty: 323,
     request: 34,
     desarrollo_pendiente: 2,

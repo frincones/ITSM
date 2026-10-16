@@ -44,6 +44,7 @@ import {
 import {
   closeWaitAction,
   deliveryComplianceAction,
+  listMembersBulkAction,
   listOpenWaitsAction,
   listRequirementsAction,
   setPhaseAction,
@@ -147,6 +148,9 @@ export function PhaseSlaTab(props: Props) {
   const [compliance, setCompliance] = useState<Compliance>(null);
   const [waits, setWaits] = useState<Row[]>([]);
   const [reqs, setReqs] = useState<Row[]>([]);
+  // Los tickets que componen cada requerimiento agrupado. Se piden en bloque
+  // para no hacer una consulta por fila.
+  const [miembros, setMiembros] = useState<Record<string, Row[]>>({});
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cerrando, setCerrando] = useState<string | null>(null);
@@ -173,7 +177,16 @@ export function PhaseSlaTab(props: Props) {
 
     setCompliance((c.data as Compliance) ?? null);
     setWaits((w.data as Row[]) ?? []);
-    setReqs((r.data as Row[]) ?? []);
+    const filas = (r.data as Row[]) ?? [];
+    setReqs(filas);
+
+    if (filas.length) {
+      const m = await listMembersBulkAction(filas.map((x) => String(x.id)));
+      setMiembros((m.data as unknown as Record<string, Row[]>) ?? {});
+    } else {
+      setMiembros({});
+    }
+
     setCargando(false);
   }, [props.selectedCycleId, props.organizationId, props.projectId]);
 
@@ -368,6 +381,7 @@ export function PhaseSlaTab(props: Props) {
               <ReqRow
                 key={String(r.id)}
                 req={r}
+                miembros={miembros[String(r.id)] ?? []}
                 onFase={async (fase) => {
                   const res = await setPhaseAction(String(r.id), fase);
                   if (res.error) setError(res.error);
@@ -509,7 +523,18 @@ function WaitRow({
 // Un requerimiento con su reparto de días
 // ---------------------------------------------------------------------------
 
-function ReqRow({ req, onFase }: { req: Row; onFase: (f: Fase) => void }) {
+function ReqRow({
+  req,
+  miembros,
+  onFase,
+}: {
+  req: Row;
+  /** Los tickets que componen este entregable. Vacío si es individual. */
+  miembros: Row[];
+  onFase: (f: Fase) => void;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const listos = miembros.filter((m) => m.member_done).length;
   const d = (req.delay ?? {}) as Record<string, number | string | null>;
   const tdx = Number(d.tdx_days ?? 0);
   const cli = Number(d.cliente_days ?? 0);
@@ -552,6 +577,21 @@ function ReqRow({ req, onFase }: { req: Row; onFase: (f: Fase) => void }) {
                 sin estimar
               </Badge>
             )}
+            {miembros.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setAbierto(!abierto)}
+                className="inline-flex"
+                aria-expanded={abierto}
+              >
+                <Badge
+                  variant={listos === miembros.length ? 'secondary' : 'outline'}
+                  className="cursor-pointer text-[10px]"
+                >
+                  {listos} de {miembros.length} listos
+                </Badge>
+              </button>
+            ) : null}
             {expuesto > 0 ? (
               <Badge variant="destructive" className="text-[10px]">
                 +{expuesto}d imputables a TDX
@@ -575,6 +615,36 @@ function ReqRow({ req, onFase }: { req: Row; onFase: (f: Fase) => void }) {
           </Select>
         </div>
       </div>
+
+      {/* Los tickets del grupo. Explican por qué el reloj sigue corriendo:
+          mientras falte uno, el entregable no está entregado. */}
+      {abierto && miembros.length > 0 ? (
+        <div className="mt-2 rounded border p-2">
+          {miembros.map((m) => (
+            <div key={String(m.member_id)} className="flex items-center gap-2 py-0.5 text-xs">
+              <span className={m.member_done ? 'text-emerald-600' : 'text-muted-foreground'}>
+                {m.member_done ? '✓' : '○'}
+              </span>
+              <span className="text-muted-foreground font-mono text-[10px]">
+                {String(m.member_number)}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{String(m.member_title)}</span>
+              <Badge variant="outline" className="text-[9px]">
+                {String(m.member_type)}
+              </Badge>
+              {m.member_consumes_quota ? (
+                <Badge variant="outline" className="text-[9px] text-amber-600">
+                  cuota
+                </Badge>
+              ) : null}
+            </div>
+          ))}
+          <p className="text-muted-foreground mt-1.5 text-[10px]">
+            El crédito y el plazo son del requerimiento; sus tickets van en 0.
+            Los marcados con «cuota» siguen contando en la cuota de soporte.
+          </p>
+        </div>
+      ) : null}
 
       {total > 0 ? (
         <div className="mt-2">

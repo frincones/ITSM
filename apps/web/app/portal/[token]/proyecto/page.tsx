@@ -19,6 +19,7 @@ import {
   getCreditMeter,
   getPhaseCatalog,
   getPortalBacklog,
+  getPortalMembers,
   getPortalCycles,
   getPortalDelaySummary,
   getPortalRequirements,
@@ -78,7 +79,7 @@ export default async function PortalProjectPage({
     );
   }
 
-  const [meter, backlog, cycles, requirements, waits, summary, phaseCatalog] =
+  const [meter, backlog, cycles, requirements, waits, summary, phaseCatalog, members] =
     await Promise.all([
       getCreditMeter(org.id),
       getPortalBacklog(org.id),
@@ -87,6 +88,7 @@ export default async function PortalProjectPage({
       getPortalWaits(org.id),
       getPortalDelaySummary(org.id),
       getPhaseCatalog(),
+      getPortalMembers(org.id),
     ]);
 
   return (
@@ -102,6 +104,7 @@ export default async function PortalProjectPage({
       waits={waits}
       summary={summary}
       phaseCatalog={phaseCatalog}
+      members={members}
     />
   );
 }

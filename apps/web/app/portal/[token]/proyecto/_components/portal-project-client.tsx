@@ -74,10 +74,13 @@ export interface PortalProjectClientProps {
   waits: PhaseWait[];
   summary: PhaseSummary;
   phaseCatalog: Array<{ phase: string; name: string; owner: string; sort_order: number }>;
+  /** Los tickets que componen cada requerimiento agrupado. */
+  members: Record<string, PhaseMember[]>;
 }
 
 import {
   PortalPhases,
+  type PhaseMember,
   type PhaseRequirement,
   type PhaseSummary,
   type PhaseWait,
@@ -302,6 +305,7 @@ export function PortalProjectClient(props: PortalProjectClientProps) {
         waits={props.waits}
         summary={props.summary}
         phaseCatalog={props.phaseCatalog}
+        members={props.members}
       />
 
       {/* ---- Backlog ---- */}
