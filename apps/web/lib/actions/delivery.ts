@@ -48,7 +48,10 @@ import {
   setPhase as domainSetPhase,
   groupTickets as domainGroupTickets,
   listMembers as domainListMembers,
+  deleteTask as domainDeleteTask,
+  getCardDetail as domainCardDetail,
   listCycleItems as domainListCycleItems,
+  toggleTask as domainToggleTask,
   listMembersBulk as domainListMembersBulk,
   quotaImpactOf as domainQuotaImpact,
   resizeRequirement as domainResize,
@@ -353,4 +356,21 @@ export async function quotaImpactAction(ticketIds: string[]) {
 /** Los entregables de un ciclo: lo que pintan el planning y el tablero. */
 export async function listCycleItemsAction(cycleId: string) {
   return run((ctx) => domainListCycleItems(ctx, cycleId));
+}
+
+// ---------------------------------------------------------------------------
+// El panel lateral de la tarjeta
+// ---------------------------------------------------------------------------
+
+/** Todo lo del panel en una llamada: checklist, comentarios, fases, esperas. */
+export async function cardDetailAction(ticketId: string) {
+  return run((ctx) => domainCardDetail(ctx, ticketId));
+}
+
+export async function toggleTaskAction(taskId: string, done: boolean) {
+  return run((ctx) => domainToggleTask(ctx, taskId, done), RUTA);
+}
+
+export async function deleteTaskAction(taskId: string) {
+  return run((ctx) => domainDeleteTask(ctx, taskId), RUTA);
 }
