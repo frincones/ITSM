@@ -1443,7 +1443,7 @@ export async function listCycleItems(
     .from('tickets')
     .select(
       'id, ticket_number, title, status, type, requirement_phase, effort_size, ' +
-        'effort_points, organization_id, created_at',
+        'effort_points, organization_id, assigned_agent_id, created_at',
     )
     .eq('tenant_id', actor.tenantId)
     .eq('delivery_cycle_id', cycleId)
@@ -1455,48 +1455,81 @@ export async function listCycleItems(
   const filas = (data ?? []) as unknown as Array<Record<string, unknown>>;
   if (!filas.length) return ok([]);
 
-  // Quién es miembro de un grupo: esos no son entregables.
+  const ids = filas.map((f) => f.id as string);
+
+  // Antes esto servía para ESCONDER a los miembros de un grupo, y ese
+  // filtro rompía la gestión: 13 de los 21 tickets del ciclo no eran
+  // tarjetas, así que no se podían abrir, comentar ni asignar.
+  //
+  // El motivo de traerlos todos es operativo: dentro de un entregable cada
+  // ticket puede estar asignado a un desarrollador distinto, y cada uno
+  // tiene que poder moverlo por su cuenta.
+  //
+  // EL RELOJ NO SE REPARTE. Un miembro tiene fase para saber dónde está y
+  // quién lo lleva, pero el plazo contractual es del ENTREGABLE: el Anexo C
+  // pacta días por entregable, no por ticket. Verificado que un miembro con
+  // 40 días de atraso no mueve un peso del descuento, porque
+  // cycle_sla_breaches los excluye y sus effort_points son 0.
   const { data: rel } = await client
     .from('ticket_relations')
-    .select('related_ticket_id, ticket_id')
+    .select('ticket_id, related_ticket_id')
     .eq('relation_type', 'child')
-    .in(
-      'related_ticket_id',
-      filas.map((f) => f.id as string),
-    );
+    .in('related_ticket_id', ids);
 
-  const esMiembro = new Set(
-    ((rel ?? []) as Array<{ related_ticket_id: string }>).map((r) => r.related_ticket_id),
-  );
-  const entregables = filas.filter((f) => !esMiembro.has(f.id as string));
-  if (!entregables.length) return ok([]);
+  const padreDe = new Map<string, string>();
+  for (const r of (rel ?? []) as Array<{ ticket_id: string; related_ticket_id: string }>) {
+    padreDe.set(r.related_ticket_id, r.ticket_id);
+  }
 
-  const ids = entregables.map((e) => e.id as string);
+  const entregables = ids.filter((id) => !padreDe.has(id));
 
-  // Miembros y atraso, en bloque: una consulta por tarjeta se nota.
-  const [miembrosRes, retrasos] = await Promise.all([
-    listMembersBulk(ctx, ids),
+  const [miembrosRes, retrasos, agentes] = await Promise.all([
+    listMembersBulk(ctx, entregables),
+    // Solo se pide el atraso de los ENTREGABLES: son los únicos con plazo
+    // contractual, y pedirlo para los 21 serían 13 llamadas inútiles.
     Promise.all(
-      ids.map(async (id) => {
+      entregables.map(async (id) => {
         const { data: d } = await client.rpc('requirement_delay', { p_ticket_id: id });
         const row = Array.isArray(d) ? d[0] : d;
         return { id, delay: (row ?? {}) as Record<string, unknown> };
       }),
     ),
+    client
+      .from('agents')
+      .select('id, name, avatar_url')
+      .eq('tenant_id', actor.tenantId)
+      .eq('is_active', true),
   ]);
 
   const miembros = miembrosRes.error === null ? miembrosRes.data : {};
   const porId = new Map(retrasos.map((r) => [r.id, r.delay]));
+  const agente = new Map(
+    ((agentes.data ?? []) as Array<{ id: string; name: string; avatar_url: string | null }>).map(
+      (a) => [a.id, { name: a.name, avatar_url: a.avatar_url }],
+    ),
+  );
+  const titulos = new Map(filas.map((f) => [f.id as string, f.title as string]));
 
   return ok(
-    entregables.map((e) => {
-      const ms = miembros[e.id as string] ?? [];
+    filas.map((f) => {
+      const id = f.id as string;
+      const padre = padreDe.get(id) ?? null;
+      const ms = miembros[id] ?? [];
+      const ag = f.assigned_agent_id ? agente.get(f.assigned_agent_id as string) : null;
       return {
-        ...e,
+        ...f,
+        // null = es un entregable y lleva el reloj; con valor = es miembro
+        // de ese grupo y el reloj lo lleva su padre.
+        parent_id: padre,
+        parent_title: padre ? (titulos.get(padre) ?? null) : null,
+        is_deliverable: padre === null,
         members: ms,
         member_count: ms.length,
         members_done: ms.filter((m) => m.member_done).length,
-        delay: porId.get(e.id as string) ?? {},
+        // Vacío en los miembros, a propósito: su tarjeta no pinta semáforo.
+        delay: porId.get(id) ?? {},
+        assignee_name: ag?.name ?? null,
+        assignee_avatar: ag?.avatar_url ?? null,
       };
     }),
   );
@@ -1531,7 +1564,8 @@ export async function getCardDetail(
 
   if (!t) return fail('Requerimiento no encontrado', 'not_found');
 
-  const [tareas, comentarios, miembros, tramos, esperas] = await Promise.all([
+  const [tareas, comentarios, miembros, tramos, esperas, seguidores, plantel, padre] =
+    await Promise.all([
     // El checklist: pasos internos que no necesitan su propio ticket.
     client
       .from('ticket_tasks')
@@ -1556,7 +1590,41 @@ export async function getCardDetail(
       .select('id, what, owed_by, owed_by_name, reason, requested_at, received_at, target_days')
       .eq('ticket_id', ticketId)
       .order('requested_at', { ascending: false }),
+
+    // Seguidores y plantel, para asignar y notificar sin salir del panel.
+    // Se consultan con el cliente del usuario, no con el de servicio: el
+    // panel no debe ver más de lo que vería en /home/tickets/[id].
+    client
+      .from('ticket_followers')
+      .select('agent_id, added_reason, is_auto, agent:agents(id, name, email, avatar_url, user_id)')
+      .eq('ticket_id', ticketId)
+      .order('added_at'),
+
+    client
+      .from('agents')
+      .select('id, name, email, avatar_url, role')
+      .eq('tenant_id', actor.tenantId)
+      .eq('is_active', true)
+      .order('name'),
+
+    // Si es miembro de un grupo, el panel lo dice: el plazo es del padre.
+    client
+      .from('ticket_relations')
+      .select('ticket_id')
+      .eq('related_ticket_id', ticketId)
+      .eq('relation_type', 'child')
+      .maybeSingle(),
   ]);
+
+  let padreInfo: Record<string, unknown> | null = null;
+  if (padre.data?.ticket_id) {
+    const { data: pt } = await client
+      .from('tickets')
+      .select('id, ticket_number, title, effort_size, effort_points')
+      .eq('id', padre.data.ticket_id)
+      .maybeSingle();
+    padreInfo = (pt as Record<string, unknown>) ?? null;
+  }
 
   // El nombre de quien escribió cada comentario. author_id apunta a
   // auth.users, no a agents, así que se resuelve por user_id.
@@ -1589,6 +1657,21 @@ export async function getCardDetail(
     members: miembros.error === null ? miembros.data : [],
     phases: tramos.error === null ? tramos.data : [],
     waits: esperas.data ?? [],
+    followers: ((seguidores.data ?? []) as Array<Record<string, unknown>>).map((f) => {
+      const a = (f.agent ?? {}) as Record<string, unknown>;
+      return {
+        agent_id: f.agent_id,
+        name: a.name ?? null,
+        email: a.email ?? null,
+        avatar_url: a.avatar_url ?? null,
+        user_id: a.user_id ?? null,
+        added_reason: f.added_reason ?? null,
+        is_auto: f.is_auto ?? false,
+      };
+    }),
+    agents: plantel.data ?? [],
+    current_agent_id: actor.agentId ?? null,
+    parent: padreInfo,
   });
 }
 
