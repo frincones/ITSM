@@ -15,6 +15,12 @@
 //      sigue abierto aunque casi todo esté hecho.
 //   3. CUÁNTO EXPONE en pesos, cuando el atraso es imputable a TDX.
 //
+// EL RELOJ NO SE REPARTE. Toda tarjeta es un ticket y se arrastra, porque un
+// entregable puede repartirse entre dos desarrolladores y cada uno mueve lo
+// suyo. Pero el plazo del Anexo C es POR ENTREGABLE: si el ticket está dentro
+// de un grupo, el reloj lo lleva el padre y la tarjeta del miembro no pinta
+// semáforo ni pesos. Suelto, lo lleva él mismo.
+//
 // Arrastrar usa la API nativa de HTML5 en vez de una librería: son 7 carriles
 // y una lista corta, y una dependencia más para esto no se paga sola.
 // ---------------------------------------------------------------------------
@@ -24,10 +30,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Clock,
   Layers,
   Loader2,
+  CornerDownRight,
   Rows3,
   Rows4,
   Ticket,
@@ -37,7 +45,6 @@ import {
 import { Badge } from '@kit/ui/badge';
 import { Button } from '@kit/ui/button';
 import { Card } from '@kit/ui/card';
-import { Input } from '@kit/ui/input';
 import { Label } from '@kit/ui/label';
 import {
   Select,
@@ -83,15 +90,6 @@ const OWNER_LABEL: Record<string, string> = {
   ninguno: '—',
 };
 
-const MOTIVOS = [
-  { v: 'espera_cliente_info', l: 'Información del cliente' },
-  { v: 'espera_cliente_validacion', l: 'Validación o aprobación' },
-  { v: 'dependencia_tercero', l: 'Dependencia de un tercero' },
-  { v: 'ventana_mantenimiento', l: 'Ventana de mantenimiento' },
-  { v: 'fuerza_mayor', l: 'Fuerza mayor' },
-  { v: 'priorizacion_interna', l: 'Prioridad interna (no pausa)' },
-] as const;
-
 const cop = (n: unknown) =>
   n === null || n === undefined
     ? '—'
@@ -121,6 +119,15 @@ export function CycleBoard(props: Props) {
   // título. Compacto por defecto: con 8 entregables y títulos de 150
   // caracteres, el modo completo no deja ver una columna entera.
   const [densidad, setDensidad] = useState<'compacta' | 'completa'>('compacta');
+  // Azure Boards no elige entre jerarquía y lista: la hace conmutable, y los
+  // swimlanes con "Group by: Parent" ponen cada grupo en su propia banda.
+  // Por requerimiento viene por defecto porque conserva el contexto del
+  // contrato — con un clic se ven las 21 sueltas.
+  //
+  // No hay modo "por módulo": custom_fields->>'modulo' está vacío en 17 de
+  // los 21 tickets del ciclo, así que daría un carril y un cajón de sastre.
+  const [agrupar, setAgrupar] = useState<'ninguna' | 'requerimiento'>('requerimiento');
+  const [plegados, setPlegados] = useState<Set<string>>(new Set());
 
   const cargar = useCallback(async () => {
     if (!props.cycleId) return;
@@ -154,17 +161,62 @@ export function CycleBoard(props: Props) {
     return m;
   }, [waits]);
 
-  const porFase = useMemo(() => {
+  /** Reparte una lista de tickets en los 7 carriles, más los que no tienen fase. */
+  const repartir = useCallback((lista: Row[]) => {
     const m: Record<string, Row[]> = {};
     for (const c of CARRILES) m[c.fase] = [];
     m.__sin = [];
-    for (const it of items) {
+    for (const it of lista) {
       const f = String(it.requirement_phase ?? '');
       if (m[f]) m[f]!.push(it);
       else m.__sin!.push(it);
     }
     return m;
-  }, [items]);
+  }, []);
+
+  /**
+   * Las bandas del tablero. En modo "ninguna" hay una sola con los 21
+   * tickets; agrupado hay una por entregable más la de los sueltos.
+   */
+  const bandas = useMemo(() => {
+    if (agrupar === 'ninguna') {
+      return [{ id: '__todas', titulo: null as string | null, cabecera: null as Row | null, tickets: items }];
+    }
+
+    const entregables = items.filter((i) => i.is_deliverable);
+    const miembrosDe = new Map<string, Row[]>();
+    for (const it of items) {
+      if (it.is_deliverable) continue;
+      const pid = String(it.parent_id);
+      if (!miembrosDe.has(pid)) miembrosDe.set(pid, []);
+      miembrosDe.get(pid)!.push(it);
+    }
+
+    const conGrupo = entregables
+      .filter((e) => (miembrosDe.get(String(e.id)) ?? []).length > 0)
+      .map((e) => ({
+        id: String(e.id),
+        titulo: String(e.title),
+        cabecera: e,
+        // El padre va en la banda como una tarjeta más: es él quien lleva
+        // el reloj, así que tiene que verse en su carril.
+        tickets: [e, ...(miembrosDe.get(String(e.id)) ?? [])],
+      }));
+
+    const sueltos = entregables.filter(
+      (e) => (miembrosDe.get(String(e.id)) ?? []).length === 0,
+    );
+
+    return [
+      ...conGrupo,
+      ...(sueltos.length
+        ? [{ id: '__sueltos', titulo: 'Sin agrupar', cabecera: null as Row | null, tickets: sueltos }]
+        : []),
+    ];
+  }, [items, agrupar]);
+
+  /** Los que no tienen fase, de todo el ciclo, para el aviso de arriba. */
+  const sinFase = useMemo(() => items.filter((i) => !i.requirement_phase), [items]);
 
   async function mover(ticketId: string, fase: Fase) {
     setMoviendo(ticketId);
@@ -206,7 +258,12 @@ export function CycleBoard(props: Props) {
           </strong>
         </Card>
         <Card className="px-3 py-1.5">
-          {items.length} entregable{items.length === 1 ? '' : 's'}
+          {items.length} ticket{items.length === 1 ? '' : 's'}
+          <span className="text-muted-foreground">
+            {' '}
+            · {items.filter((i) => i.is_deliverable).length} entregable
+            {items.filter((i) => i.is_deliverable).length === 1 ? '' : 's'}
+          </span>
         </Card>
         {waits.length ? (
           <Card className="border-violet-400/50 px-3 py-1.5">
@@ -215,10 +272,27 @@ export function CycleBoard(props: Props) {
             {waits.length === 1 ? '' : 's'}
           </Card>
         ) : null}
+        <div className="ml-auto flex items-center gap-1.5">
+          <Label htmlFor="agrupar" className="text-muted-foreground text-xs">
+            Agrupar
+          </Label>
+          <Select value={agrupar} onValueChange={(v) => setAgrupar(v as typeof agrupar)}>
+            <SelectTrigger id="agrupar" className="h-8 w-44 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="requerimiento" className="text-xs">
+                Por requerimiento
+              </SelectItem>
+              <SelectItem value="ninguna" className="text-xs">
+                Ninguna — {items.length} sueltas
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <Button
           variant="outline"
           size="sm"
-          className="ml-auto"
           onClick={() => setDensidad(densidad === 'compacta' ? 'completa' : 'compacta')}
           title={
             densidad === 'compacta'
@@ -248,20 +322,52 @@ export function CycleBoard(props: Props) {
         <Card className="border-destructive/40 bg-destructive/5 p-3 text-sm">{error}</Card>
       ) : null}
 
-      {/* Los que aún no tienen fase: el reloj no corre hasta asignarles una */}
-      {porFase.__sin?.length ? (
-        <Card className="border-amber-400/50 p-3">
+      {/* Sin fase. La distinción importa: un ENTREGABLE sin fase no se está
+          midiendo contra el contrato, y eso es un problema. Un MIEMBRO sin
+          fase solo está sin clasificar — su plazo lo lleva el padre. */}
+      {sinFase.length ? (
+        <Card
+          className={
+            sinFase.some((i) => i.is_deliverable)
+              ? 'border-amber-400/50 p-3'
+              : 'p-3'
+          }
+        >
           <p className="mb-2 text-sm font-medium">
-            <AlertTriangle className="mr-1.5 inline h-4 w-4 text-amber-600" />
-            {porFase.__sin.length} entregable(s) sin fase — su plazo no se está midiendo
+            {sinFase.some((i) => i.is_deliverable) ? (
+              <>
+                <AlertTriangle className="mr-1.5 inline h-4 w-4 text-amber-600" />
+                {sinFase.filter((i) => i.is_deliverable).length} entregable(s) sin fase — su
+                plazo no se está midiendo
+                {sinFase.some((i) => !i.is_deliverable)
+                  ? `, y ${sinFase.filter((i) => !i.is_deliverable).length} ticket(s) de un grupo sin clasificar`
+                  : ''}
+              </>
+            ) : (
+              <>
+                {sinFase.length} ticket(s) de un grupo sin clasificar — el plazo lo lleva su
+                entregable, pero sin fase no se pueden repartir ni seguir
+              </>
+            )}
           </p>
           <div className="flex flex-wrap gap-2">
-            {porFase.__sin.map((it) => (
+            {sinFase.map((it) => (
               <div
                 key={String(it.id)}
                 className="flex items-center gap-2 rounded border px-2 py-1 text-xs"
               >
-                <span className="max-w-56 truncate">{String(it.title)}</span>
+                {it.is_deliverable ? null : (
+                  <span className="text-muted-foreground max-w-32 truncate text-[10px]">
+                    ↳ {String(it.parent_title ?? '')}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setAbierta(String(it.id))}
+                  className="max-w-56 truncate text-left hover:underline"
+                >
+                  {String(it.title)}
+                </button>
                 <Select
                   onValueChange={(v) => void mover(String(it.id), v as Fase)}
                   disabled={props.cycleClosed || moviendo === String(it.id)}
@@ -283,60 +389,139 @@ export function CycleBoard(props: Props) {
         </Card>
       ) : null}
 
-      {/* El tablero */}
-      <div className="flex gap-3 overflow-x-auto pb-2">
-        {CARRILES.map((carril) => {
-          const enCarril = porFase[carril.fase] ?? [];
-          return (
-            <div
-              key={carril.fase}
-              className={`flex w-60 shrink-0 flex-col rounded-md border ${
-                sobre === carril.fase ? 'border-primary bg-primary/5' : 'bg-card'
-              }`}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setSobre(carril.fase);
-              }}
-              onDragLeave={() => setSobre(null)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setSobre(null);
-                const id = arrastrando ?? e.dataTransfer.getData('text/plain');
-                if (id) void mover(id, carril.fase);
-                setArrastrando(null);
-              }}
-            >
-              <div className="flex items-center gap-2 border-b px-3 py-2">
-                <i className={`h-2 w-2 rounded-full ${OWNER_COLOR[carril.owner]}`} />
-                <h3 className="flex-1 truncate text-xs font-semibold">{carril.nombre}</h3>
-                <span className="text-muted-foreground font-mono text-[10px]">
-                  {enCarril.length}
-                </span>
-                <Badge variant="outline" className="text-[9px]">
-                  {OWNER_LABEL[carril.owner]}
-                </Badge>
-              </div>
+      {/* El tablero. Una banda por requerimiento, o una sola con todas. */}
+      <div className="space-y-3">
+        {bandas.length === 0 ? (
+          <Card className="text-muted-foreground p-8 text-center text-sm">
+            Este ciclo no tiene tickets asignados.
+          </Card>
+        ) : null}
 
-              <div className="flex min-h-36 flex-col gap-2 p-2">
-                {enCarril.length === 0 ? (
-                  <p className="text-muted-foreground py-6 text-center text-[11px] italic">
-                    sin ítems
-                  </p>
-                ) : (
-                  enCarril.map((it) => (
-                    <Tarjeta
-                      key={String(it.id)}
-                      item={it}
-                      espera={esperaDe[String(it.id)]}
-                      moviendo={moviendo === String(it.id)}
-                      bloqueado={props.cycleClosed}
-                      densidad={densidad}
-                      onAbrir={() => setAbierta(String(it.id))}
-                      onDragStart={() => setArrastrando(String(it.id))}
-                    />
-                  ))
-                )}
-              </div>
+        {bandas.map((banda) => {
+          const plegada = plegados.has(banda.id);
+          const d = (banda.cabecera?.delay ?? {}) as Record<string, number>;
+          const expuestoBanda = Number(d.exposed_over ?? 0);
+
+          return (
+            <div key={banda.id}>
+              {/* La cabecera de la banda lleva el crédito y el avance del
+                  ENTREGABLE, porque es suyo el plazo, no de cada ticket. */}
+              {banda.titulo ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPlegados((p) => {
+                      const n = new Set(p);
+                      if (n.has(banda.id)) n.delete(banda.id);
+                      else n.add(banda.id);
+                      return n;
+                    })
+                  }
+                  className="hover:bg-muted/50 mb-1.5 flex w-full items-center gap-2 rounded border px-2 py-1.5 text-left text-xs"
+                >
+                  {plegada ? (
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                  ) : (
+                    <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                  )}
+                  {banda.cabecera ? (
+                    <Layers className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+                  ) : null}
+                  <span className="min-w-0 flex-1 truncate font-semibold">{banda.titulo}</span>
+                  {banda.cabecera ? (
+                    <>
+                      <Badge variant="outline" className="text-[9px]">
+                        {String(banda.cabecera.effort_size ?? '—')} ·{' '}
+                        {String(banda.cabecera.effort_points ?? 0)}cr
+                      </Badge>
+                      <Badge variant="outline" className="text-[9px]">
+                        <Users className="mr-0.5 inline h-2.5 w-2.5" />
+                        {String(banda.cabecera.members_done ?? 0)}/
+                        {String(banda.cabecera.member_count ?? 0)}
+                      </Badge>
+                      {expuestoBanda > 0 ? (
+                        <Badge variant="destructive" className="text-[9px]">
+                          +{expuestoBanda}d · {cop(expuestoBanda * 790714.29)}
+                        </Badge>
+                      ) : null}
+                    </>
+                  ) : null}
+                  <span className="text-muted-foreground font-mono text-[10px]">
+                    {banda.tickets.length} tkt
+                  </span>
+                </button>
+              ) : null}
+
+              {plegada ? null : (
+                <div className="flex gap-3 overflow-x-auto pb-2">
+                  {CARRILES.map((carril) => {
+                    const reparto = repartir(banda.tickets);
+                    const enCarril = reparto[carril.fase] ?? [];
+                    const zona = `${banda.id}:${carril.fase}`;
+                    return (
+                      <div
+                        key={carril.fase}
+                        className={`flex w-60 shrink-0 flex-col rounded-md border ${
+                          sobre === zona ? 'border-primary bg-primary/5' : 'bg-card'
+                        }`}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setSobre(zona);
+                        }}
+                        onDragLeave={() => setSobre(null)}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setSobre(null);
+                          const id = arrastrando ?? e.dataTransfer.getData('text/plain');
+                          if (id) void mover(id, carril.fase);
+                          setArrastrando(null);
+                        }}
+                      >
+                        <div className="flex items-center gap-2 border-b px-3 py-2">
+                          <i className={`h-2 w-2 rounded-full ${OWNER_COLOR[carril.owner]}`} />
+                          <h3 className="flex-1 truncate text-xs font-semibold">
+                            {carril.nombre}
+                          </h3>
+                          <span className="text-muted-foreground font-mono text-[10px]">
+                            {enCarril.length}
+                          </span>
+                          <Badge variant="outline" className="text-[9px]">
+                            {OWNER_LABEL[carril.owner]}
+                          </Badge>
+                        </div>
+
+                        <div
+                          className={`flex flex-col gap-2 p-2 ${
+                            banda.titulo ? 'min-h-20' : 'min-h-36'
+                          }`}
+                        >
+                          {enCarril.length === 0 ? (
+                            <p className="text-muted-foreground py-4 text-center text-[11px] italic">
+                              —
+                            </p>
+                          ) : (
+                            enCarril.map((it) => (
+                              <Tarjeta
+                                key={String(it.id)}
+                                item={it}
+                                espera={esperaDe[String(it.id)]}
+                                moviendo={moviendo === String(it.id)}
+                                bloqueado={props.cycleClosed}
+                                densidad={densidad}
+                                // Dentro de una banda el padre ya está en la
+                                // cabecera: repetir la miga sería ruido.
+                                mostrarPadre={agrupar === 'ninguna'}
+                                onAbrir={() => setAbierta(String(it.id))}
+                                onDragStart={() => setArrastrando(String(it.id))}
+                              />
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           );
         })}
@@ -380,6 +565,7 @@ function Tarjeta({
   moviendo,
   bloqueado,
   densidad,
+  mostrarPadre,
   onAbrir,
   onDragStart,
 }: {
@@ -389,6 +575,8 @@ function Tarjeta({
   bloqueado: boolean;
   /** 'compacta' muestra solo número y título; 'completa' añade el reloj. */
   densidad: 'compacta' | 'completa';
+  /** La miga de pan. Falsa dentro de una banda: el padre ya está arriba. */
+  mostrarPadre: boolean;
   onAbrir: () => void;
   onDragStart: () => void;
 }) {
@@ -406,14 +594,20 @@ function Tarjeta({
   const miembros = (item.members ?? []) as Row[];
   const listos = Number(item.members_done ?? 0);
   const esGrupo = miembros.length > 0;
+  // El plazo del Anexo C es por entregable. Un miembro tiene fase y
+  // responsable, pero su tarjeta no pinta semáforo ni pesos: su reloj lo
+  // lleva el padre, y pintarlo aquí haría parecer que hay dos.
+  const esMiembro = item.is_deliverable === false;
 
-  const borde = expuesto > 0
-    ? 'border-destructive bg-destructive/5'
-    : espera
-      ? 'border-l-4 border-l-violet-500'
-      : esGrupo
-        ? 'border-l-4 border-l-violet-400/70'
-        : '';
+  const borde = esMiembro
+    ? 'border-l-2 border-l-muted-foreground/30'
+    : expuesto > 0
+      ? 'border-destructive bg-destructive/5'
+      : espera
+        ? 'border-l-4 border-l-violet-500'
+        : esGrupo
+          ? 'border-l-4 border-l-violet-400/70'
+          : '';
 
   return (
     <div
@@ -430,7 +624,12 @@ function Tarjeta({
           equipo se refiere a las cosas en la reunión, y el icono dice de un
           vistazo si la tarjeta agrupa varios tickets o es uno solo. */}
       <div className="flex items-start gap-1.5 p-2 pb-1">
-        {esGrupo ? (
+        {esMiembro ? (
+          <CornerDownRight
+            className="text-muted-foreground/60 mt-0.5 h-3 w-3 shrink-0"
+            aria-label="Parte de un entregable"
+          />
+        ) : esGrupo ? (
           <Layers
             className="mt-0.5 h-3 w-3 shrink-0 text-violet-500"
             aria-label="Agrupa varios tickets"
@@ -443,6 +642,16 @@ function Tarjeta({
         )}
 
         <button type="button" onClick={onAbrir} className="min-w-0 flex-1 text-left">
+          {/* Sin esto, 21 tarjetas sueltas son una sopa: hay que poder leer
+              a qué entregable pertenece cada una. */}
+          {esMiembro && mostrarPadre ? (
+            <p
+              className="text-muted-foreground/80 mb-0.5 truncate text-[9px] leading-none"
+              title={String(item.parent_title ?? '')}
+            >
+              ↳ {String(item.parent_title ?? '')}
+            </p>
+          ) : null}
           <p className="text-muted-foreground font-mono text-[9px] leading-none">
             {String(item.ticket_number ?? '')}
           </p>
@@ -470,13 +679,27 @@ function Tarjeta({
 
       {/* La fila de señales: cabe en compacto porque es una sola línea. */}
       <div className="flex flex-wrap items-center gap-1 px-2 pb-2">
-        {item.effort_size ? (
+        {/* El crédito es del entregable. En un miembro, "0cr" se leería como
+            si no valiera nada, cuando lo que pasa es que su valor está
+            contado arriba. */}
+        {esMiembro ? null : item.effort_size ? (
           <Badge variant="outline" className="text-[9px]">
             {String(item.effort_size)} · {String(item.effort_points ?? 0)}cr
           </Badge>
         ) : (
           <Badge variant="outline" className="text-[9px]">
             sin estimar
+          </Badge>
+        )}
+        {/* Quién lo lleva: es lo que hace falta para repartir un entregable
+            entre dos desarrolladores. */}
+        {item.assignee_name ? (
+          <Badge variant="secondary" className="max-w-28 truncate text-[9px]" title={String(item.assignee_name)}>
+            {String(item.assignee_name)}
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="text-muted-foreground text-[9px]">
+            sin responsable
           </Badge>
         )}
         {esGrupo ? (
@@ -488,7 +711,7 @@ function Tarjeta({
             {listos}/{miembros.length}
           </Badge>
         ) : null}
-        {expuesto > 0 ? (
+        {expuesto > 0 && !esMiembro ? (
           <Badge variant="destructive" className="text-[9px]">
             +{expuesto}d
           </Badge>
@@ -503,7 +726,12 @@ function Tarjeta({
       {/* Lo que solo se ve al expandir */}
       {abierta ? (
         <div className="border-t px-2 py-1.5">
-          {total > 0 ? (
+          {esMiembro ? (
+            <p className="text-muted-foreground text-[9px] leading-snug">
+              El plazo lo lleva el entregable
+              {item.parent_title ? ` «${String(item.parent_title)}»` : ''}.
+            </p>
+          ) : total > 0 ? (
             <>
               <div className="bg-muted flex h-1 overflow-hidden rounded">
                 {cli > 0 ? (

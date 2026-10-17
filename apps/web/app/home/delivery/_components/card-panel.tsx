@@ -34,6 +34,10 @@ import {
   SelectValue,
 } from '@kit/ui/select';
 
+import {
+  FollowersPanel,
+  type FollowerRow,
+} from '../../tickets/[id]/_components/followers-panel';
 import { ReplyComposer } from '../../tickets/[id]/_components/reply-composer';
 import {
   cardDetailAction,
@@ -43,7 +47,7 @@ import {
   setPhaseAction,
   toggleTaskAction,
 } from '~/lib/actions/delivery';
-import { addTask, changeTicketStatus } from '~/lib/actions/tickets';
+import { addTask, assignTicket, changeTicketStatus } from '~/lib/actions/tickets';
 
 type Row = Record<string, unknown>;
 
@@ -129,6 +133,17 @@ export function CardPanel(props: Props) {
   const esperas = (d?.waits ?? []) as Row[];
   const abierta = esperas.find((w) => !w.received_at);
   const tramo = fases.find((f) => f.is_open);
+  const seguidores = (d?.followers ?? []) as FollowerRow[];
+  const plantel = (d?.agents ?? []) as Array<{
+    id: string;
+    name: string;
+    email?: string | null;
+    avatar_url?: string | null;
+    role?: string | null;
+  }>;
+  // Si el ticket es parte de un grupo, el plazo no es suyo: es del padre.
+  // Decirlo aquí evita que alguien lea el panel y crea que va retrasado.
+  const padre = (d?.parent ?? null) as Row | null;
 
   async function refrescar() {
     await cargar();
@@ -147,6 +162,18 @@ export function CardPanel(props: Props) {
       >
         <header className="flex items-start gap-2 border-b p-4">
           <div className="min-w-0 flex-1">
+            {padre ? (
+              <p className="text-muted-foreground mb-0.5 truncate text-[11px]">
+                ↳ parte de{' '}
+                <button
+                  type="button"
+                  onClick={() => props.onIr(String(padre.id))}
+                  className="hover:text-foreground underline"
+                >
+                  {String(padre.title ?? '')}
+                </button>
+              </p>
+            ) : null}
             <p className="text-muted-foreground font-mono text-[11px]">
               {String(t.ticket_number ?? '')}
             </p>
@@ -176,7 +203,7 @@ export function CardPanel(props: Props) {
                   ))}
                 </SelectContent>
               </Select>
-              {t.effort_size ? (
+              {t.effort_size && !padre ? (
                 <Badge variant="outline" className="text-[10px]">
                   {String(t.effort_size)} · {String(t.effort_points ?? 0)}cr
                 </Badge>
@@ -234,7 +261,81 @@ export function CardPanel(props: Props) {
                 </p>
               ) : null}
 
-              {tramo ? (
+              {/* Responsable y seguidores. Es lo que hace falta para repartir
+                  un entregable entre dos desarrolladores: cada ticket se
+                  asigna por su cuenta.
+
+                  assignTicket() ya notifica al nuevo responsable y conserva
+                  al anterior como seguidor — se reusa tal cual en vez de
+                  escribir otra asignación, porque duplicarla dejaría dos
+                  sitios donde arreglar el mismo fallo. */}
+              <section className="rounded-lg border p-3">
+                <div className="flex items-center gap-2">
+                  <Label className="text-muted-foreground w-24 shrink-0 text-xs">
+                    Responsable
+                  </Label>
+                  <Select
+                    value={String(t.assigned_agent_id ?? '__nadie')}
+                    disabled={props.bloqueado || guardando}
+                    onValueChange={async (v) => {
+                      setGuardando(true);
+                      const r = await assignTicket(
+                        props.ticketId,
+                        v === '__nadie' ? null : v,
+                      );
+                      setGuardando(false);
+                      if (r.error) setError(r.error);
+                      else await refrescar();
+                    }}
+                  >
+                    <SelectTrigger className="h-8 flex-1 text-xs">
+                      <SelectValue placeholder="Sin asignar" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__nadie" className="text-xs">
+                        Sin asignar
+                      </SelectItem>
+                      {plantel.map((a) => (
+                        <SelectItem key={a.id} value={a.id} className="text-xs">
+                          {a.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="mt-3 border-t pt-3">
+                  <FollowersPanel
+                    ticketId={props.ticketId}
+                    initialFollowers={seguidores}
+                    currentAgentId={(d?.current_agent_id as string | null) ?? null}
+                    agents={plantel}
+                  />
+                </div>
+              </section>
+
+              {/* El reloj. Solo se pinta si el plazo es de ESTE ticket: en un
+                  miembro de un grupo el plazo del Anexo C es del entregable,
+                  y mostrar aquí un semáforo haría parecer que hay dos. */}
+              {padre ? (
+                <section className="text-muted-foreground rounded-lg border border-dashed p-3 text-xs leading-relaxed">
+                  El plazo de contrato lo lleva el entregable{' '}
+                  <button
+                    type="button"
+                    onClick={() => props.onIr(String(padre.id))}
+                    className="hover:text-foreground font-medium underline"
+                  >
+                    {String(padre.title ?? '')}
+                  </button>
+                  {padre.effort_size
+                    ? ` (${String(padre.effort_size)} · ${String(padre.effort_points ?? 0)}cr)`
+                    : ''}
+                  . Este ticket se mueve de fase y se asigna por su cuenta, pero sus días
+                  no se cuentan aparte.
+                </section>
+              ) : null}
+
+              {tramo && !padre ? (
                 <section className="rounded-lg border p-3">
                   <div className="flex items-baseline justify-between gap-2">
                     <p className="text-sm font-medium">
@@ -413,7 +514,12 @@ export function CardPanel(props: Props) {
                             <th className="p-2 text-left font-medium">Fase</th>
                             <th className="p-2 text-left font-medium">A cargo</th>
                             <th className="p-2 text-right font-medium">Netos</th>
-                            <th className="p-2 text-right font-medium">Plazo</th>
+                            {/* El plazo es del entregable. En un miembro esta
+                                columna pintaría un incumplimiento que el
+                                contrato no le imputa. */}
+                            {padre ? null : (
+                              <th className="p-2 text-right font-medium">Plazo</th>
+                            )}
                           </tr>
                         </thead>
                         <tbody>
@@ -427,13 +533,15 @@ export function CardPanel(props: Props) {
                               <td className="p-2 text-right tabular-nums">
                                 {String(f.net_days ?? '—')}d
                               </td>
-                              <td
-                                className={`p-2 text-right tabular-nums ${
-                                  f.breached ? 'text-destructive font-medium' : ''
-                                }`}
-                              >
-                                {f.target_days ? `${String(f.target_days)}d` : 'sin plazo'}
-                              </td>
+                              {padre ? null : (
+                                <td
+                                  className={`p-2 text-right tabular-nums ${
+                                    f.breached ? 'text-destructive font-medium' : ''
+                                  }`}
+                                >
+                                  {f.target_days ? `${String(f.target_days)}d` : 'sin plazo'}
+                                </td>
+                              )}
                             </tr>
                           ))}
                         </tbody>
