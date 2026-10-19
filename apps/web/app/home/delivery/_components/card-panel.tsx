@@ -116,13 +116,17 @@ export function CardPanel(props: Props) {
     void cargar();
   }, [cargar]);
 
+  // Depende de onCerrar, no de props entero: con `props` el listener se
+  // quitaba y volvía a poner en cada render del tablero, que son muchos
+  // —cada arrastre recarga y vuelve a renderizar todo.
+  const onCerrar = props.onCerrar;
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') props.onCerrar();
+      if (e.key === 'Escape') onCerrar();
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [props]);
+  }, [onCerrar]);
 
   const idx = props.hermanos.findIndex((h) => h.id === props.ticketId);
   const t = (d?.ticket ?? {}) as Row;

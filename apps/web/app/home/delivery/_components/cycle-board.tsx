@@ -99,6 +99,20 @@ const cop = (n: unknown) =>
         maximumFractionDigits: 0,
       }).format(Number(n));
 
+/**
+ * Lo que vale un crédito: 11.070.000 ÷ 14 del Anexo C.
+ *
+ * ⚠ ESTÁ ESCRITO A MANO Y LA BASE NO LO VALIDA. cycle_delivery_compliance
+ * devuelve hoy credit_value_cop = null porque billing_plans está vacío, así
+ * que estos pesos no los contrasta nadie: si el plan cambia, la pantalla
+ * seguiría mostrando la cifra vieja sin avisar.
+ *
+ * Mientras tanto, al menos vive en un solo sitio. Estaba duplicada en la
+ * cabecera de banda y en la tarjeta, y bastaba tocar una para que dejaran
+ * de cuadrar entre sí.
+ */
+const COP_POR_CREDITO = 790714.29;
+
 interface Props {
   cycleId: string | null;
   cycleStatus: Record<string, unknown> | null;
@@ -180,7 +194,15 @@ export function CycleBoard(props: Props) {
    */
   const bandas = useMemo(() => {
     if (agrupar === 'ninguna') {
-      return [{ id: '__todas', titulo: null as string | null, cabecera: null as Row | null, tickets: items }];
+      return [
+        {
+          id: '__todas',
+          titulo: null as string | null,
+          cabecera: null as Row | null,
+          tickets: items,
+          reparto: repartir(items),
+        },
+      ];
     }
 
     const entregables = items.filter((i) => i.is_deliverable);
@@ -207,16 +229,30 @@ export function CycleBoard(props: Props) {
       (e) => (miembrosDe.get(String(e.id)) ?? []).length === 0,
     );
 
-    return [
+    const lista = [
       ...conGrupo,
       ...(sueltos.length
         ? [{ id: '__sueltos', titulo: 'Sin agrupar', cabecera: null as Row | null, tickets: sueltos }]
         : []),
     ];
-  }, [items, agrupar]);
+
+    // El reparto por fase se calcula UNA vez por banda, aquí. Estaba dentro
+    // del map de carriles, así que recorría los tickets de la banda siete
+    // veces en cada render, y cada arrastre provoca un render completo.
+    return lista.map((b) => ({ ...b, reparto: repartir(b.tickets) }));
+  }, [items, agrupar, repartir]);
 
   /** Los que no tienen fase, de todo el ciclo, para el aviso de arriba. */
   const sinFase = useMemo(() => items.filter((i) => !i.requirement_phase), [items]);
+
+  // Estables entre renders. Una arrow inline cambia de identidad en cada
+  // uno, y entonces da igual que el panel afine sus dependencias.
+  const cerrarPanel = useCallback(() => setAbierta(null), []);
+  const recargar = useCallback(() => void cargar(), [cargar]);
+  const hermanos = useMemo(
+    () => items.map((i) => ({ id: String(i.id), title: String(i.title) })),
+    [items],
+  );
 
   async function mover(ticketId: string, fase: Fase) {
     setMoviendo(ticketId);
@@ -441,7 +477,7 @@ export function CycleBoard(props: Props) {
                       </Badge>
                       {expuestoBanda > 0 ? (
                         <Badge variant="destructive" className="text-[9px]">
-                          +{expuestoBanda}d · {cop(expuestoBanda * 790714.29)}
+                          +{expuestoBanda}d · {cop(expuestoBanda * COP_POR_CREDITO)}
                         </Badge>
                       ) : null}
                     </>
@@ -455,8 +491,7 @@ export function CycleBoard(props: Props) {
               {plegada ? null : (
                 <div className="flex gap-3 overflow-x-auto pb-2">
                   {CARRILES.map((carril) => {
-                    const reparto = repartir(banda.tickets);
-                    const enCarril = reparto[carril.fase] ?? [];
+                    const enCarril = banda.reparto[carril.fase] ?? [];
                     const zona = `${banda.id}:${carril.fase}`;
                     return (
                       <div
@@ -532,11 +567,11 @@ export function CycleBoard(props: Props) {
       {abierta ? (
         <CardPanel
           ticketId={abierta}
-          hermanos={items.map((i) => ({ id: String(i.id), title: String(i.title) }))}
+          hermanos={hermanos}
           bloqueado={props.cycleClosed}
-          onCerrar={() => setAbierta(null)}
+          onCerrar={cerrarPanel}
           onIr={setAbierta}
-          onCambio={() => void cargar()}
+          onCambio={recargar}
         />
       ) : null}
 
@@ -743,7 +778,7 @@ function Tarjeta({
               </div>
               <p className="text-muted-foreground mt-1 font-mono text-[9px]">
                 {tdx}d TDX · {cli}d cliente
-                {expuesto > 0 ? ` · expone ${cop(expuesto * 790714.29)}` : ''}
+                {expuesto > 0 ? ` · expone ${cop(expuesto * COP_POR_CREDITO)}` : ''}
               </p>
             </>
           ) : (
