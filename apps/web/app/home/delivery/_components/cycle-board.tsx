@@ -36,8 +36,10 @@ import {
   Layers,
   Loader2,
   CornerDownRight,
+  ListFilter,
   Rows3,
   Rows4,
+  X,
   Ticket,
   Users,
 } from 'lucide-react';
@@ -45,6 +47,7 @@ import {
 import { Badge } from '@kit/ui/badge';
 import { Button } from '@kit/ui/button';
 import { Card } from '@kit/ui/card';
+import { Input } from '@kit/ui/input';
 import { Label } from '@kit/ui/label';
 import {
   Select,
@@ -99,6 +102,81 @@ const cop = (n: unknown) =>
         maximumFractionDigits: 0,
       }).format(Number(n));
 
+/**
+ * Lo que vale un crédito: 11.070.000 ÷ 14 del Anexo C.
+ *
+ * ⚠ ESTÁ ESCRITO A MANO Y LA BASE NO LO VALIDA. cycle_delivery_compliance
+ * devuelve hoy credit_value_cop = null porque billing_plans está vacío, así
+ * que estos pesos no los contrasta nadie: si el plan cambia, la pantalla
+ * seguiría mostrando la cifra vieja sin avisar.
+ *
+ * Mientras tanto, al menos vive en un solo sitio. Estaba duplicada en la
+ * cabecera de banda y en la tarjeta, y bastaba tocar una para que dejaran
+ * de cuadrar entre sí.
+ */
+const COP_POR_CREDITO = 790714.29;
+
+/**
+ * Las dimensiones por las que se puede filtrar.
+ *
+ * Están elegidas MIDIENDO cuántos valores distintos reparten los tickets del
+ * ciclo: un filtro cuyos tickets comparten todos el mismo valor es un control
+ * que ocupa sitio y no filtra nada. Por eso no están prioridad, urgencia,
+ * impacto ni canal (un solo valor en los 21 del ciclo 1), ni área/categoría
+ * (vacía en 19 de 21), ni módulo (listCycleItems ni lo selecciona).
+ *
+ * Cada una saca sus opciones de los datos cargados, así que si mañana un
+ * campo empieza a tener variedad, el filtro aparece solo.
+ */
+const DIMENSIONES: Array<{
+  k: string;
+  nombre: string;
+  valor: (t: Row) => string | string[] | null;
+}> = [
+  {
+    k: 'release',
+    nombre: 'Release',
+    // El R vive en el título: «R1 · Capa de filtros». Un miembro hereda el de
+    // su entregable, que es a lo que pertenece en el cronograma.
+    valor: (t) => {
+      const m = /^(R\d)/.exec(String(t.parent_title ?? t.title ?? ''));
+      return m ? m[1]! : null;
+    },
+  },
+  { k: 'responsable', nombre: 'Responsable', valor: (t) => (t.assignee_name as string) ?? null },
+  {
+    k: 'tipo',
+    nombre: 'Tipo',
+    valor: (t) => (t.is_deliverable === false ? 'Ticket de un grupo' : 'Entregable'),
+  },
+  { k: 'estado', nombre: 'Estado', valor: (t) => (t.status as string) ?? null },
+  {
+    k: 'fase',
+    nombre: 'Fase',
+    valor: (t) =>
+      t.requirement_phase
+        ? (CARRILES.find((c) => c.fase === t.requirement_phase)?.nombre ??
+          String(t.requirement_phase))
+        : 'Sin fase',
+  },
+  { k: 'talla', nombre: 'Talla', valor: (t) => (t.effort_size as string) ?? 'Sin estimar' },
+  {
+    k: 'etiqueta',
+    nombre: 'Etiqueta',
+    valor: (t) => {
+      const g = t.tags as string[] | null;
+      return g && g.length ? g : null;
+    },
+  },
+];
+
+/**
+ * Las columnas de la rejilla: el entregable y las 7 fases. La cabecera y
+ * todas las filas usan esta misma plantilla, que es lo que las mantiene
+ * alineadas sin medir nada.
+ */
+const COLUMNAS = `minmax(230px, 1.15fr) repeat(${CARRILES.length}, minmax(135px, 1fr))`;
+
 interface Props {
   cycleId: string | null;
   cycleStatus: Record<string, unknown> | null;
@@ -128,6 +206,12 @@ export function CycleBoard(props: Props) {
   // los 21 tickets del ciclo, así que daría un carril y un cajón de sastre.
   const [agrupar, setAgrupar] = useState<'ninguna' | 'requerimiento'>('requerimiento');
   const [plegados, setPlegados] = useState<Set<string>>(new Set());
+  // Los filtros viven detrás del embudo, como en Azure: lo permanente en la
+  // barra es el ciclo, no los controles de filtrado.
+  const [verFiltros, setVerFiltros] = useState(false);
+  const [desplegado, setDesplegado] = useState<string | null>(null);
+  const [seleccion, setSeleccion] = useState<Record<string, Set<string>>>({});
+  const [texto, setTexto] = useState('');
 
   const cargar = useCallback(async () => {
     if (!props.cycleId) return;
@@ -178,14 +262,75 @@ export function CycleBoard(props: Props) {
    * Las bandas del tablero. En modo "ninguna" hay una sola con los 21
    * tickets; agrupado hay una por entregable más la de los sueltos.
    */
+  /** Las opciones de cada filtro, con cuántos tickets tiene cada una. */
+  const opciones = useMemo(() => {
+    const m: Record<string, Array<{ v: string; n: number }>> = {};
+    for (const d of DIMENSIONES) {
+      const cuenta: Record<string, number> = {};
+      for (const t of items) {
+        const v = d.valor(t);
+        if (v === null) continue;
+        for (const x of Array.isArray(v) ? v : [v]) cuenta[x] = (cuenta[x] ?? 0) + 1;
+      }
+      m[d.k] = Object.keys(cuenta)
+        .sort()
+        .map((v) => ({ v, n: cuenta[v]! }));
+    }
+    return m;
+  }, [items]);
+
+  const hayFiltro =
+    texto.trim().length > 0 ||
+    Object.values(seleccion).some((s) => s && s.size > 0);
+
+  /** Los tickets que pasan los filtros. */
+  const visibles = useMemo(() => {
+    if (!hayFiltro) return items;
+    const q = texto.trim().toLowerCase();
+    return items.filter((t) => {
+      if (q && !`${String(t.ticket_number)} ${String(t.title)}`.toLowerCase().includes(q)) {
+        return false;
+      }
+      return DIMENSIONES.every((d) => {
+        const s = seleccion[d.k];
+        if (!s || s.size === 0) return true;
+        const v = d.valor(t);
+        if (v === null) return false;
+        return (Array.isArray(v) ? v : [v]).some((x) => s.has(x));
+      });
+    });
+  }, [items, seleccion, texto, hayFiltro]);
+
   const bandas = useMemo(() => {
     if (agrupar === 'ninguna') {
-      return [{ id: '__todas', titulo: null as string | null, cabecera: null as Row | null, tickets: items }];
+      return [
+        {
+          id: '__todas',
+          titulo: null as string | null,
+          cabecera: null as Row | null,
+          tickets: visibles,
+          reparto: repartir(visibles),
+          contexto: false,
+        },
+      ];
     }
 
-    const entregables = items.filter((i) => i.is_deliverable);
+    // Un hijo puede pasar el filtro aunque su padre no: filtrar por un
+    // desarrollador deja tickets cuyo entregable es de otro. Como cada fila
+    // ES un entregable, sin tratarlo esos tickets desaparecerían de la
+    // pantalla. Se conserva la fila del padre como CONTEXTO, atenuada, y sin
+    // pintar su tarjeta: él no cumple el filtro.
+    const pasaronPorSiMismos = new Set(
+      visibles.filter((i) => i.is_deliverable).map((i) => String(i.id)),
+    );
+    const entregables = items.filter(
+      (i) =>
+        i.is_deliverable &&
+        (pasaronPorSiMismos.has(String(i.id)) ||
+          visibles.some((v) => String(v.parent_id ?? '') === String(i.id))),
+    );
     const miembrosDe = new Map<string, Row[]>();
-    for (const it of items) {
+    for (const it of visibles) {
       if (it.is_deliverable) continue;
       const pid = String(it.parent_id);
       if (!miembrosDe.has(pid)) miembrosDe.set(pid, []);
@@ -198,25 +343,55 @@ export function CycleBoard(props: Props) {
         id: String(e.id),
         titulo: String(e.title),
         cabecera: e,
+        contexto: !pasaronPorSiMismos.has(String(e.id)),
         // El padre va en la banda como una tarjeta más: es él quien lleva
-        // el reloj, así que tiene que verse en su carril.
-        tickets: [e, ...(miembrosDe.get(String(e.id)) ?? [])],
+        // el reloj, así que tiene que verse en su carril. Salvo cuando la
+        // fila es solo contexto y él no pasó el filtro.
+        tickets: pasaronPorSiMismos.has(String(e.id))
+          ? [e, ...(miembrosDe.get(String(e.id)) ?? [])]
+          : (miembrosDe.get(String(e.id)) ?? []),
       }));
 
     const sueltos = entregables.filter(
       (e) => (miembrosDe.get(String(e.id)) ?? []).length === 0,
     );
 
-    return [
+    const lista = [
       ...conGrupo,
       ...(sueltos.length
-        ? [{ id: '__sueltos', titulo: 'Sin agrupar', cabecera: null as Row | null, tickets: sueltos }]
+        ? [
+            {
+              id: '__sueltos',
+              titulo: 'Sin agrupar',
+              cabecera: null as Row | null,
+              tickets: sueltos,
+              contexto: false,
+            },
+          ]
         : []),
     ];
-  }, [items, agrupar]);
 
-  /** Los que no tienen fase, de todo el ciclo, para el aviso de arriba. */
+    // El reparto por fase se calcula UNA vez por banda, aquí. Estaba dentro
+    // del map de carriles, así que recorría los tickets de la banda siete
+    // veces en cada render, y cada arrastre provoca un render completo.
+    return lista.map((b) => ({ ...b, reparto: repartir(b.tickets) }));
+  }, [items, visibles, agrupar, repartir]);
+
+  /**
+   * Los que no tienen fase, de TODO el ciclo — nunca de lo filtrado. Un
+   * filtro que silenciara este aviso dejaría entregables sin tramo abierto,
+   * invisibles para el cálculo del atraso.
+   */
   const sinFase = useMemo(() => items.filter((i) => !i.requirement_phase), [items]);
+
+  // Estables entre renders. Una arrow inline cambia de identidad en cada
+  // uno, y entonces da igual que el panel afine sus dependencias.
+  const cerrarPanel = useCallback(() => setAbierta(null), []);
+  const recargar = useCallback(() => void cargar(), [cargar]);
+  const hermanos = useMemo(
+    () => items.map((i) => ({ id: String(i.id), title: String(i.title) })),
+    [items],
+  );
 
   async function mover(ticketId: string, fase: Fase) {
     setMoviendo(ticketId);
@@ -291,6 +466,16 @@ export function CycleBoard(props: Props) {
           </Select>
         </div>
         <Button
+          variant={verFiltros || hayFiltro ? 'secondary' : 'outline'}
+          size="sm"
+          onClick={() => setVerFiltros(!verFiltros)}
+          aria-expanded={verFiltros}
+          title="Filtrar"
+        >
+          <ListFilter className="mr-1.5 h-3.5 w-3.5" />
+          {hayFiltro ? `${visibles.length} de ${items.length}` : 'Filtrar'}
+        </Button>
+        <Button
           variant="outline"
           size="sm"
           onClick={() => setDensidad(densidad === 'compacta' ? 'completa' : 'compacta')}
@@ -320,6 +505,106 @@ export function CycleBoard(props: Props) {
 
       {error ? (
         <Card className="border-destructive/40 bg-destructive/5 p-3 text-sm">{error}</Card>
+      ) : null}
+
+      {/* Los filtros. Escondidos por defecto, como en Azure: lo permanente
+          en la barra es el ciclo, no los controles. Cada filtro admite
+          varios valores y lleva al lado cuántos tickets tiene cada uno. */}
+      {verFiltros ? (
+        <Card className="p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              value={texto}
+              onChange={(e) => setTexto(e.target.value)}
+              placeholder="Número o título…"
+              className="h-8 w-56 text-xs"
+              aria-label="Buscar por número o título"
+            />
+
+            {DIMENSIONES.map((d) => {
+              const ops = opciones[d.k] ?? [];
+              if (ops.length < 2) return null; // un solo valor no filtra nada
+              const sel = seleccion[d.k];
+              const n = sel?.size ?? 0;
+              return (
+                <div key={d.k} className="relative">
+                  <Button
+                    variant={n ? 'secondary' : 'outline'}
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => setDesplegado(desplegado === d.k ? null : d.k)}
+                    aria-expanded={desplegado === d.k}
+                  >
+                    {d.nombre}
+                    {n ? ` (${n})` : ''}
+                    <ChevronDown className="ml-1 h-3 w-3" />
+                  </Button>
+
+                  {desplegado === d.k ? (
+                    <div className="bg-popover absolute left-0 top-full z-30 mt-1 max-h-64 min-w-48 overflow-auto rounded-md border p-1 shadow-lg">
+                      {ops.map((o) => (
+                        <label
+                          key={o.v}
+                          className="hover:bg-muted flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={sel?.has(o.v) ?? false}
+                            onChange={(e) => {
+                              setSeleccion((prev) => {
+                                const n2 = { ...prev };
+                                const c = new Set(n2[d.k] ?? []);
+                                if (e.target.checked) c.add(o.v);
+                                else c.delete(o.v);
+                                n2[d.k] = c;
+                                return n2;
+                              });
+                            }}
+                          />
+                          <span className="min-w-0 flex-1 truncate">{o.v}</span>
+                          <span className="text-muted-foreground font-mono text-[10px] tabular-nums">
+                            {o.n}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+
+            {hayFiltro ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => {
+                  setSeleccion({});
+                  setTexto('');
+                }}
+              >
+                <X className="mr-1 h-3 w-3" />
+                Limpiar
+              </Button>
+            ) : null}
+
+            <Button
+              variant="ghost"
+              size="icon"
+              className="ml-auto h-8 w-8"
+              onClick={() => setVerFiltros(false)}
+              aria-label="Cerrar filtros"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+
+          <p className="text-muted-foreground mt-2 border-t pt-2 text-xs">
+            {hayFiltro
+              ? `${visibles.length} de ${items.length} tickets. Las filas atenuadas son el entregable de un ticket que sí pasó el filtro.`
+              : `Sin filtros: se ven los ${items.length} tickets del ciclo.`}
+          </p>
+        </Card>
       ) : null}
 
       {/* Sin fase. La distinción importa: un ENTREGABLE sin fase no se está
@@ -389,142 +674,198 @@ export function CycleBoard(props: Props) {
         </Card>
       ) : null}
 
-      {/* El tablero. Una banda por requerimiento, o una sola con todas. */}
-      <div className="space-y-3">
-        {bandas.length === 0 ? (
-          <Card className="text-muted-foreground p-8 text-center text-sm">
-            Este ciclo no tiene tickets asignados.
-          </Card>
-        ) : null}
+      {/* ------------------------------------------------------------------
+          El tablero, como el Taskboard de Azure DevOps: la fase se nombra UNA
+          vez arriba y cada banda es una fila que la cruza.
 
-        {bandas.map((banda) => {
-          const plegada = plegados.has(banda.id);
-          const d = (banda.cabecera?.delay ?? {}) as Record<string, number>;
-          const expuestoBanda = Number(d.exposed_over ?? 0);
+          Antes cada banda repetía las 7 cabeceras — con 4 bandas eran 28
+          cabeceras para 7 fases, y «Documentación» aparecía cuatro veces.
 
-          return (
-            <div key={banda.id}>
-              {/* La cabecera de la banda lleva el crédito y el avance del
-                  ENTREGABLE, porque es suyo el plazo, no de cada ticket. */}
-              {banda.titulo ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setPlegados((p) => {
-                      const n = new Set(p);
-                      if (n.has(banda.id)) n.delete(banda.id);
-                      else n.add(banda.id);
-                      return n;
-                    })
-                  }
-                  className="hover:bg-muted/50 mb-1.5 flex w-full items-center gap-2 rounded border px-2 py-1.5 text-left text-xs"
-                >
-                  {plegada ? (
-                    <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-                  ) : (
-                    <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-                  )}
-                  {banda.cabecera ? (
-                    <Layers className="h-3.5 w-3.5 shrink-0 text-violet-500" />
-                  ) : null}
-                  <span className="min-w-0 flex-1 truncate font-semibold">{banda.titulo}</span>
-                  {banda.cabecera ? (
-                    <>
-                      <Badge variant="outline" className="text-[9px]">
-                        {String(banda.cabecera.effort_size ?? '—')} ·{' '}
-                        {String(banda.cabecera.effort_points ?? 0)}cr
-                      </Badge>
-                      <Badge variant="outline" className="text-[9px]">
-                        <Users className="mr-0.5 inline h-2.5 w-2.5" />
-                        {String(banda.cabecera.members_done ?? 0)}/
-                        {String(banda.cabecera.member_count ?? 0)}
-                      </Badge>
-                      {expuestoBanda > 0 ? (
-                        <Badge variant="destructive" className="text-[9px]">
-                          +{expuestoBanda}d · {cop(expuestoBanda * 790714.29)}
-                        </Badge>
-                      ) : null}
-                    </>
-                  ) : null}
-                  <span className="text-muted-foreground font-mono text-[10px]">
-                    {banda.tickets.length} tkt
-                  </span>
-                </button>
-              ) : null}
-
-              {plegada ? null : (
-                <div className="flex gap-3 overflow-x-auto pb-2">
-                  {CARRILES.map((carril) => {
-                    const reparto = repartir(banda.tickets);
-                    const enCarril = reparto[carril.fase] ?? [];
-                    const zona = `${banda.id}:${carril.fase}`;
-                    return (
-                      <div
-                        key={carril.fase}
-                        className={`flex w-60 shrink-0 flex-col rounded-md border ${
-                          sobre === zona ? 'border-primary bg-primary/5' : 'bg-card'
-                        }`}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          setSobre(zona);
-                        }}
-                        onDragLeave={() => setSobre(null)}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          setSobre(null);
-                          const id = arrastrando ?? e.dataTransfer.getData('text/plain');
-                          if (id) void mover(id, carril.fase);
-                          setArrastrando(null);
-                        }}
-                      >
-                        <div className="flex items-center gap-2 border-b px-3 py-2">
-                          <i className={`h-2 w-2 rounded-full ${OWNER_COLOR[carril.owner]}`} />
-                          <h3 className="flex-1 truncate text-xs font-semibold">
-                            {carril.nombre}
-                          </h3>
-                          <span className="text-muted-foreground font-mono text-[10px]">
-                            {enCarril.length}
-                          </span>
-                          <Badge variant="outline" className="text-[9px]">
-                            {OWNER_LABEL[carril.owner]}
-                          </Badge>
-                        </div>
-
-                        <div
-                          className={`flex flex-col gap-2 p-2 ${
-                            banda.titulo ? 'min-h-20' : 'min-h-36'
-                          }`}
-                        >
-                          {enCarril.length === 0 ? (
-                            <p className="text-muted-foreground py-4 text-center text-[11px] italic">
-                              —
-                            </p>
-                          ) : (
-                            enCarril.map((it) => (
-                              <Tarjeta
-                                key={String(it.id)}
-                                item={it}
-                                espera={esperaDe[String(it.id)]}
-                                moviendo={moviendo === String(it.id)}
-                                bloqueado={props.cycleClosed}
-                                densidad={densidad}
-                                // Dentro de una banda el padre ya está en la
-                                // cabecera: repetir la miga sería ruido.
-                                mostrarPadre={agrupar === 'ninguna'}
-                                onAbrir={() => setAbierta(String(it.id))}
-                                onDragStart={() => setArrastrando(String(it.id))}
-                              />
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+          La rejilla es una sola grid por fila con las mismas columnas que la
+          cabecera, así que todo queda alineado sin medir nada.
+          ------------------------------------------------------------------ */}
+      <div className="overflow-x-auto rounded-md border">
+        <div className="min-w-[1180px]">
+          {/* Las cabeceras, una sola vez. El número es de TODO el ciclo: antes
+              era por banda, y así no se podía leer la carga real. */}
+          <div
+            className="bg-card sticky top-0 z-10 grid border-b-2"
+            style={{ gridTemplateColumns: COLUMNAS }}
+          >
+            <div className="border-r px-3 py-2">
+              <h3 className="text-xs font-semibold">Entregable</h3>
+              <p className="text-muted-foreground text-[9px] uppercase tracking-wide">
+                lleva el reloj
+              </p>
             </div>
-          );
-        })}
+            {CARRILES.map((carril) => (
+              <div key={carril.fase} className="border-r px-3 py-2 last:border-r-0">
+                <div className="flex items-center gap-1.5">
+                  <i className={`h-2 w-2 shrink-0 rounded-full ${OWNER_COLOR[carril.owner]}`} />
+                  <h3 className="min-w-0 flex-1 truncate text-xs font-semibold">
+                    {carril.nombre}
+                  </h3>
+                  <span className="text-muted-foreground bg-muted rounded-full px-1.5 font-mono text-[10px] tabular-nums">
+                    {visibles.filter((i) => i.requirement_phase === carril.fase).length}
+                  </span>
+                </div>
+                <p className="text-muted-foreground text-[9px] uppercase tracking-wide">
+                  {OWNER_LABEL[carril.owner]}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {bandas.length === 0 ? (
+            <p className="text-muted-foreground p-8 text-center text-sm">
+              Este ciclo no tiene tickets asignados.
+            </p>
+          ) : null}
+
+          {bandas.map((banda) => {
+            const plegada = plegados.has(banda.id);
+            const d = (banda.cabecera?.delay ?? {}) as Record<string, number>;
+            const expuestoBanda = Number(d.exposed_over ?? 0);
+
+            return (
+              <div
+                key={banda.id}
+                className="grid border-b last:border-b-0"
+                style={{ gridTemplateColumns: COLUMNAS }}
+              >
+                {/* El entregable, fuera de los carriles: es suyo el plazo del
+                    Anexo C, no de cada ticket. Su TARJETA sigue estando en la
+                    columna de su fase, porque arrastrarla es la forma de mover
+                    el reloj. */}
+                <div
+                  className={`bg-muted/40 border-r-2 px-3 py-2 ${
+                    banda.contexto ? 'opacity-60' : ''
+                  }`}
+                >
+                  {banda.titulo ? (
+                    <>
+                      <div className="flex items-start gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPlegados((p) => {
+                              const n = new Set(p);
+                              if (n.has(banda.id)) n.delete(banda.id);
+                              else n.add(banda.id);
+                              return n;
+                            })
+                          }
+                          className="text-muted-foreground hover:text-foreground mt-0.5 shrink-0"
+                          aria-expanded={!plegada}
+                          aria-label={plegada ? 'Desplegar' : 'Plegar'}
+                        >
+                          {plegada ? (
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                        {banda.cabecera ? (
+                          <Layers className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-500" />
+                        ) : null}
+                        <p className="min-w-0 flex-1 text-xs font-semibold leading-snug">
+                          {banda.titulo}
+                        </p>
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                        {banda.cabecera ? (
+                          <>
+                            <Badge variant="outline" className="text-[9px]">
+                              {String(banda.cabecera.effort_size ?? '—')} ·{' '}
+                              {String(banda.cabecera.effort_points ?? 0)}cr
+                            </Badge>
+                            <Badge variant="outline" className="text-[9px]">
+                              <Users className="mr-0.5 inline h-2.5 w-2.5" />
+                              {String(banda.cabecera.members_done ?? 0)}/
+                              {String(banda.cabecera.member_count ?? 0)}
+                            </Badge>
+                            {expuestoBanda > 0 ? (
+                              <Badge variant="destructive" className="text-[9px]">
+                                +{expuestoBanda}d · {cop(expuestoBanda * COP_POR_CREDITO)}
+                              </Badge>
+                            ) : null}
+                          </>
+                        ) : null}
+                        <span className="text-muted-foreground font-mono text-[10px]">
+                          {banda.tickets.length} tkt
+                        </span>
+                        {banda.contexto ? (
+                          <Badge variant="outline" className="border-dashed text-[9px]">
+                            fuera del filtro
+                          </Badge>
+                        ) : null}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-muted-foreground text-xs">
+                      {banda.tickets.length} ticket{banda.tickets.length === 1 ? '' : 's'}
+                    </p>
+                  )}
+                </div>
+
+                {/* Las 7 celdas de la fila. Cada una es una zona de soltar. */}
+                {CARRILES.map((carril) => {
+                  const enCarril = plegada ? [] : (banda.reparto[carril.fase] ?? []);
+                  // Única por celda: con solo la fase se encenderían las siete
+                  // celdas de esa columna en todas las filas a la vez.
+                  const zona = `${banda.id}:${carril.fase}`;
+                  return (
+                    <div
+                      key={carril.fase}
+                      // min-h: una celda vacía sin altura no se puede soltar,
+                      // y a simple vista parece que está bien.
+                      className={`flex min-h-20 flex-col gap-2 border-r p-2 last:border-r-0 ${
+                        sobre === zona ? 'bg-primary/5 ring-primary ring-1 ring-inset' : ''
+                      }`}
+                      onDragOver={(e) => {
+                        // Sin esto el navegador no deja soltar en ningún sitio.
+                        e.preventDefault();
+                        setSobre(zona);
+                      }}
+                      onDragLeave={() => setSobre(null)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setSobre(null);
+                        // dataTransfer es el camino bueno cuando el estado de
+                        // React no llegó (pasa en Firefox).
+                        const id = arrastrando ?? e.dataTransfer.getData('text/plain');
+                        if (id) void mover(id, carril.fase);
+                        setArrastrando(null);
+                      }}
+                    >
+                      {plegada ? (
+                        <span className="text-muted-foreground/40 m-auto text-[11px]">·</span>
+                      ) : enCarril.length === 0 ? (
+                        <span className="text-muted-foreground/30 m-auto text-sm">·</span>
+                      ) : (
+                        enCarril.map((it) => (
+                          <Tarjeta
+                            key={String(it.id)}
+                            item={it}
+                            espera={esperaDe[String(it.id)]}
+                            moviendo={moviendo === String(it.id)}
+                            bloqueado={props.cycleClosed}
+                            densidad={densidad}
+                            // Dentro de una fila el entregable ya está a la
+                            // izquierda: repetirlo en cada tarjeta es ruido.
+                            mostrarPadre={agrupar === 'ninguna'}
+                            onAbrir={() => setAbierta(String(it.id))}
+                            onDragStart={() => setArrastrando(String(it.id))}
+                          />
+                        ))
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* El panel lateral: se gestiona el requerimiento como un ticket
@@ -532,11 +873,11 @@ export function CycleBoard(props: Props) {
       {abierta ? (
         <CardPanel
           ticketId={abierta}
-          hermanos={items.map((i) => ({ id: String(i.id), title: String(i.title) }))}
+          hermanos={hermanos}
           bloqueado={props.cycleClosed}
-          onCerrar={() => setAbierta(null)}
+          onCerrar={cerrarPanel}
           onIr={setAbierta}
-          onCambio={() => void cargar()}
+          onCambio={recargar}
         />
       ) : null}
 
@@ -743,7 +1084,7 @@ function Tarjeta({
               </div>
               <p className="text-muted-foreground mt-1 font-mono text-[9px]">
                 {tdx}d TDX · {cli}d cliente
-                {expuesto > 0 ? ` · expone ${cop(expuesto * 790714.29)}` : ''}
+                {expuesto > 0 ? ` · expone ${cop(expuesto * COP_POR_CREDITO)}` : ''}
               </p>
             </>
           ) : (

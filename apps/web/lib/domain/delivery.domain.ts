@@ -1442,8 +1442,10 @@ export async function listCycleItems(
   const { data, error } = await client
     .from('tickets')
     .select(
+      // tags alimenta el filtro de etiqueta del tablero. Es una columna más
+      // del mismo SELECT, así que no cuesta una consulta.
       'id, ticket_number, title, status, type, requirement_phase, effort_size, ' +
-        'effort_points, organization_id, assigned_agent_id, created_at',
+        'effort_points, organization_id, assigned_agent_id, tags, created_at',
     )
     .eq('tenant_id', actor.tenantId)
     .eq('delivery_cycle_id', cycleId)
