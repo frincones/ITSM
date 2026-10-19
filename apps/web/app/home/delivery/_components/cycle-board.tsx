@@ -36,8 +36,10 @@ import {
   Layers,
   Loader2,
   CornerDownRight,
+  ListFilter,
   Rows3,
   Rows4,
+  X,
   Ticket,
   Users,
 } from 'lucide-react';
@@ -45,6 +47,7 @@ import {
 import { Badge } from '@kit/ui/badge';
 import { Button } from '@kit/ui/button';
 import { Card } from '@kit/ui/card';
+import { Input } from '@kit/ui/input';
 import { Label } from '@kit/ui/label';
 import {
   Select,
@@ -114,6 +117,60 @@ const cop = (n: unknown) =>
 const COP_POR_CREDITO = 790714.29;
 
 /**
+ * Las dimensiones por las que se puede filtrar.
+ *
+ * Están elegidas MIDIENDO cuántos valores distintos reparten los tickets del
+ * ciclo: un filtro cuyos tickets comparten todos el mismo valor es un control
+ * que ocupa sitio y no filtra nada. Por eso no están prioridad, urgencia,
+ * impacto ni canal (un solo valor en los 21 del ciclo 1), ni área/categoría
+ * (vacía en 19 de 21), ni módulo (listCycleItems ni lo selecciona).
+ *
+ * Cada una saca sus opciones de los datos cargados, así que si mañana un
+ * campo empieza a tener variedad, el filtro aparece solo.
+ */
+const DIMENSIONES: Array<{
+  k: string;
+  nombre: string;
+  valor: (t: Row) => string | string[] | null;
+}> = [
+  {
+    k: 'release',
+    nombre: 'Release',
+    // El R vive en el título: «R1 · Capa de filtros». Un miembro hereda el de
+    // su entregable, que es a lo que pertenece en el cronograma.
+    valor: (t) => {
+      const m = /^(R\d)/.exec(String(t.parent_title ?? t.title ?? ''));
+      return m ? m[1]! : null;
+    },
+  },
+  { k: 'responsable', nombre: 'Responsable', valor: (t) => (t.assignee_name as string) ?? null },
+  {
+    k: 'tipo',
+    nombre: 'Tipo',
+    valor: (t) => (t.is_deliverable === false ? 'Ticket de un grupo' : 'Entregable'),
+  },
+  { k: 'estado', nombre: 'Estado', valor: (t) => (t.status as string) ?? null },
+  {
+    k: 'fase',
+    nombre: 'Fase',
+    valor: (t) =>
+      t.requirement_phase
+        ? (CARRILES.find((c) => c.fase === t.requirement_phase)?.nombre ??
+          String(t.requirement_phase))
+        : 'Sin fase',
+  },
+  { k: 'talla', nombre: 'Talla', valor: (t) => (t.effort_size as string) ?? 'Sin estimar' },
+  {
+    k: 'etiqueta',
+    nombre: 'Etiqueta',
+    valor: (t) => {
+      const g = t.tags as string[] | null;
+      return g && g.length ? g : null;
+    },
+  },
+];
+
+/**
  * Las columnas de la rejilla: el entregable y las 7 fases. La cabecera y
  * todas las filas usan esta misma plantilla, que es lo que las mantiene
  * alineadas sin medir nada.
@@ -149,6 +206,12 @@ export function CycleBoard(props: Props) {
   // los 21 tickets del ciclo, así que daría un carril y un cajón de sastre.
   const [agrupar, setAgrupar] = useState<'ninguna' | 'requerimiento'>('requerimiento');
   const [plegados, setPlegados] = useState<Set<string>>(new Set());
+  // Los filtros viven detrás del embudo, como en Azure: lo permanente en la
+  // barra es el ciclo, no los controles de filtrado.
+  const [verFiltros, setVerFiltros] = useState(false);
+  const [desplegado, setDesplegado] = useState<string | null>(null);
+  const [seleccion, setSeleccion] = useState<Record<string, Set<string>>>({});
+  const [texto, setTexto] = useState('');
 
   const cargar = useCallback(async () => {
     if (!props.cycleId) return;
@@ -199,6 +262,45 @@ export function CycleBoard(props: Props) {
    * Las bandas del tablero. En modo "ninguna" hay una sola con los 21
    * tickets; agrupado hay una por entregable más la de los sueltos.
    */
+  /** Las opciones de cada filtro, con cuántos tickets tiene cada una. */
+  const opciones = useMemo(() => {
+    const m: Record<string, Array<{ v: string; n: number }>> = {};
+    for (const d of DIMENSIONES) {
+      const cuenta: Record<string, number> = {};
+      for (const t of items) {
+        const v = d.valor(t);
+        if (v === null) continue;
+        for (const x of Array.isArray(v) ? v : [v]) cuenta[x] = (cuenta[x] ?? 0) + 1;
+      }
+      m[d.k] = Object.keys(cuenta)
+        .sort()
+        .map((v) => ({ v, n: cuenta[v]! }));
+    }
+    return m;
+  }, [items]);
+
+  const hayFiltro =
+    texto.trim().length > 0 ||
+    Object.values(seleccion).some((s) => s && s.size > 0);
+
+  /** Los tickets que pasan los filtros. */
+  const visibles = useMemo(() => {
+    if (!hayFiltro) return items;
+    const q = texto.trim().toLowerCase();
+    return items.filter((t) => {
+      if (q && !`${String(t.ticket_number)} ${String(t.title)}`.toLowerCase().includes(q)) {
+        return false;
+      }
+      return DIMENSIONES.every((d) => {
+        const s = seleccion[d.k];
+        if (!s || s.size === 0) return true;
+        const v = d.valor(t);
+        if (v === null) return false;
+        return (Array.isArray(v) ? v : [v]).some((x) => s.has(x));
+      });
+    });
+  }, [items, seleccion, texto, hayFiltro]);
+
   const bandas = useMemo(() => {
     if (agrupar === 'ninguna') {
       return [
@@ -206,15 +308,29 @@ export function CycleBoard(props: Props) {
           id: '__todas',
           titulo: null as string | null,
           cabecera: null as Row | null,
-          tickets: items,
-          reparto: repartir(items),
+          tickets: visibles,
+          reparto: repartir(visibles),
+          contexto: false,
         },
       ];
     }
 
-    const entregables = items.filter((i) => i.is_deliverable);
+    // Un hijo puede pasar el filtro aunque su padre no: filtrar por un
+    // desarrollador deja tickets cuyo entregable es de otro. Como cada fila
+    // ES un entregable, sin tratarlo esos tickets desaparecerían de la
+    // pantalla. Se conserva la fila del padre como CONTEXTO, atenuada, y sin
+    // pintar su tarjeta: él no cumple el filtro.
+    const pasaronPorSiMismos = new Set(
+      visibles.filter((i) => i.is_deliverable).map((i) => String(i.id)),
+    );
+    const entregables = items.filter(
+      (i) =>
+        i.is_deliverable &&
+        (pasaronPorSiMismos.has(String(i.id)) ||
+          visibles.some((v) => String(v.parent_id ?? '') === String(i.id))),
+    );
     const miembrosDe = new Map<string, Row[]>();
-    for (const it of items) {
+    for (const it of visibles) {
       if (it.is_deliverable) continue;
       const pid = String(it.parent_id);
       if (!miembrosDe.has(pid)) miembrosDe.set(pid, []);
@@ -227,9 +343,13 @@ export function CycleBoard(props: Props) {
         id: String(e.id),
         titulo: String(e.title),
         cabecera: e,
+        contexto: !pasaronPorSiMismos.has(String(e.id)),
         // El padre va en la banda como una tarjeta más: es él quien lleva
-        // el reloj, así que tiene que verse en su carril.
-        tickets: [e, ...(miembrosDe.get(String(e.id)) ?? [])],
+        // el reloj, así que tiene que verse en su carril. Salvo cuando la
+        // fila es solo contexto y él no pasó el filtro.
+        tickets: pasaronPorSiMismos.has(String(e.id))
+          ? [e, ...(miembrosDe.get(String(e.id)) ?? [])]
+          : (miembrosDe.get(String(e.id)) ?? []),
       }));
 
     const sueltos = entregables.filter(
@@ -239,7 +359,15 @@ export function CycleBoard(props: Props) {
     const lista = [
       ...conGrupo,
       ...(sueltos.length
-        ? [{ id: '__sueltos', titulo: 'Sin agrupar', cabecera: null as Row | null, tickets: sueltos }]
+        ? [
+            {
+              id: '__sueltos',
+              titulo: 'Sin agrupar',
+              cabecera: null as Row | null,
+              tickets: sueltos,
+              contexto: false,
+            },
+          ]
         : []),
     ];
 
@@ -247,9 +375,13 @@ export function CycleBoard(props: Props) {
     // del map de carriles, así que recorría los tickets de la banda siete
     // veces en cada render, y cada arrastre provoca un render completo.
     return lista.map((b) => ({ ...b, reparto: repartir(b.tickets) }));
-  }, [items, agrupar, repartir]);
+  }, [items, visibles, agrupar, repartir]);
 
-  /** Los que no tienen fase, de todo el ciclo, para el aviso de arriba. */
+  /**
+   * Los que no tienen fase, de TODO el ciclo — nunca de lo filtrado. Un
+   * filtro que silenciara este aviso dejaría entregables sin tramo abierto,
+   * invisibles para el cálculo del atraso.
+   */
   const sinFase = useMemo(() => items.filter((i) => !i.requirement_phase), [items]);
 
   // Estables entre renders. Una arrow inline cambia de identidad en cada
@@ -334,6 +466,16 @@ export function CycleBoard(props: Props) {
           </Select>
         </div>
         <Button
+          variant={verFiltros || hayFiltro ? 'secondary' : 'outline'}
+          size="sm"
+          onClick={() => setVerFiltros(!verFiltros)}
+          aria-expanded={verFiltros}
+          title="Filtrar"
+        >
+          <ListFilter className="mr-1.5 h-3.5 w-3.5" />
+          {hayFiltro ? `${visibles.length} de ${items.length}` : 'Filtrar'}
+        </Button>
+        <Button
           variant="outline"
           size="sm"
           onClick={() => setDensidad(densidad === 'compacta' ? 'completa' : 'compacta')}
@@ -363,6 +505,106 @@ export function CycleBoard(props: Props) {
 
       {error ? (
         <Card className="border-destructive/40 bg-destructive/5 p-3 text-sm">{error}</Card>
+      ) : null}
+
+      {/* Los filtros. Escondidos por defecto, como en Azure: lo permanente
+          en la barra es el ciclo, no los controles. Cada filtro admite
+          varios valores y lleva al lado cuántos tickets tiene cada uno. */}
+      {verFiltros ? (
+        <Card className="p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              value={texto}
+              onChange={(e) => setTexto(e.target.value)}
+              placeholder="Número o título…"
+              className="h-8 w-56 text-xs"
+              aria-label="Buscar por número o título"
+            />
+
+            {DIMENSIONES.map((d) => {
+              const ops = opciones[d.k] ?? [];
+              if (ops.length < 2) return null; // un solo valor no filtra nada
+              const sel = seleccion[d.k];
+              const n = sel?.size ?? 0;
+              return (
+                <div key={d.k} className="relative">
+                  <Button
+                    variant={n ? 'secondary' : 'outline'}
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => setDesplegado(desplegado === d.k ? null : d.k)}
+                    aria-expanded={desplegado === d.k}
+                  >
+                    {d.nombre}
+                    {n ? ` (${n})` : ''}
+                    <ChevronDown className="ml-1 h-3 w-3" />
+                  </Button>
+
+                  {desplegado === d.k ? (
+                    <div className="bg-popover absolute left-0 top-full z-30 mt-1 max-h-64 min-w-48 overflow-auto rounded-md border p-1 shadow-lg">
+                      {ops.map((o) => (
+                        <label
+                          key={o.v}
+                          className="hover:bg-muted flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={sel?.has(o.v) ?? false}
+                            onChange={(e) => {
+                              setSeleccion((prev) => {
+                                const n2 = { ...prev };
+                                const c = new Set(n2[d.k] ?? []);
+                                if (e.target.checked) c.add(o.v);
+                                else c.delete(o.v);
+                                n2[d.k] = c;
+                                return n2;
+                              });
+                            }}
+                          />
+                          <span className="min-w-0 flex-1 truncate">{o.v}</span>
+                          <span className="text-muted-foreground font-mono text-[10px] tabular-nums">
+                            {o.n}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+
+            {hayFiltro ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => {
+                  setSeleccion({});
+                  setTexto('');
+                }}
+              >
+                <X className="mr-1 h-3 w-3" />
+                Limpiar
+              </Button>
+            ) : null}
+
+            <Button
+              variant="ghost"
+              size="icon"
+              className="ml-auto h-8 w-8"
+              onClick={() => setVerFiltros(false)}
+              aria-label="Cerrar filtros"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+
+          <p className="text-muted-foreground mt-2 border-t pt-2 text-xs">
+            {hayFiltro
+              ? `${visibles.length} de ${items.length} tickets. Las filas atenuadas son el entregable de un ticket que sí pasó el filtro.`
+              : `Sin filtros: se ven los ${items.length} tickets del ciclo.`}
+          </p>
+        </Card>
       ) : null}
 
       {/* Sin fase. La distinción importa: un ENTREGABLE sin fase no se está
@@ -464,7 +706,7 @@ export function CycleBoard(props: Props) {
                     {carril.nombre}
                   </h3>
                   <span className="text-muted-foreground bg-muted rounded-full px-1.5 font-mono text-[10px] tabular-nums">
-                    {items.filter((i) => i.requirement_phase === carril.fase).length}
+                    {visibles.filter((i) => i.requirement_phase === carril.fase).length}
                   </span>
                 </div>
                 <p className="text-muted-foreground text-[9px] uppercase tracking-wide">
@@ -495,7 +737,11 @@ export function CycleBoard(props: Props) {
                     Anexo C, no de cada ticket. Su TARJETA sigue estando en la
                     columna de su fase, porque arrastrarla es la forma de mover
                     el reloj. */}
-                <div className="bg-muted/40 border-r-2 px-3 py-2">
+                <div
+                  className={`bg-muted/40 border-r-2 px-3 py-2 ${
+                    banda.contexto ? 'opacity-60' : ''
+                  }`}
+                >
                   {banda.titulo ? (
                     <>
                       <div className="flex items-start gap-1.5">
@@ -548,6 +794,11 @@ export function CycleBoard(props: Props) {
                         <span className="text-muted-foreground font-mono text-[10px]">
                           {banda.tickets.length} tkt
                         </span>
+                        {banda.contexto ? (
+                          <Badge variant="outline" className="border-dashed text-[9px]">
+                            fuera del filtro
+                          </Badge>
+                        ) : null}
                       </div>
                     </>
                   ) : (
