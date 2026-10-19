@@ -28,7 +28,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
-  AlertTriangle,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -212,6 +211,10 @@ export function CycleBoard(props: Props) {
   const [desplegado, setDesplegado] = useState<string | null>(null);
   const [seleccion, setSeleccion] = useState<Record<string, Set<string>>>({});
   const [texto, setTexto] = useState('');
+  // El aviso de sin fase: plegado por defecto. Se puede ignorar, no descartar.
+  const [verSinFase, setVerSinFase] = useState(false);
+  // Clave del grupo que se está asignando en lote, para no lanzar dos a la vez.
+  const [lote, setLote] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     if (!props.cycleId) return;
@@ -393,12 +396,64 @@ export function CycleBoard(props: Props) {
     [items],
   );
 
+  /**
+   * Los sin fase, agrupados por su entregable. Trece sueltos son una lista
+   * larga; los mismos trece en tres grupos caben en una pantalla, y además
+   * dejan asignar la fase a todo un grupo de una vez.
+   */
+  const gruposSinFase = useMemo(() => {
+    const m = new Map<string, { clave: string; titulo: string; tickets: Row[] }>();
+    for (const t of sinFase) {
+      const clave = String(t.parent_id ?? t.id);
+      const titulo = String(t.parent_title ?? t.title ?? 'Sin agrupar');
+      if (!m.has(clave)) m.set(clave, { clave, titulo, tickets: [] });
+      m.get(clave)!.tickets.push(t);
+    }
+    return [...m.values()].sort((a, b) => b.tickets.length - a.tickets.length);
+  }, [sinFase]);
+
   async function mover(ticketId: string, fase: Fase) {
     setMoviendo(ticketId);
     const r = await setPhaseAction(ticketId, fase as never);
     setMoviendo(null);
     if (r.error) setError(r.error);
     else await cargar();
+  }
+
+  /**
+   * Asigna la misma fase a todos los tickets de un grupo.
+   *
+   * EN SERIE, A PROPÓSITO. Cada asignación dispara el trigger de 00077, que
+   * abre un tramo congelando dueño y plazo: son escrituras en el camino del
+   * descuento, no un cambio de interfaz. Si una falla a mitad, las anteriores
+   * ya están aplicadas, y hay que poder decir cuántas fueron en vez de un
+   * error genérico.
+   *
+   * Se recarga una sola vez al final, no una por ticket.
+   */
+  async function asignarAlGrupo(
+    grupo: { clave: string; tickets: Row[] },
+    fase: Fase,
+  ) {
+    setLote(grupo.clave);
+    setError(null);
+
+    let hechos = 0;
+    const fallos: string[] = [];
+
+    for (const t of grupo.tickets) {
+      const r = await setPhaseAction(String(t.id), fase as never);
+      if (r.error) fallos.push(`${String(t.ticket_number)}: ${r.error}`);
+      else hechos++;
+    }
+
+    setLote(null);
+    if (fallos.length) {
+      setError(
+        `Se asignaron ${hechos} de ${grupo.tickets.length}. Sin cambiar: ${fallos.join(' · ')}`,
+      );
+    }
+    await cargar();
   }
 
   if (!props.cycleId) {
@@ -607,70 +662,128 @@ export function CycleBoard(props: Props) {
         </Card>
       ) : null}
 
-      {/* Sin fase. La distinción importa: un ENTREGABLE sin fase no se está
-          midiendo contra el contrato, y eso es un problema. Un MIEMBRO sin
-          fase solo está sin clasificar — su plazo lo lleva el padre. */}
+      {/* ------------------------------------------------------------------
+          Los que no tienen fase.
+
+          NO HABER EMPEZADO NO ES UN ATRASO. Un requerimiento puede estar sin
+          iniciar legítimamente: no todos arrancan el primer día del ciclo. La
+          base ya lo trata así —un entregable sin fase sigue saliendo en
+          cycle_sla_breaches pero con exposed_over = 0 y sin días—, de modo que
+          esto es un recordatorio, no una alarma: «falta por iniciar», nunca
+          «vas tarde».
+
+          Por eso es una franja de una línea con un punto, y no un bloque
+          ámbar: el ámbar dice «hay un problema», y aquí no lo hay todavía.
+          Antes eran trece selectores siempre abiertos, tres renglones que
+          competían con el tablero.
+
+          Plegada se puede ignorar, pero no descartar: mientras quede uno, la
+          línea sigue ahí.
+          ------------------------------------------------------------------ */}
       {sinFase.length ? (
-        <Card
-          className={
-            sinFase.some((i) => i.is_deliverable)
-              ? 'border-amber-400/50 p-3'
-              : 'p-3'
-          }
-        >
-          <p className="mb-2 text-sm font-medium">
-            {sinFase.some((i) => i.is_deliverable) ? (
-              <>
-                <AlertTriangle className="mr-1.5 inline h-4 w-4 text-amber-600" />
-                {sinFase.filter((i) => i.is_deliverable).length} entregable(s) sin fase — su
-                plazo no se está midiendo
-                {sinFase.some((i) => !i.is_deliverable)
-                  ? `, y ${sinFase.filter((i) => !i.is_deliverable).length} ticket(s) de un grupo sin clasificar`
-                  : ''}
-              </>
+        <Card className="border-l-4 border-l-amber-500 p-0">
+          <button
+            type="button"
+            onClick={() => setVerSinFase(!verSinFase)}
+            aria-expanded={verSinFase}
+            className="hover:bg-muted/40 flex w-full flex-wrap items-center gap-2 px-3 py-2 text-left"
+          >
+            <i
+              className="h-2 w-2 shrink-0 rounded-full bg-amber-500 motion-safe:animate-pulse"
+              aria-hidden
+            />
+            <span className="text-sm font-medium">
+              {sinFase.length} {sinFase.length === 1 ? 'ticket' : 'tickets'} sin fase
+            </span>
+            <span className="text-muted-foreground text-xs">
+              — falta por iniciar: su reloj no corre
+            </span>
+            <Badge variant="outline" className="ml-auto text-[10px]">
+              {gruposSinFase.length}{' '}
+              {gruposSinFase.length === 1 ? 'entregable' : 'entregables'}
+            </Badge>
+            {verSinFase ? (
+              <ChevronDown className="h-4 w-4 shrink-0" />
             ) : (
-              <>
-                {sinFase.length} ticket(s) de un grupo sin clasificar — el plazo lo lleva su
-                entregable, pero sin fase no se pueden repartir ni seguir
-              </>
+              <ChevronRight className="h-4 w-4 shrink-0" />
             )}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {sinFase.map((it) => (
-              <div
-                key={String(it.id)}
-                className="flex items-center gap-2 rounded border px-2 py-1 text-xs"
-              >
-                {it.is_deliverable ? null : (
-                  <span className="text-muted-foreground max-w-32 truncate text-[10px]">
-                    ↳ {String(it.parent_title ?? '')}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setAbierta(String(it.id))}
-                  className="max-w-56 truncate text-left hover:underline"
-                >
-                  {String(it.title)}
-                </button>
-                <Select
-                  onValueChange={(v) => void mover(String(it.id), v as Fase)}
-                  disabled={props.cycleClosed || moviendo === String(it.id)}
-                >
-                  <SelectTrigger className="h-7 w-36 text-xs">
-                    <SelectValue placeholder="Asignar fase" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CARRILES.map((c) => (
-                      <SelectItem key={c.fase} value={c.fase} className="text-xs">
-                        {c.nombre}
-                      </SelectItem>
+          </button>
+
+          {verSinFase ? (
+            <div className="space-y-3 border-t px-3 py-2.5">
+              {gruposSinFase.map((g) => (
+                <div key={g.clave}>
+                  <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                    <span className="truncate text-xs font-semibold">{g.titulo}</span>
+                    <Badge variant="outline" className="text-[9px]">
+                      {g.tickets.length}
+                    </Badge>
+                    {/* Siete de los trece cuelgan de un solo entregable, así
+                        que asignar por grupo vacía media lista de un clic. */}
+                    <Select
+                      disabled={props.cycleClosed || lote !== null}
+                      onValueChange={(v) => void asignarAlGrupo(g, v as Fase)}
+                    >
+                      <SelectTrigger className="ml-auto h-7 w-44 text-xs">
+                        <SelectValue
+                          placeholder={
+                            lote === g.clave
+                              ? 'Asignando…'
+                              : `Asignar fase a ${g.tickets.length}`
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CARRILES.map((c) => (
+                          <SelectItem key={c.fase} value={c.fase} className="text-xs">
+                            {c.nombre}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1">
+                    {g.tickets.map((it) => (
+                      <div
+                        key={String(it.id)}
+                        className="flex items-center gap-2 rounded border px-2 py-1 text-xs"
+                      >
+                        <span className="text-muted-foreground shrink-0 font-mono text-[9px]">
+                          {String(it.ticket_number ?? '')}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setAbierta(String(it.id))}
+                          className="min-w-0 flex-1 truncate text-left hover:underline"
+                          title={String(it.title)}
+                        >
+                          {String(it.title)}
+                        </button>
+                        <Select
+                          disabled={
+                            props.cycleClosed || moviendo === String(it.id) || lote !== null
+                          }
+                          onValueChange={(v) => void mover(String(it.id), v as Fase)}
+                        >
+                          <SelectTrigger className="h-7 w-36 shrink-0 text-xs">
+                            <SelectValue placeholder="Asignar fase" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {CARRILES.map((c) => (
+                              <SelectItem key={c.fase} value={c.fase} className="text-xs">
+                                {c.nombre}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            ))}
-          </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </Card>
       ) : null}
 
