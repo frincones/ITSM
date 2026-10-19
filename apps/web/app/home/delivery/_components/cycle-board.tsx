@@ -66,8 +66,20 @@ import { CardPanel } from './card-panel';
 
 type Row = Record<string, unknown>;
 
-/** Los carriles del tablero. Las terminales no son etapas de trabajo. */
+/**
+ * Los carriles del tablero. Las terminales no son etapas de trabajo.
+ *
+ * `propuesto` va primero y es la única SIN PLAZO: está en el ciclo pero
+ * todavía no arranca, y no todos los requerimientos empiezan el primer día.
+ * Sin ella, lo que no ha iniciado tenía que ir a «Levantamiento» —que sí
+ * tiene plazo, de 2 días— y el reloj del cliente corría por trabajo que nadie
+ * había empezado.
+ */
 const CARRILES = [
+  // El dueño es 'cliente' porque así está en delivery_phases, y esta etiqueta
+  // tiene que decir lo que dice la base. Pero SIN PLAZO: acumula días y no
+  // puede incumplir, que es justo lo que hace falta mientras no arranca.
+  { fase: 'propuesto', nombre: 'Por iniciar', owner: 'cliente' },
   { fase: 'levantamiento', nombre: 'Levantamiento', owner: 'cliente' },
   { fase: 'documentacion', nombre: 'Documentación', owner: 'tdx' },
   { fase: 'accesos', nombre: 'Accesos', owner: 'cliente' },
@@ -823,7 +835,9 @@ export function CycleBoard(props: Props) {
                   </span>
                 </div>
                 <p className="text-muted-foreground text-[9px] uppercase tracking-wide">
-                  {OWNER_LABEL[carril.owner]}
+                  {/* Sin esto, «Por iniciar» parecería un carril con plazo
+                      como los demás, y es justo lo contrario. */}
+                  {carril.fase === 'propuesto' ? 'sin plazo' : OWNER_LABEL[carril.owner]}
                 </p>
               </div>
             ))}
