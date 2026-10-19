@@ -104,7 +104,14 @@ export default async function PortalTokenLayout({
         portalToken={token}
       />
 
-      <main className="flex-1 overflow-hidden">{children}</main>
+      {/* overflow-y-auto, no overflow-hidden.
+          El layout padre fija h-screen —altura exacta de la pantalla— para
+          que la cabecera y la barra de estado queden fijas. Con
+          overflow-hidden aquí, todo lo que pasara de ese alto se recortaba
+          sin barra de desplazamiento: en «Mi proyecto» el cliente no podía
+          llegar a su backlog ni al detalle de los requerimientos.
+          Afectaba a todas las páginas del portal, no solo a esa. */}
+      <main className="flex-1 overflow-y-auto">{children}</main>
 
       <StatusBar
         hasActiveIncident={hasActiveIncident}

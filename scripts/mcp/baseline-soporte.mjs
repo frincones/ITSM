@@ -57,6 +57,20 @@ const BASE = {
   // Lo que SÍ es dinero y no puede moverse está arriba: measurable, met,
   // credit_cop, consumed y quota.
   excluded_count: 52,
+  // ⚠ ESTAS DOS CRECEN SOLAS. Cada ticket de soporte que entra las sube, así
+  // que la guarda salta por trabajo normal de Emma y hay que re-basarlas.
+  // El 19-oct se re-basaron tres veces en una tarde: 15 → 17 → 20.
+  //
+  // Lo que importa NO es el número, es que `consumed` no suba por culpa de
+  // un cambio en proyectos. Al re-basar, comprobar siempre que los tickets
+  // nuevos son de tipo support, SIN requirement_phase y SIN delivery_cycle_id:
+  //
+  //   SELECT ticket_number, type, requirement_phase, delivery_cycle_id
+  //     FROM tickets WHERE sla_applies AND created_at > now() - interval '1 day';
+  //
+  // Si alguno trae fase o ciclo, eso sí es un fallo de aislamiento y no se
+  // re-basa: se investiga.
+  //
   // support_cycle_usage — la cuota (dinero)
   //
   // Re-basada el 19-oct-2026 de 15 a 17: entraron TKT-2610-00780 y 00781,
@@ -65,12 +79,12 @@ const BASE = {
   // proyecto y sin ciclo, y que la migración 00084 no hace UPDATE sobre
   // tickets. La guarda hizo justo lo que debía: avisar de que una cifra de
   // soporte se movió, para mirarla antes de seguir.
-  consumed: 17,
+  consumed: 20,
   quota: 30,
   overage: 0,
   excluded_bad_dates: 7,
   // El universo de tickets con SLA, por tipo
-  sla_support: 17,
+  sla_support: 20,
   sla_otros: 0,
 };
 
