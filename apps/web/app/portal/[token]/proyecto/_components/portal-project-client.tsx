@@ -308,102 +308,14 @@ export function PortalProjectClient(props: PortalProjectClientProps) {
         members={props.members}
       />
 
-      {/* ---- Backlog ---- */}
-      <section className="rounded-xl border bg-white p-6 shadow-sm dark:bg-gray-900">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="font-medium">Tu backlog</h2>
-            <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-              Todo lo que está registrado para tu proyecto
-            </p>
-          </div>
+      {/* ---- Backlog ----
+           OCULTO a propósito. Son 46 ítems registrados, la mayoría sin
+           estimar ni comprometer, y encima de la lista de avance hacían que
+           el cliente no supiera qué mirar. Lo que sí le sirve está arriba:
+           lo que espera su acción y cómo va cada requerimiento del ciclo.
 
-          <div className="flex gap-1 rounded-lg border p-1">
-            {(
-              [
-                ['todos', 'Todos'],
-                ['pendientes', 'Pendientes'],
-                ['entregados', 'Entregados'],
-              ] as const
-            ).map(([v, t]) => (
-              <button
-                key={v}
-                onClick={() => setFiltro(v)}
-                className={`rounded px-3 py-1 text-sm transition-colors ${
-                  filtro === v
-                    ? 'bg-gray-100 font-medium dark:bg-gray-800'
-                    : 'text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800/50'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="mt-5 grid gap-3 sm:grid-cols-4">
-          <Resumen icono={FileText} etiqueta="Registrados" valor={props.totals.items ?? 0} />
-          <Resumen
-            icono={Clock}
-            etiqueta="En curso"
-            valor={props.totals.in_progress ?? 0}
-          />
-          <Resumen
-            icono={CheckCircle2}
-            etiqueta="Entregados"
-            valor={props.totals.delivered ?? 0}
-          />
-          <Resumen
-            icono={Inbox}
-            etiqueta="Propuestos"
-            valor={props.totals.proposed ?? 0}
-            nota="esperando revisión"
-          />
-        </div>
-
-        {props.totals.proposed ? (
-          <p className="mt-3 text-xs text-gray-500">
-            Lo propuesto está registrado y a la espera de que el equipo lo revise y lo
-            estime. Todavía no consume tu cupo.
-          </p>
-        ) : null}
-
-        <div className="mt-5 divide-y rounded-lg border">
-          {!visibles.length ? (
-            <p className="p-8 text-center text-sm text-gray-500">
-              No hay items que mostrar con este filtro.
-            </p>
-          ) : (
-            visibles.map((it) => (
-              <div key={it.id} className="flex flex-wrap items-center gap-3 p-3">
-                <span className="w-32 shrink-0 font-mono text-xs text-gray-500">
-                  {it.ticket_number}
-                </span>
-                <span className="min-w-[180px] flex-1 truncate text-sm" title={it.title}>
-                  {it.title}
-                </span>
-                <Etiqueta estado={it.status} />
-                {it.cycle_number ? (
-                  <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
-                    Ciclo {it.cycle_number}
-                  </span>
-                ) : null}
-                <span className="w-14 text-right text-sm text-gray-600 dark:text-gray-400">
-                  {it.effort_points !== null ? `${it.effort_points} pts` : '—'}
-                </span>
-              </div>
-            ))
-          )}
-        </div>
-
-        {props.totals.unestimated ? (
-          <p className="mt-3 text-xs text-gray-500">
-            {props.totals.unestimated} item
-            {props.totals.unestimated === 1 ? '' : 's'} todavía sin estimar. El equipo
-            les asigna tamaño durante el refinamiento.
-          </p>
-        ) : null}
-      </section>
+           El código se conserva para cuando el backlog tenga una vista
+           propia que valga la pena enseñar. */}
     </div>
   );
 }

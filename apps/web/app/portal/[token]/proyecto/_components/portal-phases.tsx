@@ -104,7 +104,27 @@ const FASE_CORTA: Record<string, string> = {
 };
 
 /** Fases que se dibujan en la línea de avance. Las terminales no son etapas. */
+/**
+ * De quién depende que una fase avance. Es lo único que el cliente necesita
+ * saber de un vistazo: si le toca a él o lo tenemos nosotros.
+ *
+ * Sale del mismo catálogo que usa el cálculo (delivery_phases.owner), pero se
+ * escribe aquí en los términos del cliente: «tú» y «nosotros», no «cliente» y
+ * «tdx».
+ */
+const DEPENDE: Record<string, 'tu' | 'nosotros' | 'nadie'> = {
+  propuesto: 'nadie',
+  levantamiento: 'nosotros',
+  documentacion: 'nosotros',
+  aprobacion: 'tu',
+  accesos: 'tu',
+  desarrollo: 'nosotros',
+  uat: 'tu',
+  despliegue: 'nosotros',
+};
+
 const LINEA = [
+  'propuesto',
   'levantamiento',
   'documentacion',
   'aprobacion',
@@ -150,7 +170,7 @@ export function PortalPhases(props: Props) {
             </span>
           </div>
           <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-            Mientras esperamos, el plazo de entrega se extiende día por día.
+            Mientras esperamos, el plazo de entrega se extiende hora por hora.
           </p>
 
           <ul className="mt-4 space-y-2">
@@ -294,6 +314,7 @@ function RequirementRow({
   const total = req.tdx_minutes + req.client_minutes + req.third_party_minutes;
   const terminal = ['entregado', 'descartado'].includes(req.phase ?? '');
   const idxActual = LINEA.indexOf((req.phase ?? '') as (typeof LINEA)[number]);
+  const depende = DEPENDE[req.phase ?? ''] ?? 'nadie';
 
   return (
     <li className="rounded-lg border p-3">
@@ -326,31 +347,73 @@ function RequirementRow({
         ) : null}
       </button>
 
-      {/* La línea de fases: dónde va y cuánto queda. */}
+      {/* ------------------------------------------------------------------
+          La línea de avance.
+
+          Antes eran ocho etiquetas de 9px, una por fase, y había que leerlas
+          todas para saber dónde estaba. Ahora la barra se lee de un vistazo
+          —verde lo hecho, el tramo grueso dónde va— y debajo, en una frase,
+          DE QUIÉN DEPENDE, que es lo único que el cliente puede accionar.
+
+          El color del tramo actual dice de quién es: ámbar si le toca a él,
+          azul si lo tenemos nosotros.
+          ------------------------------------------------------------------ */}
       {!terminal && idxActual >= 0 ? (
-        <div className="mt-2.5 flex gap-1">
-          {LINEA.map((f, i) => (
-            <div key={f} className="min-w-0 flex-1" title={nombreFase[f] ?? f}>
+        <div className="mt-3">
+          <div className="flex gap-1">
+            {LINEA.map((f, i) => (
               <div
-                className={`h-1 rounded-full ${
+                key={f}
+                className={`h-1.5 flex-1 rounded-full ${
                   i < idxActual
                     ? 'bg-emerald-500'
                     : i === idxActual
-                      ? 'bg-sky-600'
+                      ? depende === 'tu'
+                        ? 'bg-amber-500 ring-2 ring-amber-200 dark:ring-amber-900'
+                        : 'bg-sky-600 ring-2 ring-sky-200 dark:ring-sky-900'
                       : 'bg-gray-200 dark:bg-gray-700'
                 }`}
+                title={nombreFase[f] ?? f}
               />
-              <p
-                className={`mt-1 truncate text-[9px] ${
-                  i === idxActual
-                    ? 'font-medium text-sky-700 dark:text-sky-300'
-                    : 'text-gray-400'
-                }`}
-              >
-                {nombreFase[f] ?? f}
-              </p>
-            </div>
-          ))}
+            ))}
+          </div>
+
+          <div className="mt-1.5 flex items-baseline justify-between gap-2 text-[10px] text-gray-400">
+            <span>Inicio</span>
+            <span
+              className={`font-medium ${
+                depende === 'tu'
+                  ? 'text-amber-700 dark:text-amber-400'
+                  : depende === 'nosotros'
+                    ? 'text-sky-700 dark:text-sky-400'
+                    : 'text-gray-500'
+              }`}
+            >
+              {nombreFase[req.phase ?? ''] ?? req.phase}
+            </span>
+            <span>Producción</span>
+          </div>
+
+          {/* La frase que resume todo: quién tiene la pelota. */}
+          <p
+            className={`mt-2 text-xs font-medium ${
+              depende === 'tu'
+                ? 'text-amber-700 dark:text-amber-400'
+                : depende === 'nosotros'
+                  ? 'text-sky-700 dark:text-sky-400'
+                  : 'text-gray-500'
+            }`}
+          >
+            {depende === 'tu'
+              ? `→ te toca a ti${
+                  req.client_minutes > 0 ? ` · ${formatHabil(req.client_minutes)} esperando` : ''
+                }`
+              : depende === 'nosotros'
+                ? `→ estamos en ello${
+                    req.tdx_minutes > 0 ? ` · ${formatHabil(req.tdx_minutes)}` : ''
+                  }`
+                : '→ aún no empieza'}
+          </p>
         </div>
       ) : null}
 
@@ -363,9 +426,9 @@ function RequirementRow({
               <div
                 className="flex items-center justify-center bg-violet-500 text-[10px] font-medium text-white"
                 style={{ width: `${(req.client_minutes / total) * 100}%` }}
-                title={`${formatHabil(req.client_minutes)} tuyas`}
+                title={`${formatHabil(req.client_minutes)} de espera tuya`}
               >
-                {req.client_minutes / total > 0.22 ? `${formatHabil(req.client_minutes)} tuyas` : ''}
+                {req.client_minutes / total > 0.22 ? `${formatHabil(req.client_minutes)} de espera tuya` : ''}
               </div>
             ) : null}
             {req.third_party_minutes > 0 ? (
@@ -388,20 +451,31 @@ function RequirementRow({
             ) : null}
           </div>
 
-          <p className="mt-1.5 text-[11px] leading-relaxed text-gray-600 dark:text-gray-400">
+          {/* Una frase por parte, en renglones distintos. Juntas decían
+              «Llevamos 2 días de atraso. Las 8 minutos que esperamos tu
+              respuesta extienden el plazo», que mezcla nuestro
+              incumplimiento con su espera y no se entiende. */}
+          <div className="mt-1.5 space-y-0.5 text-[11px] leading-relaxed">
             {req.tdx_over > 0 ? (
-              <span className="font-medium text-amber-700 dark:text-amber-400">
-                Llevamos {formatHabilLargo(req.tdx_over)} de atraso en este requerimiento.
-              </span>
+              <p className="font-medium text-amber-700 dark:text-amber-400">
+                Nos pasamos {formatHabilLargo(req.tdx_over)} del plazo en este requerimiento.
+              </p>
             ) : (
-              <span className="text-emerald-700 dark:text-emerald-400">
+              <p className="text-emerald-700 dark:text-emerald-400">
                 Sin atraso de nuestra parte.
-              </span>
-            )}{' '}
-            {req.client_minutes > 0
-              ? `Las ${formatHabilLargo(req.client_minutes)} que esperamos tu respuesta extienden el plazo.`
-              : ''}
-          </p>
+              </p>
+            )}
+            {req.client_over > 0 ? (
+              <p className="text-gray-600 dark:text-gray-400">
+                Llevas {formatHabilLargo(req.client_over)} por encima de tu plazo de respuesta,
+                y eso extiende el nuestro.
+              </p>
+            ) : req.client_minutes > 0 ? (
+              <p className="text-gray-600 dark:text-gray-400">
+                Esperando tu respuesta desde hace {formatHabilLargo(req.client_minutes)}.
+              </p>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
