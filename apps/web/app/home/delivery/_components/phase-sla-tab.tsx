@@ -202,6 +202,7 @@ export function PhaseSlaTab(props: Props) {
     let tdx = 0;
     let cliente = 0;
     let tercero = 0;
+    let atrasoTdx = 0;
     let expuestos = 0;
 
     for (const r of reqs) {
@@ -209,6 +210,7 @@ export function PhaseSlaTab(props: Props) {
       tdx += Number(d.tdx_minutes ?? 0);
       cliente += Number(d.cliente_minutes ?? 0);
       tercero += Number(d.tercero_minutes ?? 0);
+      atrasoTdx += Number(d.tdx_over ?? 0);
       if (Number(d.exposed_over ?? 0) > 0) expuestos += 1;
     }
 
@@ -216,7 +218,7 @@ export function PhaseSlaTab(props: Props) {
       (r) => !['entregado', 'descartado'].includes(String(r.requirement_phase)),
     ).length;
 
-    return { tdx, cliente, tercero, expuestos, vivos };
+    return { tdx, cliente, tercero, atrasoTdx, expuestos, vivos };
   }, [reqs]);
 
   const pct = compliance?.delivery_pct as number | null | undefined;
@@ -280,11 +282,14 @@ export function PhaseSlaTab(props: Props) {
 
         <Card className="p-4">
           <p className="text-muted-foreground text-xs font-medium uppercase">
-            Atraso de TDX
+            Tiempo de TDX
           </p>
           <p className="mt-1 text-2xl font-bold tabular-nums">{formatHabil(resumen.tdx)}</p>
           <p className="text-muted-foreground mt-1 text-xs">
-            en fases nuestras
+            de trabajo en fases nuestras
+            {resumen.atrasoTdx > 0
+              ? ` · ${formatHabil(resumen.atrasoTdx)} de atraso`
+              : ' · sin atraso'}
           </p>
           {descuento !== null && descuento !== undefined && Number(descuento) > 0 ? (
             <p className="text-destructive mt-2 text-xs font-semibold">
@@ -295,11 +300,11 @@ export function PhaseSlaTab(props: Props) {
 
         <Card className="p-4">
           <p className="text-muted-foreground text-xs font-medium uppercase">
-            Atraso del cliente
+            Tiempo del cliente
           </p>
           <p className="mt-1 text-2xl font-bold tabular-nums">{formatHabil(resumen.cliente)}</p>
           <p className="text-muted-foreground mt-1 text-xs">
-            que extienden el plazo
+            esperando al cliente · extiende nuestro plazo
           </p>
           {resumen.tercero > 0 ? (
             <p className="text-muted-foreground mt-2 text-xs">
@@ -434,7 +439,7 @@ function WaitRow({
           >
             {formatHabil(dias)}
           </p>
-          <p className="text-muted-foreground text-[10px] uppercase">días</p>
+          <p className="text-muted-foreground text-[10px] uppercase">en espera</p>
         </div>
 
         <div className="min-w-0 flex-1">
@@ -543,6 +548,12 @@ function ReqRow({
   const tdx = Number(d.tdx_minutes ?? 0);
   const cli = Number(d.cliente_minutes ?? 0);
   const ter = Number(d.tercero_minutes ?? 0);
+  // El atraso real de TDX, se cobre o no.
+  const atrasoTdx = Number(d.tdx_over ?? 0);
+  // Lo que además expone crédito: solo cuenta en fases que lo generan
+  // (desarrollo). Decir «sin atraso» cuando esto es 0 era mentir: un
+  // requerimiento podía llevar 16 h de más en documentación y la pantalla
+  // afirmaba que no había atraso imputable.
   const expuesto = Number(d.exposed_over ?? 0);
   const fase = String(req.requirement_phase) as Fase;
   const terminal = ['entregado', 'descartado'].includes(fase);
@@ -598,7 +609,7 @@ function ReqRow({
             ) : null}
             {expuesto > 0 ? (
               <Badge variant="destructive" className="text-[10px]">
-                +{formatHabil(expuesto)} imputables a TDX
+                +{formatHabil(atrasoTdx)} de atraso nuestro
               </Badge>
             ) : null}
           </div>
@@ -682,15 +693,18 @@ function ReqRow({
             ) : null}
           </div>
           <p className="text-muted-foreground mt-1 text-[11px]">
-            {expuesto > 0 ? (
+            {atrasoTdx > 0 ? (
               <span className="text-destructive font-medium">
                 <AlertTriangle className="mr-1 inline h-3 w-3" />
-                {formatHabil(expuesto)} de atraso imputables a TDX.
+                {formatHabil(atrasoTdx)} de atraso nuestro
+                {expuesto > 0
+                  ? `, de los que ${formatHabil(expuesto)} exponen crédito.`
+                  : '. No expone crédito: el desarrollo no ha empezado.'}
               </span>
             ) : (
               <span>
                 <CheckCircle2 className="mr-1 inline h-3 w-3" />
-                Sin atraso imputable a TDX.
+                Sin atraso nuestro.
               </span>
             )}{' '}
             {cli > 0
