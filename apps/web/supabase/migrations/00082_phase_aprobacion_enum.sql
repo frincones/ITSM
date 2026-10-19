@@ -1,0 +1,21 @@
+-- ---------------------------------------------------------------------------
+-- 00082 · La fase «aprobación» entra al enum
+-- ---------------------------------------------------------------------------
+-- El tablero medía en un solo tramo tres cosas con dueños distintos: agendar
+-- la reunión, redactar el documento y que el cliente lo apruebe. Como la
+-- aprobación es donde más se atasca, no había forma de demostrar de quién fue
+-- la demora.
+--
+-- Va sola en su migración porque ADD VALUE no puede usarse en la misma
+-- transacción que lo crea: 00083 es la que lo usa.
+--
+-- ⚠ ESTO NO SE REVIERTE. Un valor de enum no se puede quitar sin recrear el
+-- tipo, y de él dependen cinco tablas —tickets, ticket_phase_log,
+-- phase_waits, delivery_phases, phase_sla_targets— y diez funciones. El
+-- rollback sería recrear el tipo y reescribir las cinco columnas.
+--
+-- IF NOT EXISTS lo hace idempotente, que es lo que lo salva de un despliegue
+-- repetido.
+-- ---------------------------------------------------------------------------
+
+ALTER TYPE requirement_phase ADD VALUE IF NOT EXISTS 'aprobacion' BEFORE 'accesos';

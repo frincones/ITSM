@@ -47,13 +47,19 @@ import {
   setPhaseAction,
   toggleTaskAction,
 } from '~/lib/actions/delivery';
+import type { RequirementPhase } from '~/lib/domain/delivery.domain';
 import { addTask, assignTicket, changeTicketStatus } from '~/lib/actions/tickets';
 
 type Row = Record<string, unknown>;
 
 const FASES = [
+  // `propuesto` faltaba: un ticket en esa fase hacía que el selector mostrara
+  // «Sin fase», afirmando algo falso, y cambiar algo desde aquí lo habría
+  // sobrescrito.
+  { v: 'propuesto', l: 'Por iniciar' },
   { v: 'levantamiento', l: 'Levantamiento' },
   { v: 'documentacion', l: 'Documentación' },
+  { v: 'aprobacion', l: 'Aprobación' },
   { v: 'accesos', l: 'Accesos' },
   { v: 'desarrollo', l: 'Desarrollo' },
   { v: 'uat', l: 'UAT' },
@@ -190,7 +196,7 @@ export function CardPanel(props: Props) {
                 disabled={props.bloqueado || guardando}
                 onValueChange={async (v) => {
                   setGuardando(true);
-                  const r = await setPhaseAction(props.ticketId, v as never);
+                  const r = await setPhaseAction(props.ticketId, v as RequirementPhase);
                   setGuardando(false);
                   if (r.error) setError(r.error);
                   else await refrescar();

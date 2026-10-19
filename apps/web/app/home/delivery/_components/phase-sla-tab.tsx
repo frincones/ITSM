@@ -61,6 +61,7 @@ const FASES = [
   'propuesto',
   'levantamiento',
   'documentacion',
+  'aprobacion',
   'accesos',
   'desarrollo',
   'uat',
@@ -75,6 +76,7 @@ const FASE_LABEL: Record<Fase, string> = {
   propuesto: 'Propuesto',
   levantamiento: 'Levantamiento',
   documentacion: 'Documentación',
+  aprobacion: 'Aprobación',
   accesos: 'Accesos',
   desarrollo: 'Desarrollo',
   uat: 'UAT',
@@ -86,8 +88,9 @@ const FASE_LABEL: Record<Fase, string> = {
 /** De quién es el reloj en cada fase. Igual que el catálogo de 00076. */
 const FASE_OWNER: Record<Fase, 'tdx' | 'cliente' | 'ninguno'> = {
   propuesto: 'cliente',
-  levantamiento: 'cliente',
+  levantamiento: 'tdx',
   documentacion: 'tdx',
+  aprobacion: 'cliente',
   accesos: 'cliente',
   desarrollo: 'tdx',
   uat: 'cliente',

@@ -874,11 +874,16 @@ export async function rejectProposal(
 // puede existir en un ticket de tipo backlog/desarrollo_pendiente, así que
 // nada de aquí puede alcanzar una fila de soporte.
 
-/** Las nueve fases del Anexo C, en orden de recorrido. */
+/** Las diez fases del Anexo C, en orden de recorrido. */
 export const REQUIREMENT_PHASES = [
   'propuesto',
   'levantamiento',
   'documentacion',
+  // El cliente aprueba el documento. Separada de `documentacion` porque son
+  // dos relojes de dueños distintos: lo que TDX tarda en redactar y lo que el
+  // cliente tarda en aprobar. Antes iban juntas y no se podía demostrar de
+  // quién fue la demora.
+  'aprobacion',
   'accesos',
   'desarrollo',
   'uat',
