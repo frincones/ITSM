@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
-import { BookOpen, FolderKanban, TicketIcon, User } from 'lucide-react';
+import { TicketIcon, User } from 'lucide-react';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@kit/ui/avatar';
 
@@ -76,29 +76,18 @@ export function PortalHeader({
           </span>
         </Link>
 
-        {/* Center: Nav links */}
+        {/* Solo «Mis tickets».
+            «Mi proyecto» sobraba —se enseña desde ahí mismo— y «Base de
+            conocimiento» competía con lo que el cliente viene a mirar. Este
+            se queda porque es la única vía para llegar a los tickets: sin él
+            habría que escribir la URL a mano. */}
         <nav className="hidden items-center gap-1 md:flex">
-          <Link
-            href={`${base}/kb`}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
-          >
-            <BookOpen className="h-4 w-4" />
-            Base de Conocimiento
-          </Link>
           <Link
             href={`${base}/tickets`}
             className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
           >
             <TicketIcon className="h-4 w-4" />
             Mis Tickets
-          </Link>
-          {/* Pide sesión: muestra el backlog y el consumo del contrato. */}
-          <Link
-            href={`${base}/proyecto`}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
-          >
-            <FolderKanban className="h-4 w-4" />
-            Mi Proyecto
           </Link>
         </nav>
 
