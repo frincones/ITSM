@@ -202,7 +202,13 @@ export function PhaseSlaTab(props: Props) {
     let tdx = 0;
     let cliente = 0;
     let tercero = 0;
+    // Lo que CADA PARTE se pasó de su plazo. Distinto del tiempo que lleva
+    // cada uno: el levantamiento no tiene plazo y no puede incumplir, pero
+    // sus horas están dentro de tdx. Confundirlos hacía que la tarjeta
+    // dijera «atraso de TDX: 4d» cuando el exceso real era la mitad.
     let atrasoTdx = 0;
+    let atrasoCliente = 0;
+    let expuesto = 0;
     let expuestos = 0;
 
     for (const r of reqs) {
@@ -211,6 +217,8 @@ export function PhaseSlaTab(props: Props) {
       cliente += Number(d.cliente_minutes ?? 0);
       tercero += Number(d.tercero_minutes ?? 0);
       atrasoTdx += Number(d.tdx_over ?? 0);
+      atrasoCliente += Number(d.cliente_over ?? 0);
+      expuesto += Number(d.exposed_over ?? 0);
       if (Number(d.exposed_over ?? 0) > 0) expuestos += 1;
     }
 
@@ -218,7 +226,7 @@ export function PhaseSlaTab(props: Props) {
       (r) => !['entregado', 'descartado'].includes(String(r.requirement_phase)),
     ).length;
 
-    return { tdx, cliente, tercero, atrasoTdx, expuestos, vivos };
+    return { tdx, cliente, tercero, atrasoTdx, atrasoCliente, expuesto, expuestos, vivos };
   }, [reqs]);
 
   const pct = compliance?.delivery_pct as number | null | undefined;
@@ -280,37 +288,79 @@ export function PhaseSlaTab(props: Props) {
           ) : null}
         </Card>
 
+        {/* Lo que NOS pasamos del plazo, no lo que llevamos trabajando.
+            La tarjeta decía «Atraso de TDX» sobre el tiempo trabajado: 4d
+            donde el exceso real eran 2d. El tiempo trabajado baja a
+            contexto, que es su sitio. */}
         <Card className="p-4">
           <p className="text-muted-foreground text-xs font-medium uppercase">
-            Tiempo de TDX
+            Nos pasamos
           </p>
-          <p className="mt-1 text-2xl font-bold tabular-nums">{formatHabil(resumen.tdx)}</p>
+          <p
+            className={`mt-1 text-2xl font-bold tabular-nums ${
+              resumen.atrasoTdx > 0 ? 'text-destructive' : ''
+            }`}
+          >
+            {resumen.atrasoTdx > 0 ? formatHabil(resumen.atrasoTdx) : '—'}
+          </p>
           <p className="text-muted-foreground mt-1 text-xs">
-            de trabajo en fases nuestras
             {resumen.atrasoTdx > 0
-              ? ` · ${formatHabil(resumen.atrasoTdx)} de atraso`
-              : ' · sin atraso'}
+              ? `de ${formatHabil(resumen.tdx)} trabajados`
+              : `${formatHabil(resumen.tdx)} trabajados, todo en plazo`}
           </p>
-          {descuento !== null && descuento !== undefined && Number(descuento) > 0 ? (
-            <p className="text-destructive mt-2 text-xs font-semibold">
-              Expone {cop(descuento)}
-            </p>
-          ) : null}
         </Card>
 
+        {/* Lo que SE pasó el cliente. No se mostraba en ninguna parte, y es
+            la cifra que sostiene la conversación: una cosa es cuánto
+            llevamos esperando y otra cuánto excede su plazo. */}
         <Card className="p-4">
           <p className="text-muted-foreground text-xs font-medium uppercase">
-            Tiempo del cliente
+            Se pasó el cliente
           </p>
-          <p className="mt-1 text-2xl font-bold tabular-nums">{formatHabil(resumen.cliente)}</p>
+          <p
+            className={`mt-1 text-2xl font-bold tabular-nums ${
+              resumen.atrasoCliente > 0 ? 'text-violet-600 dark:text-violet-400' : ''
+            }`}
+          >
+            {resumen.atrasoCliente > 0 ? formatHabil(resumen.atrasoCliente) : '—'}
+          </p>
           <p className="text-muted-foreground mt-1 text-xs">
-            esperando al cliente · extiende nuestro plazo
+            {resumen.atrasoCliente > 0
+              ? `de ${formatHabil(resumen.cliente)} esperando su respuesta`
+              : `${formatHabil(resumen.cliente)} esperando, dentro de plazo`}
           </p>
           {resumen.tercero > 0 ? (
             <p className="text-muted-foreground mt-2 text-xs">
               +{formatHabil(resumen.tercero)} de terceros
             </p>
           ) : null}
+        </Card>
+
+        {/* Lo único que cuesta dinero: el atraso nuestro en fases que generan
+            crédito. Separado a propósito de «nos pasamos», porque pasarse en
+            documentación no vale lo mismo que pasarse en desarrollo. */}
+        <Card className="p-4">
+          <p className="text-muted-foreground text-xs font-medium uppercase">
+            Expone
+          </p>
+          <p
+            className={`mt-1 text-2xl font-bold tabular-nums ${
+              resumen.expuesto > 0 ? 'text-destructive' : ''
+            }`}
+          >
+            {descuento !== null && descuento !== undefined && Number(descuento) > 0
+              ? cop(descuento)
+              : resumen.expuesto > 0
+                ? formatHabil(resumen.expuesto)
+                : '—'}
+          </p>
+          <p className="text-muted-foreground mt-1 text-xs">
+            {resumen.expuesto > 0
+              ? `${resumen.expuestos} requerimiento(s) con atraso en desarrollo`
+              : descuento === null || descuento === undefined
+                ? 'sin plan de entrega vigente'
+                : 'ningún atraso en fases que generan crédito'}
+          </p>
         </Card>
 
         <Card className="p-4">
