@@ -33,8 +33,13 @@ const EXIGIR = process.argv.includes('--esperado');
  */
 const BASE = {
   // support_cycle_compliance — el cumplimiento y el crédito (dinero)
-  measurable: 15,
-  met: 15,
+  // measurable y met suben juntos cuando Emma responde un ticket nuevo
+  // dentro de plazo: el 19-oct respondió TKT-2610-00781 a las 12:37 y las
+  // dos pasaron de 15 a 16. Que suban a la vez es la señal de que el
+  // cumplimiento sigue al 100%; si subiera `measurable` y no `met`, eso sí
+  // sería un incumplimiento y habría que mirarlo.
+  measurable: 16,
+  met: 16,
   breached: 0,
   compliance_pct: 100,
   credit_tickets: 0,
