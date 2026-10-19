@@ -103,6 +103,11 @@ interface Item {
   requirement_phase?: string | null;
   member_count?: number;
   members_done?: number;
+  /**
+   * false = este ticket es miembro de un grupo, no un entregable. Lo necesita
+   * el planning para no listar los 13 miembros junto a los 8 entregables.
+   */
+  is_deliverable?: boolean;
 }
 
 export interface DeliveryClientProps {
@@ -694,10 +699,19 @@ function VistaPlanning({
 
   if (loading) return <Cargando />;
 
-  // listCycleItems ya devuelve solo los ENTREGABLES de este ciclo, sin los
-  // miembros de un grupo. Filtrar otra vez por delivery_cycle_id dejaba la
-  // lista vacía cuando ese campo no venía en la fila.
-  const delCiclo = items;
+  // listCycleItems devuelve TODOS los tickets del ciclo, entregables y
+  // miembros de un grupo, porque el tablero necesita una tarjeta por ticket
+  // para poder asignar cada uno a un desarrollador distinto.
+  //
+  // El planning no: lista lo que se comprometió, y lo comprometido son los
+  // ENTREGABLES. Sin este filtro salían 21 filas en vez de 8, trece de ellas
+  // con 0 créditos y un botón «Sacar» que dejaba al miembro fuera del ciclo
+  // colgando de un padre que seguía dentro.
+  //
+  // Se compara con `!== false` y no con `=== true` a propósito: si una fila
+  // llegara sin el campo, se comporta como antes en vez de vaciar la lista.
+  // Ya hubo una regresión así al filtrar por delivery_cycle_id.
+  const delCiclo = items.filter((i) => i.is_deliverable !== false);
   const sobre = Boolean(status?.over_commitment);
 
   return (
