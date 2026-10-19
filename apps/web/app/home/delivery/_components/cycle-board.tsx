@@ -113,6 +113,13 @@ const cop = (n: unknown) =>
  */
 const COP_POR_CREDITO = 790714.29;
 
+/**
+ * Las columnas de la rejilla: el entregable y las 7 fases. La cabecera y
+ * todas las filas usan esta misma plantilla, que es lo que las mantiene
+ * alineadas sin medir nada.
+ */
+const COLUMNAS = `minmax(230px, 1.15fr) repeat(${CARRILES.length}, minmax(135px, 1fr))`;
+
 interface Props {
   cycleId: string | null;
   cycleStatus: Record<string, unknown> | null;
@@ -425,141 +432,189 @@ export function CycleBoard(props: Props) {
         </Card>
       ) : null}
 
-      {/* El tablero. Una banda por requerimiento, o una sola con todas. */}
-      <div className="space-y-3">
-        {bandas.length === 0 ? (
-          <Card className="text-muted-foreground p-8 text-center text-sm">
-            Este ciclo no tiene tickets asignados.
-          </Card>
-        ) : null}
+      {/* ------------------------------------------------------------------
+          El tablero, como el Taskboard de Azure DevOps: la fase se nombra UNA
+          vez arriba y cada banda es una fila que la cruza.
 
-        {bandas.map((banda) => {
-          const plegada = plegados.has(banda.id);
-          const d = (banda.cabecera?.delay ?? {}) as Record<string, number>;
-          const expuestoBanda = Number(d.exposed_over ?? 0);
+          Antes cada banda repetía las 7 cabeceras — con 4 bandas eran 28
+          cabeceras para 7 fases, y «Documentación» aparecía cuatro veces.
 
-          return (
-            <div key={banda.id}>
-              {/* La cabecera de la banda lleva el crédito y el avance del
-                  ENTREGABLE, porque es suyo el plazo, no de cada ticket. */}
-              {banda.titulo ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setPlegados((p) => {
-                      const n = new Set(p);
-                      if (n.has(banda.id)) n.delete(banda.id);
-                      else n.add(banda.id);
-                      return n;
-                    })
-                  }
-                  className="hover:bg-muted/50 mb-1.5 flex w-full items-center gap-2 rounded border px-2 py-1.5 text-left text-xs"
-                >
-                  {plegada ? (
-                    <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-                  ) : (
-                    <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-                  )}
-                  {banda.cabecera ? (
-                    <Layers className="h-3.5 w-3.5 shrink-0 text-violet-500" />
-                  ) : null}
-                  <span className="min-w-0 flex-1 truncate font-semibold">{banda.titulo}</span>
-                  {banda.cabecera ? (
-                    <>
-                      <Badge variant="outline" className="text-[9px]">
-                        {String(banda.cabecera.effort_size ?? '—')} ·{' '}
-                        {String(banda.cabecera.effort_points ?? 0)}cr
-                      </Badge>
-                      <Badge variant="outline" className="text-[9px]">
-                        <Users className="mr-0.5 inline h-2.5 w-2.5" />
-                        {String(banda.cabecera.members_done ?? 0)}/
-                        {String(banda.cabecera.member_count ?? 0)}
-                      </Badge>
-                      {expuestoBanda > 0 ? (
-                        <Badge variant="destructive" className="text-[9px]">
-                          +{expuestoBanda}d · {cop(expuestoBanda * COP_POR_CREDITO)}
-                        </Badge>
-                      ) : null}
-                    </>
-                  ) : null}
-                  <span className="text-muted-foreground font-mono text-[10px]">
-                    {banda.tickets.length} tkt
-                  </span>
-                </button>
-              ) : null}
-
-              {plegada ? null : (
-                <div className="flex gap-3 overflow-x-auto pb-2">
-                  {CARRILES.map((carril) => {
-                    const enCarril = banda.reparto[carril.fase] ?? [];
-                    const zona = `${banda.id}:${carril.fase}`;
-                    return (
-                      <div
-                        key={carril.fase}
-                        className={`flex w-60 shrink-0 flex-col rounded-md border ${
-                          sobre === zona ? 'border-primary bg-primary/5' : 'bg-card'
-                        }`}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          setSobre(zona);
-                        }}
-                        onDragLeave={() => setSobre(null)}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          setSobre(null);
-                          const id = arrastrando ?? e.dataTransfer.getData('text/plain');
-                          if (id) void mover(id, carril.fase);
-                          setArrastrando(null);
-                        }}
-                      >
-                        <div className="flex items-center gap-2 border-b px-3 py-2">
-                          <i className={`h-2 w-2 rounded-full ${OWNER_COLOR[carril.owner]}`} />
-                          <h3 className="flex-1 truncate text-xs font-semibold">
-                            {carril.nombre}
-                          </h3>
-                          <span className="text-muted-foreground font-mono text-[10px]">
-                            {enCarril.length}
-                          </span>
-                          <Badge variant="outline" className="text-[9px]">
-                            {OWNER_LABEL[carril.owner]}
-                          </Badge>
-                        </div>
-
-                        <div
-                          className={`flex flex-col gap-2 p-2 ${
-                            banda.titulo ? 'min-h-20' : 'min-h-36'
-                          }`}
-                        >
-                          {enCarril.length === 0 ? (
-                            <p className="text-muted-foreground py-4 text-center text-[11px] italic">
-                              —
-                            </p>
-                          ) : (
-                            enCarril.map((it) => (
-                              <Tarjeta
-                                key={String(it.id)}
-                                item={it}
-                                espera={esperaDe[String(it.id)]}
-                                moviendo={moviendo === String(it.id)}
-                                bloqueado={props.cycleClosed}
-                                densidad={densidad}
-                                // Dentro de una banda el padre ya está en la
-                                // cabecera: repetir la miga sería ruido.
-                                mostrarPadre={agrupar === 'ninguna'}
-                                onAbrir={() => setAbierta(String(it.id))}
-                                onDragStart={() => setArrastrando(String(it.id))}
-                              />
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+          La rejilla es una sola grid por fila con las mismas columnas que la
+          cabecera, así que todo queda alineado sin medir nada.
+          ------------------------------------------------------------------ */}
+      <div className="overflow-x-auto rounded-md border">
+        <div className="min-w-[1180px]">
+          {/* Las cabeceras, una sola vez. El número es de TODO el ciclo: antes
+              era por banda, y así no se podía leer la carga real. */}
+          <div
+            className="bg-card sticky top-0 z-10 grid border-b-2"
+            style={{ gridTemplateColumns: COLUMNAS }}
+          >
+            <div className="border-r px-3 py-2">
+              <h3 className="text-xs font-semibold">Entregable</h3>
+              <p className="text-muted-foreground text-[9px] uppercase tracking-wide">
+                lleva el reloj
+              </p>
             </div>
-          );
-        })}
+            {CARRILES.map((carril) => (
+              <div key={carril.fase} className="border-r px-3 py-2 last:border-r-0">
+                <div className="flex items-center gap-1.5">
+                  <i className={`h-2 w-2 shrink-0 rounded-full ${OWNER_COLOR[carril.owner]}`} />
+                  <h3 className="min-w-0 flex-1 truncate text-xs font-semibold">
+                    {carril.nombre}
+                  </h3>
+                  <span className="text-muted-foreground bg-muted rounded-full px-1.5 font-mono text-[10px] tabular-nums">
+                    {items.filter((i) => i.requirement_phase === carril.fase).length}
+                  </span>
+                </div>
+                <p className="text-muted-foreground text-[9px] uppercase tracking-wide">
+                  {OWNER_LABEL[carril.owner]}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {bandas.length === 0 ? (
+            <p className="text-muted-foreground p-8 text-center text-sm">
+              Este ciclo no tiene tickets asignados.
+            </p>
+          ) : null}
+
+          {bandas.map((banda) => {
+            const plegada = plegados.has(banda.id);
+            const d = (banda.cabecera?.delay ?? {}) as Record<string, number>;
+            const expuestoBanda = Number(d.exposed_over ?? 0);
+
+            return (
+              <div
+                key={banda.id}
+                className="grid border-b last:border-b-0"
+                style={{ gridTemplateColumns: COLUMNAS }}
+              >
+                {/* El entregable, fuera de los carriles: es suyo el plazo del
+                    Anexo C, no de cada ticket. Su TARJETA sigue estando en la
+                    columna de su fase, porque arrastrarla es la forma de mover
+                    el reloj. */}
+                <div className="bg-muted/40 border-r-2 px-3 py-2">
+                  {banda.titulo ? (
+                    <>
+                      <div className="flex items-start gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPlegados((p) => {
+                              const n = new Set(p);
+                              if (n.has(banda.id)) n.delete(banda.id);
+                              else n.add(banda.id);
+                              return n;
+                            })
+                          }
+                          className="text-muted-foreground hover:text-foreground mt-0.5 shrink-0"
+                          aria-expanded={!plegada}
+                          aria-label={plegada ? 'Desplegar' : 'Plegar'}
+                        >
+                          {plegada ? (
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                        {banda.cabecera ? (
+                          <Layers className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-500" />
+                        ) : null}
+                        <p className="min-w-0 flex-1 text-xs font-semibold leading-snug">
+                          {banda.titulo}
+                        </p>
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                        {banda.cabecera ? (
+                          <>
+                            <Badge variant="outline" className="text-[9px]">
+                              {String(banda.cabecera.effort_size ?? '—')} ·{' '}
+                              {String(banda.cabecera.effort_points ?? 0)}cr
+                            </Badge>
+                            <Badge variant="outline" className="text-[9px]">
+                              <Users className="mr-0.5 inline h-2.5 w-2.5" />
+                              {String(banda.cabecera.members_done ?? 0)}/
+                              {String(banda.cabecera.member_count ?? 0)}
+                            </Badge>
+                            {expuestoBanda > 0 ? (
+                              <Badge variant="destructive" className="text-[9px]">
+                                +{expuestoBanda}d · {cop(expuestoBanda * COP_POR_CREDITO)}
+                              </Badge>
+                            ) : null}
+                          </>
+                        ) : null}
+                        <span className="text-muted-foreground font-mono text-[10px]">
+                          {banda.tickets.length} tkt
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-muted-foreground text-xs">
+                      {banda.tickets.length} ticket{banda.tickets.length === 1 ? '' : 's'}
+                    </p>
+                  )}
+                </div>
+
+                {/* Las 7 celdas de la fila. Cada una es una zona de soltar. */}
+                {CARRILES.map((carril) => {
+                  const enCarril = plegada ? [] : (banda.reparto[carril.fase] ?? []);
+                  // Única por celda: con solo la fase se encenderían las siete
+                  // celdas de esa columna en todas las filas a la vez.
+                  const zona = `${banda.id}:${carril.fase}`;
+                  return (
+                    <div
+                      key={carril.fase}
+                      // min-h: una celda vacía sin altura no se puede soltar,
+                      // y a simple vista parece que está bien.
+                      className={`flex min-h-20 flex-col gap-2 border-r p-2 last:border-r-0 ${
+                        sobre === zona ? 'bg-primary/5 ring-primary ring-1 ring-inset' : ''
+                      }`}
+                      onDragOver={(e) => {
+                        // Sin esto el navegador no deja soltar en ningún sitio.
+                        e.preventDefault();
+                        setSobre(zona);
+                      }}
+                      onDragLeave={() => setSobre(null)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setSobre(null);
+                        // dataTransfer es el camino bueno cuando el estado de
+                        // React no llegó (pasa en Firefox).
+                        const id = arrastrando ?? e.dataTransfer.getData('text/plain');
+                        if (id) void mover(id, carril.fase);
+                        setArrastrando(null);
+                      }}
+                    >
+                      {plegada ? (
+                        <span className="text-muted-foreground/40 m-auto text-[11px]">·</span>
+                      ) : enCarril.length === 0 ? (
+                        <span className="text-muted-foreground/30 m-auto text-sm">·</span>
+                      ) : (
+                        enCarril.map((it) => (
+                          <Tarjeta
+                            key={String(it.id)}
+                            item={it}
+                            espera={esperaDe[String(it.id)]}
+                            moviendo={moviendo === String(it.id)}
+                            bloqueado={props.cycleClosed}
+                            densidad={densidad}
+                            // Dentro de una fila el entregable ya está a la
+                            // izquierda: repetirlo en cada tarjeta es ruido.
+                            mostrarPadre={agrupar === 'ninguna'}
+                            onAbrir={() => setAbierta(String(it.id))}
+                            onDragStart={() => setArrastrando(String(it.id))}
+                          />
+                        ))
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* El panel lateral: se gestiona el requerimiento como un ticket
