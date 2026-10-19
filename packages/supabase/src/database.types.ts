@@ -2786,6 +2786,7 @@ export type Database = {
           phase: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
           size: "S" | "M" | "L" | "XL" | null
           target_days: number
+          target_minutes: number
           effective_from: string
           effective_to: string | null
           created_at: string
@@ -2797,6 +2798,7 @@ export type Database = {
           phase: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
           size?: "S" | "M" | "L" | "XL" | null
           target_days: number
+          target_minutes: number
           effective_from?: string
           effective_to?: string | null
           created_at?: string
@@ -2808,6 +2810,7 @@ export type Database = {
           phase?: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
           size?: "S" | "M" | "L" | "XL" | null
           target_days?: number
+          target_minutes?: number
           effective_from?: string
           effective_to?: string | null
           created_at?: string
@@ -2829,7 +2832,9 @@ export type Database = {
           requested_at: string
           received_at: string | null
           target_days: number | null
+          target_minutes: number | null
           business_days: number | null
+          business_minutes: number | null
           previous_wait_id: string | null
           turn_number: number
           requested_by_user_id: string | null
@@ -2852,7 +2857,9 @@ export type Database = {
           requested_at?: string
           received_at?: string | null
           target_days?: number | null
+          target_minutes?: number | null
           business_days?: number | null
+          business_minutes?: number | null
           previous_wait_id?: string | null
           turn_number?: number
           requested_by_user_id?: string | null
@@ -2875,7 +2882,9 @@ export type Database = {
           requested_at?: string
           received_at?: string | null
           target_days?: number | null
+          target_minutes?: number | null
           business_days?: number | null
+          business_minutes?: number | null
           previous_wait_id?: string | null
           turn_number?: number
           requested_by_user_id?: string | null
@@ -4297,8 +4306,11 @@ export type Database = {
           entered_at: string
           exited_at: string | null
           business_days: number | null
+          business_minutes: number | null
           paused_days: number
+          paused_minutes: number
           target_days: number | null
+          target_minutes: number | null
           effort_size: "S" | "M" | "L" | "XL" | null
           entered_by_user_id: string | null
           entered_by_agent_id: string | null
@@ -4313,8 +4325,11 @@ export type Database = {
           entered_at?: string
           exited_at?: string | null
           business_days?: number | null
+          business_minutes?: number | null
           paused_days?: number
+          paused_minutes?: number
           target_days?: number | null
+          target_minutes?: number | null
           effort_size?: "S" | "M" | "L" | "XL" | null
           entered_by_user_id?: string | null
           entered_by_agent_id?: string | null
@@ -4329,8 +4344,11 @@ export type Database = {
           entered_at?: string
           exited_at?: string | null
           business_days?: number | null
+          business_minutes?: number | null
           paused_days?: number
+          paused_minutes?: number
           target_days?: number | null
+          target_minutes?: number | null
           effort_size?: "S" | "M" | "L" | "XL" | null
           entered_by_user_id?: string | null
           entered_by_agent_id?: string | null

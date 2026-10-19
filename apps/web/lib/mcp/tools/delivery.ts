@@ -483,7 +483,7 @@ registry.register({
 registry.register({
   name: 'requirements_list',
   description:
-    'Requerimientos de proyecto con su fase actual y el reparto de días de atraso por responsable. Devuelve `tdx_days`, `cliente_days` y `tercero_days` separados a propósito: un item con 11 días de espera del cliente y 1 nuestro no está "12 días tarde", y mezclarlos impide saber de quién es el atraso. `exposed_over` es lo único que puede costar dinero.',
+    'Requerimientos de proyecto con su fase actual y el reparto de días de atraso por responsable. Devuelve `tdx_minutes`, `cliente_minutes` y `tercero_days` separados a propósito: un item con 11 de espera del cliente y 1 nuestro no está "12 días tarde", y mezclarlos impide saber de quién es el atraso. `exposed_over` es lo único que puede costar dinero.',
   scope: 'projects:read',
   inputSchema: z.object({
     project_id: z.string().uuid().optional(),
@@ -527,7 +527,7 @@ registry.register({
 registry.register({
   name: 'requirements_phase_sla',
   description:
-    'Los tramos de fase de un requerimiento con sus días contra el plazo. `net_days` descuenta los días en espera, y es la cifra que se compara con el objetivo: es la implementación de la cláusula "los atrasos del cliente extienden el plazo de TDX día por día". Un `target_days` nulo significa que esa fase no tiene plazo definido (por ejemplo un despliegue, que depende del calendario de freeze), no que se cumpliera en cero días.',
+    'Los tramos de fase de un requerimiento con sus días contra el plazo. `net_minutes` descuenta el tiempo en espera, y es la cifra que se compara con el objetivo: es la implementación de la cláusula "los atrasos del cliente extienden el plazo de TDX día por día". Un `target_minutes` nulo significa que esa fase no tiene plazo definido (por ejemplo un despliegue, que depende del calendario de freeze), no que se cumpliera en cero días.',
   scope: 'projects:read',
   inputSchema: z.object({ ticket_id: z.string().uuid() }),
   meta: { since: '1.5.0', tags: ['projects', 'phases', 'read'] },
@@ -633,12 +633,12 @@ registry.register({
       .max(200)
       .optional()
       .describe('A quién concretamente, cuando se sabe (una persona, un banco, un proveedor)'),
-    target_days: z
+    target_minutes: z
       .number()
       .positive()
       .max(365)
       .optional()
-      .describe('Plazo del turno en días hábiles. Por defecto 1, el del ida y vuelta acordado'),
+      .describe('Plazo del turno en MINUTOS hábiles. Por defecto 480, que es una jornada de 8 horas'),
     previous_wait_id: z
       .string()
       .uuid()
@@ -655,7 +655,7 @@ registry.register({
           owed_by: input.owed_by,
           reason: input.reason,
           owed_by_name: input.owed_by_name ?? null,
-          target_days: input.target_days ?? null,
+          target_minutes: input.target_minutes ?? null,
           previous_wait_id: input.previous_wait_id ?? null,
         }),
       ),
