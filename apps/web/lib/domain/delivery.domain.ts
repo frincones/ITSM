@@ -1088,7 +1088,7 @@ export async function openWait(
     owed_by: 'cliente' | 'tercero' | 'tdx';
     reason: PauseReason;
     owed_by_name?: string | null;
-    target_days?: number | null;
+    target_minutes?: number | null;
     previous_wait_id?: string | null;
   },
 ): Promise<DomainResult<Record<string, unknown>>> {
@@ -1104,7 +1104,7 @@ export async function openWait(
     p_owed_by: input.owed_by,
     p_reason: input.reason,
     p_owed_by_name: input.owed_by_name ?? undefined,
-    p_target_days: input.target_days ?? undefined,
+    p_target_minutes: input.target_minutes ?? undefined,
     p_previous_wait_id: input.previous_wait_id ?? undefined,
     p_actor_agent_id: ctx.actor.agentId ?? undefined,
   });
@@ -1594,7 +1594,7 @@ export async function getCardDetail(
 
     client
       .from('phase_waits')
-      .select('id, what, owed_by, owed_by_name, reason, requested_at, received_at, target_days')
+      .select('id, what, owed_by, owed_by_name, reason, requested_at, received_at, target_minutes')
       .eq('ticket_id', ticketId)
       .order('requested_at', { ascending: false }),
 

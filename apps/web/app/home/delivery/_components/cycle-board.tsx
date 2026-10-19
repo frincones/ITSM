@@ -46,6 +46,7 @@ import {
 import { Badge } from '@kit/ui/badge';
 import { Button } from '@kit/ui/button';
 import { Card } from '@kit/ui/card';
+import { MINUTOS_JORNADA, formatHabil } from '~/lib/format/business-time';
 import { Input } from '@kit/ui/input';
 import { Label } from '@kit/ui/label';
 import {
@@ -132,6 +133,19 @@ const cop = (n: unknown) =>
  * de cuadrar entre sí.
  */
 const COP_POR_CREDITO = 790714.29;
+
+/**
+ * Lo que expone un atraso, en pesos.
+ *
+ * exposed_over viene en MINUTOS hábiles desde 00085. Antes eran días, y el
+ * cálculo era `exposed × COP_POR_CREDITO` a secas: si se hubiera dejado así,
+ * 3 días (que ahora son 1440 minutos) habrían pasado de $2,4 millones a
+ * $1.138 millones sin que nada fallara. La base tampoco lo validaría, porque
+ * credit_value_cop es NULL mientras billing_plans esté vacío.
+ */
+function pesosExpuestos(minutos: number): number {
+  return (minutos / MINUTOS_JORNADA) * COP_POR_CREDITO;
+}
 
 /**
  * Las dimensiones por las que se puede filtrar.
@@ -276,7 +290,7 @@ export function CycleBoard(props: Props) {
     const m: Record<string, Row> = {};
     for (const w of waits) {
       const id = String(w.ticket_id);
-      if (!m[id] || Number(w.waiting_days) > Number(m[id]!.waiting_days)) m[id] = w;
+      if (!m[id] || Number(w.waiting_minutes) > Number(m[id]!.waiting_minutes)) m[id] = w;
     }
     return m;
   }, [waits]);
@@ -934,7 +948,7 @@ export function CycleBoard(props: Props) {
                             </Badge>
                             {expuestoBanda > 0 ? (
                               <Badge variant="destructive" className="text-[9px]">
-                                +{expuestoBanda}d · {cop(expuestoBanda * COP_POR_CREDITO)}
+                                +{formatHabil(expuestoBanda)} · {cop(pesosExpuestos(expuestoBanda))}
                               </Badge>
                             ) : null}
                           </>
@@ -1077,9 +1091,9 @@ function Tarjeta({
 
   const d = (item.delay ?? {}) as Record<string, number>;
   const expuesto = Number(d.exposed_over ?? 0);
-  const tdx = Number(d.tdx_days ?? 0);
-  const cli = Number(d.cliente_days ?? 0);
-  const total = tdx + cli + Number(d.tercero_days ?? 0);
+  const tdx = Number(d.tdx_minutes ?? 0);
+  const cli = Number(d.cliente_minutes ?? 0);
+  const total = tdx + cli + Number(d.tercero_minutes ?? 0);
   const miembros = (item.members ?? []) as Row[];
   const listos = Number(item.members_done ?? 0);
   const esGrupo = miembros.length > 0;
@@ -1202,12 +1216,12 @@ function Tarjeta({
         ) : null}
         {expuesto > 0 && !esMiembro ? (
           <Badge variant="destructive" className="text-[9px]">
-            +{expuesto}d
+            +{formatHabil(expuesto)}
           </Badge>
         ) : null}
         {espera ? (
           <Badge variant="outline" className="border-violet-400 text-[9px]">
-            {String(espera.waiting_days)}d en espera
+            {formatHabil(Number(espera.waiting_minutes))} en espera
           </Badge>
         ) : null}
       </div>
@@ -1231,8 +1245,8 @@ function Tarjeta({
                 ) : null}
               </div>
               <p className="text-muted-foreground mt-1 font-mono text-[9px]">
-                {tdx}d TDX · {cli}d cliente
-                {expuesto > 0 ? ` · expone ${cop(expuesto * COP_POR_CREDITO)}` : ''}
+                {formatHabil(tdx)} TDX · {formatHabil(cli)} cliente
+                {expuesto > 0 ? ` · expone ${cop(pesosExpuestos(expuesto))}` : ''}
               </p>
             </>
           ) : (

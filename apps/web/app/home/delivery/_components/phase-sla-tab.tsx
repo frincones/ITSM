@@ -31,6 +31,7 @@ import {
 import { Badge } from '@kit/ui/badge';
 import { Button } from '@kit/ui/button';
 import { Card } from '@kit/ui/card';
+import { formatHabil } from '~/lib/format/business-time';
 import { Input } from '@kit/ui/input';
 import { Label } from '@kit/ui/label';
 import {
@@ -205,9 +206,9 @@ export function PhaseSlaTab(props: Props) {
 
     for (const r of reqs) {
       const d = (r.delay ?? {}) as Record<string, number>;
-      tdx += Number(d.tdx_days ?? 0);
-      cliente += Number(d.cliente_days ?? 0);
-      tercero += Number(d.tercero_days ?? 0);
+      tdx += Number(d.tdx_minutes ?? 0);
+      cliente += Number(d.cliente_minutes ?? 0);
+      tercero += Number(d.tercero_minutes ?? 0);
       if (Number(d.exposed_over ?? 0) > 0) expuestos += 1;
     }
 
@@ -281,9 +282,9 @@ export function PhaseSlaTab(props: Props) {
           <p className="text-muted-foreground text-xs font-medium uppercase">
             Atraso de TDX
           </p>
-          <p className="mt-1 text-2xl font-bold tabular-nums">{resumen.tdx}</p>
+          <p className="mt-1 text-2xl font-bold tabular-nums">{formatHabil(resumen.tdx)}</p>
           <p className="text-muted-foreground mt-1 text-xs">
-            días en fases nuestras
+            en fases nuestras
           </p>
           {descuento !== null && descuento !== undefined && Number(descuento) > 0 ? (
             <p className="text-destructive mt-2 text-xs font-semibold">
@@ -296,13 +297,13 @@ export function PhaseSlaTab(props: Props) {
           <p className="text-muted-foreground text-xs font-medium uppercase">
             Atraso del cliente
           </p>
-          <p className="mt-1 text-2xl font-bold tabular-nums">{resumen.cliente}</p>
+          <p className="mt-1 text-2xl font-bold tabular-nums">{formatHabil(resumen.cliente)}</p>
           <p className="text-muted-foreground mt-1 text-xs">
-            días que extienden el plazo
+            que extienden el plazo
           </p>
           {resumen.tercero > 0 ? (
             <p className="text-muted-foreground mt-2 text-xs">
-              +{resumen.tercero} de terceros
+              +{formatHabil(resumen.tercero)} de terceros
             </p>
           ) : null}
         </Card>
@@ -314,7 +315,7 @@ export function PhaseSlaTab(props: Props) {
           <p className="mt-1 text-2xl font-bold tabular-nums">{waits.length}</p>
           <p className="text-muted-foreground mt-1 text-xs">
             {waits.length
-              ? `la más antigua: ${waits[0]?.waiting_days ?? 0} días`
+              ? `la más antigua: ${formatHabil(Number(waits[0]?.waiting_minutes ?? 0))}`
               : 'nada pendiente'}
           </p>
         </Card>
@@ -416,9 +417,9 @@ function WaitRow({
   const [nota, setNota] = useState('');
   const [devolver, setDevolver] = useState('');
 
-  const dias = Number(wait.waiting_days ?? 0);
-  const plazo = wait.target_days as number | null;
-  const sobre = Number(wait.over_days ?? 0);
+  const dias = Number(wait.waiting_minutes ?? 0);
+  const plazo = wait.target_minutes as number | null;
+  const sobre = Number(wait.over_minutes ?? 0);
   const pausa = Boolean(wait.pauses_clock);
   const deQuien = String(wait.owed_by);
 
@@ -431,7 +432,7 @@ function WaitRow({
               sobre > 0 ? 'text-amber-600 dark:text-amber-400' : ''
             }`}
           >
-            {dias}
+            {formatHabil(dias)}
           </p>
           <p className="text-muted-foreground text-[10px] uppercase">días</p>
         </div>
@@ -453,7 +454,7 @@ function WaitRow({
             </Badge>
             {plazo !== null ? (
               <Badge variant="outline" className="text-[10px]">
-                plazo {plazo}d
+                plazo {formatHabil(plazo)}
               </Badge>
             ) : null}
             {!pausa ? (
@@ -463,7 +464,7 @@ function WaitRow({
             ) : null}
             {sobre > 0 ? (
               <Badge variant="destructive" className="text-[10px]">
-                +{sobre}d sobre el plazo
+                +{formatHabil(sobre)} sobre el plazo
               </Badge>
             ) : null}
           </div>
@@ -539,9 +540,9 @@ function ReqRow({
   const [abierto, setAbierto] = useState(false);
   const listos = miembros.filter((m) => m.member_done).length;
   const d = (req.delay ?? {}) as Record<string, number | string | null>;
-  const tdx = Number(d.tdx_days ?? 0);
-  const cli = Number(d.cliente_days ?? 0);
-  const ter = Number(d.tercero_days ?? 0);
+  const tdx = Number(d.tdx_minutes ?? 0);
+  const cli = Number(d.cliente_minutes ?? 0);
+  const ter = Number(d.tercero_minutes ?? 0);
   const expuesto = Number(d.exposed_over ?? 0);
   const fase = String(req.requirement_phase) as Fase;
   const terminal = ['entregado', 'descartado'].includes(fase);
@@ -597,7 +598,7 @@ function ReqRow({
             ) : null}
             {expuesto > 0 ? (
               <Badge variant="destructive" className="text-[10px]">
-                +{expuesto}d imputables a TDX
+                +{formatHabil(expuesto)} imputables a TDX
               </Badge>
             ) : null}
           </div>
@@ -656,27 +657,27 @@ function ReqRow({
               <div
                 className="flex items-center justify-center bg-violet-500 text-[10px] font-medium text-white"
                 style={{ width: `${(cli / total) * 100}%` }}
-                title={`${cli} días del cliente`}
+                title={`${formatHabil(cli)} del cliente`}
               >
-                {cli / total > 0.14 ? `${cli}d cliente` : ''}
+                {cli / total > 0.2 ? `${formatHabil(cli)} cliente` : ''}
               </div>
             ) : null}
             {ter > 0 ? (
               <div
                 className="flex items-center justify-center bg-slate-400 text-[10px] font-medium text-white"
                 style={{ width: `${(ter / total) * 100}%` }}
-                title={`${ter} días de terceros`}
+                title={`${formatHabil(ter)} de terceros`}
               >
-                {ter / total > 0.14 ? `${ter}d 3ro` : ''}
+                {ter / total > 0.2 ? `${formatHabil(ter)} 3ro` : ''}
               </div>
             ) : null}
             {tdx > 0 ? (
               <div
                 className="flex items-center justify-center bg-sky-700 text-[10px] font-medium text-white"
                 style={{ width: `${(tdx / total) * 100}%` }}
-                title={`${tdx} días de TDX`}
+                title={`${formatHabil(tdx)} de TDX`}
               >
-                {tdx / total > 0.14 ? `${tdx}d TDX` : ''}
+                {tdx / total > 0.2 ? `${formatHabil(tdx)} TDX` : ''}
               </div>
             ) : null}
           </div>
@@ -684,7 +685,7 @@ function ReqRow({
             {expuesto > 0 ? (
               <span className="text-destructive font-medium">
                 <AlertTriangle className="mr-1 inline h-3 w-3" />
-                {expuesto} día(s) de atraso imputables a TDX.
+                {formatHabil(expuesto)} de atraso imputables a TDX.
               </span>
             ) : (
               <span>
@@ -693,7 +694,7 @@ function ReqRow({
               </span>
             )}{' '}
             {cli > 0
-              ? `Los ${cli} días del cliente extienden nuestro plazo día por día.`
+              ? `Los ${formatHabil(cli)} del cliente extienden nuestro plazo.`
               : ''}
           </p>
         </div>

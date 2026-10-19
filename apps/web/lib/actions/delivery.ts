@@ -295,7 +295,7 @@ export async function openWaitAction(input: {
   owed_by: 'cliente' | 'tercero' | 'tdx';
   reason: PauseReason;
   owed_by_name?: string | null;
-  target_days?: number | null;
+  target_minutes?: number | null;
   previous_wait_id?: string | null;
 }) {
   return run((ctx) => domainOpenWait(ctx, input), RUTA);

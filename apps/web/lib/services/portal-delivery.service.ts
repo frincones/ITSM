@@ -350,11 +350,11 @@ export interface PortalPhaseSpan {
   entered_at: string;
   exited_at: string | null;
   is_open: boolean;
-  business_days: number | null;
-  paused_days: number;
-  net_days: number | null;
-  target_days: number | null;
-  over_days: number | null;
+  business_minutes: number | null;
+  paused_minutes: number;
+  net_minutes: number | null;
+  target_minutes: number | null;
+  over_minutes: number | null;
   breached: boolean | null;
 }
 
@@ -367,9 +367,9 @@ export interface PortalRequirement {
   effort_size: string | null;
   effort_points: number | null;
   /** Días netos de cada parte. Separados a propósito: son dos historias. */
-  tdx_days: number;
-  client_days: number;
-  third_party_days: number;
+  tdx_minutes: number;
+  client_minutes: number;
+  third_party_minutes: number;
   /** Atraso imputable a TDX en una fase que genera descuento. */
   tdx_over: number;
   client_over: number;
@@ -384,21 +384,21 @@ export interface PortalWait {
   what: string;
   owed_by: string;
   requested_at: string;
-  waiting_days: number;
-  target_days: number | null;
-  over_days: number | null;
+  waiting_minutes: number;
+  target_minutes: number | null;
+  over_minutes: number | null;
   turn_number: number;
 }
 
 export interface PortalDelaySummary {
   open_requirements: number;
-  tdx_delay_days: number;
-  client_delay_days: number;
-  third_party_days: number;
+  tdx_delay_minutes: number;
+  client_delay_minutes: number;
+  third_party_minutes: number;
   exposed_credits: number;
   items_at_risk: number;
   open_waits: number;
-  oldest_wait_days: number;
+  oldest_wait_minutes: number;
 }
 
 /**
@@ -449,7 +449,7 @@ export async function getPortalRequirements(
 
       const spans = ((spanRes.data ?? []) as unknown as PortalPhaseSpan[]).map((s) => ({
         ...s,
-        paused_days: Number(s.paused_days ?? 0),
+        paused_minutes: Number(s.paused_minutes ?? 0),
       }));
 
       return {
@@ -460,9 +460,9 @@ export async function getPortalRequirements(
         phase: t.requirement_phase,
         effort_size: t.effort_size,
         effort_points: t.effort_points,
-        tdx_days: Number(d?.tdx_days ?? 0),
-        client_days: Number(d?.cliente_days ?? 0),
-        third_party_days: Number(d?.tercero_days ?? 0),
+        tdx_minutes: Number(d?.tdx_minutes ?? 0),
+        client_minutes: Number(d?.cliente_minutes ?? 0),
+        third_party_minutes: Number(d?.tercero_minutes ?? 0),
         tdx_over: Number(d?.tdx_over ?? 0),
         client_over: Number(d?.cliente_over ?? 0),
         spans,
@@ -500,9 +500,9 @@ export async function getPortalWaits(organizationId: string): Promise<PortalWait
     what: String(w.what),
     owed_by: String(w.owed_by),
     requested_at: String(w.requested_at),
-    waiting_days: Number(w.waiting_days ?? 0),
-    target_days: w.target_days === null ? null : Number(w.target_days),
-    over_days: w.over_days === null ? null : Number(w.over_days),
+    waiting_minutes: Number(w.waiting_minutes ?? 0),
+    target_minutes: w.target_minutes === null ? null : Number(w.target_minutes),
+    over_minutes: w.over_minutes === null ? null : Number(w.over_minutes),
     turn_number: Number(w.turn_number ?? 1),
   }));
 }
@@ -523,13 +523,13 @@ export async function getPortalDelaySummary(
 
   return {
     open_requirements: Number(r?.open_requirements ?? 0),
-    tdx_delay_days: Number(r?.tdx_delay_days ?? 0),
-    client_delay_days: Number(r?.client_delay_days ?? 0),
-    third_party_days: Number(r?.third_party_days ?? 0),
+    tdx_delay_minutes: Number(r?.tdx_delay_minutes ?? 0),
+    client_delay_minutes: Number(r?.client_delay_minutes ?? 0),
+    third_party_minutes: Number(r?.third_party_minutes ?? 0),
     exposed_credits: Number(r?.exposed_credits ?? 0),
     items_at_risk: Number(r?.items_at_risk ?? 0),
     open_waits: Number(r?.open_waits ?? 0),
-    oldest_wait_days: Number(r?.oldest_wait_days ?? 0),
+    oldest_wait_minutes: Number(r?.oldest_wait_minutes ?? 0),
   };
 }
 

@@ -33,8 +33,13 @@ const EXIGIR = process.argv.includes('--esperado');
  */
 const BASE = {
   // support_cycle_compliance — el cumplimiento y el crédito (dinero)
-  measurable: 15,
-  met: 15,
+  // measurable y met suben juntos cuando Emma responde un ticket nuevo
+  // dentro de plazo: el 19-oct respondió TKT-2610-00781 a las 12:37 y las
+  // dos pasaron de 15 a 16. Que suban a la vez es la señal de que el
+  // cumplimiento sigue al 100%; si subiera `measurable` y no `met`, eso sí
+  // sería un incumplimiento y habría que mirarlo.
+  measurable: 16,
+  met: 16,
   breached: 0,
   compliance_pct: 100,
   credit_tickets: 0,
@@ -53,12 +58,19 @@ const BASE = {
   // credit_cop, consumed y quota.
   excluded_count: 52,
   // support_cycle_usage — la cuota (dinero)
-  consumed: 15,
+  //
+  // Re-basada el 19-oct-2026 de 15 a 17: entraron TKT-2610-00780 y 00781,
+  // dos tickets de soporte normales del día (12:13 y 12:20). No los provocó
+  // ninguna migración — se comprobó que son de tipo support, sin fase de
+  // proyecto y sin ciclo, y que la migración 00084 no hace UPDATE sobre
+  // tickets. La guarda hizo justo lo que debía: avisar de que una cifra de
+  // soporte se movió, para mirarla antes de seguir.
+  consumed: 17,
   quota: 30,
   overage: 0,
   excluded_bad_dates: 7,
   // El universo de tickets con SLA, por tipo
-  sla_support: 15,
+  sla_support: 17,
   sla_otros: 0,
 };
 

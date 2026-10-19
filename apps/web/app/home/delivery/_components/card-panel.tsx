@@ -38,6 +38,7 @@ import {
   FollowersPanel,
   type FollowerRow,
 } from '../../tickets/[id]/_components/followers-panel';
+import { formatHabil } from '~/lib/format/business-time';
 import { ReplyComposer } from '../../tickets/[id]/_components/reply-composer';
 import {
   cardDetailAction,
@@ -356,24 +357,24 @@ export function CardPanel(props: Props) {
                     </span>
                   </div>
 
-                  {tramo.target_days ? (
+                  {tramo.target_minutes ? (
                     <>
                       <div className="bg-muted mt-2 h-2 overflow-hidden rounded">
                         <div
                           className={`h-full ${tramo.breached ? 'bg-destructive' : 'bg-sky-600'}`}
                           style={{
                             width: `${Math.min(
-                              (Number(tramo.net_days ?? 0) / Number(tramo.target_days)) * 100,
+                              (Number(tramo.net_minutes ?? 0) / Number(tramo.target_minutes)) * 100,
                               100,
                             )}%`,
                           }}
                         />
                       </div>
                       <p className="text-muted-foreground mt-1.5 text-xs">
-                        {String(tramo.net_days ?? 0)} de {String(tramo.target_days)} días
-                        hábiles
-                        {Number(tramo.paused_days ?? 0) > 0
-                          ? ` · ${String(tramo.paused_days)} en espera`
+                        {formatHabil(Number(tramo.net_minutes ?? 0))} de{' '}
+                        {formatHabil(Number(tramo.target_minutes))} hábiles
+                        {Number(tramo.paused_minutes ?? 0) > 0
+                          ? ` · ${formatHabil(Number(tramo.paused_minutes))} en espera`
                           : ''}
                         {tramo.breached ? ' · plazo superado' : ''}
                       </p>
@@ -541,7 +542,7 @@ export function CardPanel(props: Props) {
                               </td>
                               <td className="p-2">{OWNER[String(f.owner)] ?? '—'}</td>
                               <td className="p-2 text-right tabular-nums">
-                                {String(f.net_days ?? '—')}d
+                                {formatHabil(f.net_minutes as number | null)}
                               </td>
                               {padre ? null : (
                                 <td
@@ -549,7 +550,9 @@ export function CardPanel(props: Props) {
                                     f.breached ? 'text-destructive font-medium' : ''
                                   }`}
                                 >
-                                  {f.target_days ? `${String(f.target_days)}d` : 'sin plazo'}
+                                  {f.target_minutes
+                                    ? formatHabil(f.target_minutes as number)
+                                    : 'sin plazo'}
                                 </td>
                               )}
                             </tr>
@@ -590,10 +593,11 @@ function Espera({
   const [ocupado, setOcupado] = useState(false);
 
   if (abierta) {
-    const dias = Math.max(
-      0,
-      Math.round((Date.now() - new Date(String(abierta.requested_at)).getTime()) / 864e5),
-    );
+    // Antes esto se calculaba aquí dividiendo por 864e5 —días de calendario,
+    // con sábados y domingos dentro— y discrepaba del backend: una espera
+    // abierta un viernes se veía «3 días» en este panel y «1 día» en el
+    // portal. Ahora se lee el valor hábil que ya calcula la base.
+    const espera = formatHabil(Number(abierta.waiting_minutes ?? 0));
     return (
       <div className="mt-3 rounded border border-violet-400/60 bg-violet-50 p-2.5 dark:bg-violet-950/20">
         <p className="flex items-center gap-1.5 text-xs font-medium">
@@ -601,7 +605,7 @@ function Espera({
           {String(abierta.what)}
         </p>
         <p className="text-muted-foreground mt-1 text-[11px]">
-          {dias} día(s) · a cargo de {OWNER[String(abierta.owed_by)] ?? String(abierta.owed_by)}
+          {espera} · a cargo de {OWNER[String(abierta.owed_by)] ?? String(abierta.owed_by)}
           {abierta.owed_by_name ? ` (${String(abierta.owed_by_name)})` : ''}
         </p>
         {!bloqueado ? (
