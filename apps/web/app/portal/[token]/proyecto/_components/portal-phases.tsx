@@ -92,6 +92,7 @@ interface Props {
 const FASE_CORTA: Record<string, string> = {
   propuesto: 'Propuesto',
   levantamiento: 'Levantamiento',
+  aprobacion: 'Aprobación',
   documentacion: 'Documentación',
   accesos: 'Accesos',
   desarrollo: 'Desarrollo',
@@ -105,6 +106,7 @@ const FASE_CORTA: Record<string, string> = {
 const LINEA = [
   'levantamiento',
   'documentacion',
+  'aprobacion',
   'accesos',
   'desarrollo',
   'uat',
