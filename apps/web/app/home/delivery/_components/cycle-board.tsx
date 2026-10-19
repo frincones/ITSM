@@ -80,8 +80,14 @@ const CARRILES = [
   // tiene que decir lo que dice la base. Pero SIN PLAZO: acumula días y no
   // puede incumplir, que es justo lo que hace falta mientras no arranca.
   { fase: 'propuesto', nombre: 'Por iniciar', owner: 'cliente' },
-  { fase: 'levantamiento', nombre: 'Levantamiento', owner: 'cliente' },
+  // La reunión de levantamiento la convoca TDX, no el cliente. Estaba como
+  // 'cliente' desde 00076 y los días se le imputaban a la parte equivocada.
+  // Sin plazo: agendar no es un tramo que medir.
+  { fase: 'levantamiento', nombre: 'Levantamiento', owner: 'tdx' },
   { fase: 'documentacion', nombre: 'Documentación', owner: 'tdx' },
+  // Lo que tarda el CLIENTE en aprobar el documento. Separada de
+  // documentación porque son dos relojes con dueños distintos.
+  { fase: 'aprobacion', nombre: 'Aprobación', owner: 'cliente' },
   { fase: 'accesos', nombre: 'Accesos', owner: 'cliente' },
   { fase: 'desarrollo', nombre: 'Desarrollo', owner: 'tdx' },
   { fase: 'uat', nombre: 'UAT', owner: 'cliente' },
@@ -187,6 +193,21 @@ const DIMENSIONES: Array<{
  * alineadas sin medir nada.
  */
 const COLUMNAS = `minmax(230px, 1.15fr) repeat(${CARRILES.length}, minmax(135px, 1fr))`;
+
+/**
+ * Las fases que NO tienen plazo: están en el tablero pero su reloj no puede
+ * incumplir. Sin esto la cabecera diría «TDX» o «Cliente» insinuando un plazo
+ * que no existe.
+ */
+const SIN_PLAZO = new Set<string>(['propuesto', 'levantamiento']);
+
+/**
+ * El ancho mínimo, derivado de los carriles en vez de escrito a mano.
+ * Estaba fijo en 1180px cuando las ocho columnas ya pedían 1310, así que se
+ * comprimían por debajo de su minmax y los títulos se cortaban. Al añadir la
+ * novena habría empeorado.
+ */
+const ANCHO_MINIMO = 230 + CARRILES.length * 135;
 
 interface Props {
   cycleId: string | null;
@@ -426,7 +447,7 @@ export function CycleBoard(props: Props) {
 
   async function mover(ticketId: string, fase: Fase) {
     setMoviendo(ticketId);
-    const r = await setPhaseAction(ticketId, fase as never);
+    const r = await setPhaseAction(ticketId, fase);
     setMoviendo(null);
     if (r.error) setError(r.error);
     else await cargar();
@@ -454,7 +475,7 @@ export function CycleBoard(props: Props) {
     const fallos: string[] = [];
 
     for (const t of grupo.tickets) {
-      const r = await setPhaseAction(String(t.id), fase as never);
+      const r = await setPhaseAction(String(t.id), fase);
       if (r.error) fallos.push(`${String(t.ticket_number)}: ${r.error}`);
       else hechos++;
     }
@@ -810,7 +831,7 @@ export function CycleBoard(props: Props) {
           cabecera, así que todo queda alineado sin medir nada.
           ------------------------------------------------------------------ */}
       <div className="overflow-x-auto rounded-md border">
-        <div className="min-w-[1180px]">
+        <div style={{ minWidth: `${ANCHO_MINIMO}px` }}>
           {/* Las cabeceras, una sola vez. El número es de TODO el ciclo: antes
               era por banda, y así no se podía leer la carga real. */}
           <div
@@ -837,7 +858,7 @@ export function CycleBoard(props: Props) {
                 <p className="text-muted-foreground text-[9px] uppercase tracking-wide">
                   {/* Sin esto, «Por iniciar» parecería un carril con plazo
                       como los demás, y es justo lo contrario. */}
-                  {carril.fase === 'propuesto' ? 'sin plazo' : OWNER_LABEL[carril.owner]}
+                  {SIN_PLAZO.has(carril.fase) ? 'sin plazo' : OWNER_LABEL[carril.owner]}
                 </p>
               </div>
             ))}

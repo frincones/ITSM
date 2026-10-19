@@ -1216,7 +1216,7 @@ export type Database = {
         Row: {
           id: string
           tenant_id: string
-          phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          phase: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
           sort_order: number
           name: string
           owner: string
@@ -1227,7 +1227,7 @@ export type Database = {
         Insert: {
           id?: string
           tenant_id: string
-          phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          phase: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
           sort_order: number
           name: string
           owner: string
@@ -1238,7 +1238,7 @@ export type Database = {
         Update: {
           id?: string
           tenant_id?: string
-          phase?: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          phase?: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
           sort_order?: number
           name?: string
           owner?: string
@@ -2783,7 +2783,7 @@ export type Database = {
           id: string
           tenant_id: string
           organization_id: string | null
-          phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          phase: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
           size: "S" | "M" | "L" | "XL" | null
           target_days: number
           effective_from: string
@@ -2794,7 +2794,7 @@ export type Database = {
           id?: string
           tenant_id: string
           organization_id?: string | null
-          phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          phase: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
           size?: "S" | "M" | "L" | "XL" | null
           target_days: number
           effective_from?: string
@@ -2805,7 +2805,7 @@ export type Database = {
           id?: string
           tenant_id?: string
           organization_id?: string | null
-          phase?: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          phase?: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
           size?: "S" | "M" | "L" | "XL" | null
           target_days?: number
           effective_from?: string
@@ -2820,7 +2820,7 @@ export type Database = {
           tenant_id: string
           ticket_id: string
           phase_log_id: string | null
-          phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          phase: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
           what: string
           owed_by: string
           owed_by_name: string | null
@@ -2843,7 +2843,7 @@ export type Database = {
           tenant_id: string
           ticket_id: string
           phase_log_id?: string | null
-          phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          phase: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
           what: string
           owed_by: string
           owed_by_name?: string | null
@@ -2866,7 +2866,7 @@ export type Database = {
           tenant_id?: string
           ticket_id?: string
           phase_log_id?: string | null
-          phase?: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          phase?: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
           what?: string
           owed_by?: string
           owed_by_name?: string | null
@@ -3286,7 +3286,7 @@ export type Database = {
           requirement_title: string | null
           requirement_size: "S" | "M" | "L" | "XL" | null
           requirement_points: number | null
-          requirement_phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado" | null
+          requirement_phase: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado" | null
           delivery_cycle_id: string | null
           organization_id: string | null
           tenant_id: string | null
@@ -3304,7 +3304,7 @@ export type Database = {
           requirement_title?: string | null
           requirement_size?: "S" | "M" | "L" | "XL" | null
           requirement_points?: number | null
-          requirement_phase?: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado" | null
+          requirement_phase?: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado" | null
           delivery_cycle_id?: string | null
           organization_id?: string | null
           tenant_id?: string | null
@@ -3322,7 +3322,7 @@ export type Database = {
           requirement_title?: string | null
           requirement_size?: "S" | "M" | "L" | "XL" | null
           requirement_points?: number | null
-          requirement_phase?: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado" | null
+          requirement_phase?: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado" | null
           delivery_cycle_id?: string | null
           organization_id?: string | null
           tenant_id?: string | null
@@ -4292,7 +4292,7 @@ export type Database = {
           id: string
           tenant_id: string
           ticket_id: string
-          phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          phase: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
           owner: string
           entered_at: string
           exited_at: string | null
@@ -4308,7 +4308,7 @@ export type Database = {
           id?: string
           tenant_id: string
           ticket_id: string
-          phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          phase: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
           owner: string
           entered_at?: string
           exited_at?: string | null
@@ -4324,7 +4324,7 @@ export type Database = {
           id?: string
           tenant_id?: string
           ticket_id?: string
-          phase?: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
+          phase?: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado"
           owner?: string
           entered_at?: string
           exited_at?: string | null
@@ -4763,7 +4763,7 @@ export type Database = {
           proposed_at: string | null
           triaged_at: string | null
           triaged_by: string | null
-          requirement_phase: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado" | null
+          requirement_phase: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado" | null
         }
         Insert: {
           id?: string
@@ -4835,7 +4835,7 @@ export type Database = {
           proposed_at?: string | null
           triaged_at?: string | null
           triaged_by?: string | null
-          requirement_phase?: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado" | null
+          requirement_phase?: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado" | null
         }
         Update: {
           id?: string
@@ -4907,7 +4907,7 @@ export type Database = {
           proposed_at?: string | null
           triaged_at?: string | null
           triaged_by?: string | null
-          requirement_phase?: "propuesto" | "levantamiento" | "documentacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado" | null
+          requirement_phase?: "propuesto" | "levantamiento" | "documentacion" | "aprobacion" | "accesos" | "desarrollo" | "uat" | "despliegue" | "entregado" | "descartado" | null
         }
         Relationships: []
       }
