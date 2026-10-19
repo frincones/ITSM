@@ -51,12 +51,23 @@ const HISTORIAL = [
     ],
   },
   {
-    // Mismo levantamiento y misma HU que el anterior.
+    // MISMA reunión y MISMA HU que el anterior: una sola, no dos.
+    //
+    // Por eso aquí NO se repiten levantamiento ni documentación. Cargarlos en
+    // los dos sumaba 16,1h de atraso dos veces y el ciclo decía 32,2h de TDX
+    // por un trabajo que se hizo una vez — un dato indefendible ante el
+    // cliente, y que además nos perjudica.
+    //
+    // El tiempo vive en «Captura por WhatsApp y QR», que es el de 4 créditos:
+    // si alguien audita por qué la documentación tardó 25 horas, el tiempo
+    // está donde está el peso del trabajo.
+    //
+    // Siguen separados porque valen distinto —L/4cr y M/2cr— y agruparlos
+    // bajo un padre exigiría una talla de 6 créditos que la escala de Podenza
+    // no tiene (S=1, M=2, L=4).
     ticket: 'TKT-2610-00741',
     nombre: 'R2 · Validación y enrutamiento WhatsApp',
     tramos: [
-      ['levantamiento', 'tdx', null, '2026-10-14 14:43', '2026-10-14 15:43'],
-      ['documentacion', 'tdx', 480, '2026-10-14 15:43', '2026-10-19 15:52'],
       ['aprobacion', 'cliente', 480, '2026-10-19 15:52', null],
     ],
   },
