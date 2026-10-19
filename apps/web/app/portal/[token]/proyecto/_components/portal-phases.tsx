@@ -21,16 +21,17 @@
 // ---------------------------------------------------------------------------
 
 import { useMemo, useState } from 'react';
+import { formatHabil, formatHabilDoble, formatHabilLargo } from '~/lib/format/business-time';
 
 export interface PhaseSpan {
   phase: string;
   owner: string;
   is_open: boolean;
-  business_days: number | null;
-  paused_days: number;
-  net_days: number | null;
-  target_days: number | null;
-  over_days: number | null;
+  business_minutes: number | null;
+  paused_minutes: number;
+  net_minutes: number | null;
+  target_minutes: number | null;
+  over_minutes: number | null;
   breached: boolean | null;
 }
 
@@ -41,9 +42,9 @@ export interface PhaseRequirement {
   phase: string | null;
   effort_size: string | null;
   effort_points: number | null;
-  tdx_days: number;
-  client_days: number;
-  third_party_days: number;
+  tdx_minutes: number;
+  client_minutes: number;
+  third_party_minutes: number;
   tdx_over: number;
   client_over: number;
   spans: PhaseSpan[];
@@ -56,9 +57,9 @@ export interface PhaseWait {
   phase: string;
   what: string;
   owed_by: string;
-  waiting_days: number;
-  target_days: number | null;
-  over_days: number | null;
+  waiting_minutes: number;
+  target_minutes: number | null;
+  over_minutes: number | null;
   turn_number: number;
 }
 
@@ -72,11 +73,11 @@ export interface PhaseMember {
 
 export interface PhaseSummary {
   open_requirements: number;
-  tdx_delay_days: number;
-  client_delay_days: number;
-  third_party_days: number;
+  tdx_delay_minutes: number;
+  client_delay_minutes: number;
+  third_party_minutes: number;
   open_waits: number;
-  oldest_wait_days: number;
+  oldest_wait_minutes: number;
 }
 
 interface Props {
@@ -145,7 +146,7 @@ export function PortalPhases(props: Props) {
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="font-medium">Lo que esperamos de ti</h2>
             <span className="text-xs text-gray-600 dark:text-gray-400">
-              {props.summary.client_delay_days} día(s) hábiles acumulados
+              {formatHabilLargo(props.summary.client_delay_minutes)} acumuladas
             </span>
           </div>
           <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
@@ -161,14 +162,14 @@ export function PortalPhases(props: Props) {
                 <div className="min-w-12 text-center">
                   <p
                     className={`text-xl font-bold tabular-nums ${
-                      (w.over_days ?? 0) > 0
+                      (w.over_minutes ?? 0) > 0
                         ? 'text-amber-600 dark:text-amber-400'
                         : 'text-violet-700 dark:text-violet-300'
                     }`}
                   >
-                    {w.waiting_days}
+                    {formatHabil(w.waiting_minutes)}
                   </p>
-                  <p className="text-[10px] uppercase text-gray-500">días</p>
+                  <p className="text-[10px] uppercase text-gray-500">hábiles</p>
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium">{w.what}</p>
@@ -179,9 +180,9 @@ export function PortalPhases(props: Props) {
                     <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-700 dark:bg-gray-800 dark:text-gray-300">
                       {nombreFase[w.phase] ?? w.phase}
                     </span>
-                    {w.target_days !== null ? (
+                    {w.target_minutes !== null ? (
                       <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                        plazo {w.target_days}d
+                        plazo {formatHabil(w.target_minutes)}
                       </span>
                     ) : null}
                     {w.turn_number > 1 ? (
@@ -189,9 +190,9 @@ export function PortalPhases(props: Props) {
                         ronda {w.turn_number}
                       </span>
                     ) : null}
-                    {(w.over_days ?? 0) > 0 ? (
+                    {(w.over_minutes ?? 0) > 0 ? (
                       <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
-                        +{w.over_days}d sobre el plazo
+                        +{formatHabil(w.over_minutes)} sobre el plazo
                       </span>
                     ) : null}
                   </div>
@@ -214,9 +215,9 @@ export function PortalPhases(props: Props) {
               >
                 <div className="min-w-12 text-center">
                   <p className="text-xl font-bold tabular-nums text-sky-700 dark:text-sky-300">
-                    {w.waiting_days}
+                    {formatHabil(w.waiting_minutes)}
                   </p>
-                  <p className="text-[10px] uppercase text-gray-500">días</p>
+                  <p className="text-[10px] uppercase text-gray-500">hábiles</p>
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium">{w.what}</p>
@@ -290,7 +291,7 @@ function RequirementRow({
   onToggle: () => void;
 }) {
   const listos = miembros.filter((m) => m.member_done).length;
-  const total = req.tdx_days + req.client_days + req.third_party_days;
+  const total = req.tdx_minutes + req.client_minutes + req.third_party_minutes;
   const terminal = ['entregado', 'descartado'].includes(req.phase ?? '');
   const idxActual = LINEA.indexOf((req.phase ?? '') as (typeof LINEA)[number]);
 
@@ -358,31 +359,31 @@ function RequirementRow({
       {total > 0 ? (
         <div className="mt-2.5">
           <div className="flex h-5 overflow-hidden rounded bg-gray-100 dark:bg-gray-800">
-            {req.client_days > 0 ? (
+            {req.client_minutes > 0 ? (
               <div
                 className="flex items-center justify-center bg-violet-500 text-[10px] font-medium text-white"
-                style={{ width: `${(req.client_days / total) * 100}%` }}
-                title={`${req.client_days} días tuyos`}
+                style={{ width: `${(req.client_minutes / total) * 100}%` }}
+                title={`${formatHabil(req.client_minutes)} tuyas`}
               >
-                {req.client_days / total > 0.16 ? `${req.client_days}d tuyos` : ''}
+                {req.client_minutes / total > 0.22 ? `${formatHabil(req.client_minutes)} tuyas` : ''}
               </div>
             ) : null}
-            {req.third_party_days > 0 ? (
+            {req.third_party_minutes > 0 ? (
               <div
                 className="flex items-center justify-center bg-gray-400 text-[10px] font-medium text-white"
-                style={{ width: `${(req.third_party_days / total) * 100}%` }}
-                title={`${req.third_party_days} días de terceros`}
+                style={{ width: `${(req.third_party_minutes / total) * 100}%` }}
+                title={`${formatHabil(req.third_party_minutes)} de terceros`}
               >
-                {req.third_party_days / total > 0.16 ? `${req.third_party_days}d 3ros` : ''}
+                {req.third_party_minutes / total > 0.22 ? `${formatHabil(req.third_party_minutes)} 3ros` : ''}
               </div>
             ) : null}
-            {req.tdx_days > 0 ? (
+            {req.tdx_minutes > 0 ? (
               <div
                 className="flex items-center justify-center bg-sky-700 text-[10px] font-medium text-white"
-                style={{ width: `${(req.tdx_days / total) * 100}%` }}
-                title={`${req.tdx_days} días de TDX`}
+                style={{ width: `${(req.tdx_minutes / total) * 100}%` }}
+                title={`${formatHabil(req.tdx_minutes)} de TDX`}
               >
-                {req.tdx_days / total > 0.16 ? `${req.tdx_days}d TDX` : ''}
+                {req.tdx_minutes / total > 0.22 ? `${formatHabil(req.tdx_minutes)} TDX` : ''}
               </div>
             ) : null}
           </div>
@@ -390,15 +391,15 @@ function RequirementRow({
           <p className="mt-1.5 text-[11px] leading-relaxed text-gray-600 dark:text-gray-400">
             {req.tdx_over > 0 ? (
               <span className="font-medium text-amber-700 dark:text-amber-400">
-                Llevamos {req.tdx_over} día(s) de atraso en este requerimiento.
+                Llevamos {formatHabilLargo(req.tdx_over)} de atraso en este requerimiento.
               </span>
             ) : (
               <span className="text-emerald-700 dark:text-emerald-400">
                 Sin atraso de nuestra parte.
               </span>
             )}{' '}
-            {req.client_days > 0
-              ? `Los ${req.client_days} día(s) que esperamos tu respuesta extienden el plazo día por día.`
+            {req.client_minutes > 0
+              ? `Las ${formatHabilLargo(req.client_minutes)} que esperamos tu respuesta extienden el plazo.`
               : ''}
           </p>
         </div>
@@ -437,7 +438,7 @@ function RequirementRow({
               <tr className="text-left text-gray-500">
                 <th className="pb-1 pr-3 font-medium">Fase</th>
                 <th className="pb-1 pr-3 font-medium">A cargo</th>
-                <th className="pb-1 pr-3 text-right font-medium">Días</th>
+                <th className="pb-1 pr-3 text-right font-medium">Tiempo</th>
                 <th className="pb-1 pr-3 text-right font-medium">En espera</th>
                 <th className="pb-1 pr-3 text-right font-medium">Netos</th>
                 <th className="pb-1 text-right font-medium">Plazo</th>
@@ -454,28 +455,28 @@ function RequirementRow({
                     {s.owner === 'tdx' ? 'TDX' : s.owner === 'cliente' ? 'Tú' : s.owner === 'tercero' ? 'Tercero' : '—'}
                   </td>
                   <td className="py-1 pr-3 text-right tabular-nums">
-                    {s.business_days ?? '—'}
+                    {formatHabil(s.business_minutes)}
                   </td>
                   <td className="py-1 pr-3 text-right tabular-nums">
-                    {s.paused_days > 0 ? `−${s.paused_days}` : '—'}
+                    {s.paused_minutes > 0 ? `−${formatHabil(s.paused_minutes)}` : '—'}
                   </td>
                   <td className="py-1 pr-3 text-right tabular-nums font-medium">
-                    {s.net_days ?? '—'}
+                    {formatHabilDoble(s.net_minutes)}
                   </td>
                   <td
                     className={`py-1 text-right tabular-nums ${
                       s.breached ? 'font-medium text-amber-700 dark:text-amber-400' : ''
                     }`}
                   >
-                    {s.target_days === null ? 'sin plazo' : `${s.target_days}d`}
-                    {(s.over_days ?? 0) > 0 ? ` (+${s.over_days})` : ''}
+                    {s.target_minutes === null ? 'sin plazo' : formatHabil(s.target_minutes)}
+                    {(s.over_minutes ?? 0) > 0 ? ` (+${formatHabil(s.over_minutes)})` : ''}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
           <p className="mt-2 text-[10px] text-gray-500">
-            Los días en espera se descuentan del plazo de TDX, según el acuerdo de
+            El tiempo en espera se descuenta del plazo de TDX, según el acuerdo de
             niveles de servicio.
           </p>
         </div>
