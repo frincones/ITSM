@@ -29,7 +29,7 @@ const CLAVES = [
   'committed_credits', 'delivered_credits', 'pending_credits',
   'items_total', 'items_delivered', 'delivery_pct', 'below_threshold',
   'breached_items', 'exposed_credits', 'discount_cop', 'discount_capped',
-  'tdx_delay_days', 'client_delay_days', 'third_party_days',
+  'tdx_delay_minutes', 'client_delay_minutes', 'third_party_minutes',
 ];
 
 function conexion() {
@@ -72,10 +72,26 @@ try {
     process.exit(1);
   }
 
+  // Si un campo deja de existir, `k[x]` es undefined y comparar undefined
+  // con undefined DA IGUAL: la guarda pasaría sin verificar nada. Pasó al
+  // renombrar los campos a minutos. Ahora se comprueba que existan.
+  const exigirCampos = (fila, claves, de) => {
+    const faltan = claves.filter((k) => fila[k] === undefined);
+    if (faltan.length) {
+      throw new Error(
+        `${de} ya no devuelve: ${faltan.join(', ')}. ` +
+          'La guarda estaría comparando undefined con undefined.',
+      );
+    }
+  };
+
   const foto = async () => {
     const comp = (await c.query('SELECT * FROM cycle_delivery_compliance($1)', [cy])).rows[0];
     const st = (await c.query('SELECT * FROM delivery_cycle_status($1)', [cy])).rows[0];
+    exigirCampos(comp, CLAVES, 'cycle_delivery_compliance');
     const o = {};
+    // String(undefined) es 'undefined', y comparar 'undefined' con
+    // 'undefined' da igual: por eso la comprobación de arriba va antes.
     for (const k of CLAVES) o[k] = String(comp[k]);
     o.assigned_points = String(st.assigned_points);
     return o;
@@ -102,7 +118,7 @@ try {
   }
 
   // 'desarrollo' es una fase de TDX: si los días se contaran, saldrían en
-  // tdx_delay_days y en el descuento.
+  // tdx_delay_minutes y en el descuento.
   for (const m of miembros) {
     await c.query(`UPDATE tickets SET requirement_phase = 'desarrollo' WHERE id = $1`, [m.id]);
     await c.query(
