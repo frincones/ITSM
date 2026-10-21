@@ -81,6 +81,8 @@ export interface PhaseSummary {
 }
 
 interface Props {
+  /** El nombre del cliente, para rotular su tarjeta con él y no con «tú». */
+  orgName: string;
   requirements: PhaseRequirement[];
   waits: PhaseWait[];
   summary: PhaseSummary;
@@ -261,27 +263,13 @@ export function PortalPhases(props: Props) {
           </span>
         </div>
 
-        {/* La leyenda va arriba: sin ella las barras son decoración. */}
-        <div className="mt-3 flex flex-wrap gap-4 text-xs text-gray-600 dark:text-gray-400">
-          <span className="flex items-center gap-1.5">
-            <i className="inline-block h-2.5 w-2.5 rounded-sm bg-sky-700" />
-            Tiempo de TDX
-          </span>
-          <span className="flex items-center gap-1.5">
-            <i className="inline-block h-2.5 w-2.5 rounded-sm bg-violet-500" />
-            Tiempo tuyo
-          </span>
-          <span className="flex items-center gap-1.5">
-            <i className="inline-block h-2.5 w-2.5 rounded-sm bg-gray-400" />
-            Terceros
-          </span>
-        </div>
 
         <ul className="mt-4 space-y-3">
           {[...vivos, ...entregados].map((r) => (
             <RequirementRow
               key={r.id}
               req={r}
+              orgName={props.orgName}
               miembros={props.members[r.id] ?? []}
               nombreFase={nombreFase}
               expandido={abierto === r.id}
@@ -298,12 +286,15 @@ export function PortalPhases(props: Props) {
 
 function RequirementRow({
   req,
+  orgName,
   miembros,
   nombreFase,
   expandido,
   onToggle,
 }: {
   req: PhaseRequirement;
+  /** El nombre del cliente, que rotula su tarjeta. */
+  orgName: string;
   /** Los tickets que el cliente creó y que componen este entregable. */
   miembros: PhaseMember[];
   nombreFase: Record<string, string>;
@@ -311,7 +302,6 @@ function RequirementRow({
   onToggle: () => void;
 }) {
   const listos = miembros.filter((m) => m.member_done).length;
-  const total = req.tdx_minutes + req.client_minutes + req.third_party_minutes;
   const terminal = ['entregado', 'descartado'].includes(req.phase ?? '');
   const idxActual = LINEA.indexOf((req.phase ?? '') as (typeof LINEA)[number]);
   const depende = DEPENDE[req.phase ?? ''] ?? 'nadie';
@@ -417,64 +407,75 @@ function RequirementRow({
         </div>
       ) : null}
 
-      {/* El reparto de días. Con total 0 no se dibuja: una barra repartida a
-          partes iguales insinuaría días que no existieron. */}
-      {total > 0 ? (
-        <div className="mt-2.5">
-          <div className="flex h-5 overflow-hidden rounded bg-gray-100 dark:bg-gray-800">
-            {req.client_minutes > 0 ? (
-              <div
-                className="flex items-center justify-center bg-violet-500 text-[10px] font-medium text-white"
-                style={{ width: `${(req.client_minutes / total) * 100}%` }}
-                title={`${formatHabil(req.client_minutes)} de espera tuya`}
-              >
-                {req.client_minutes / total > 0.22 ? `${formatHabil(req.client_minutes)} de espera tuya` : ''}
-              </div>
-            ) : null}
-            {req.third_party_minutes > 0 ? (
-              <div
-                className="flex items-center justify-center bg-gray-400 text-[10px] font-medium text-white"
-                style={{ width: `${(req.third_party_minutes / total) * 100}%` }}
-                title={`${formatHabil(req.third_party_minutes)} de terceros`}
-              >
-                {req.third_party_minutes / total > 0.22 ? `${formatHabil(req.third_party_minutes)} 3ros` : ''}
-              </div>
-            ) : null}
-            {req.tdx_minutes > 0 ? (
-              <div
-                className="flex items-center justify-center bg-sky-700 text-[10px] font-medium text-white"
-                style={{ width: `${(req.tdx_minutes / total) * 100}%` }}
-                title={`${formatHabil(req.tdx_minutes)} de TDX`}
-              >
-                {req.tdx_minutes / total > 0.22 ? `${formatHabil(req.tdx_minutes)} TDX` : ''}
-              </div>
-            ) : null}
+      {/* ------------------------------------------------------------------
+          Dos tarjetas, una por parte.
+
+          Antes era una barra apilada que repartía el ancho entre las dos, y
+          decía el mismo número que la frase de arriba y que el texto de
+          abajo: tres veces lo mismo. Y cuando solo una parte tenía tiempo
+          —lo normal al empezar— se pintaba llena de un color, que es una
+          proporción sin nada que proporcionar.
+
+          No hay tercera tarjeta porque el tiempo de terceros no existe:
+          sale de tramos con owner = 'tercero' y ninguna fase del catálogo
+          lo tiene, así que `third_party_minutes` es siempre 0. Lo que espera
+          un tercero vive en la espera —que pausa el reloj— y se muestra
+          arriba. Si algún día se activa ese owner, este bloque hay que
+          revisarlo: esa parte no aparecería en ninguna tarjeta.
+
+          El guard mira las dos partes, no el total: una tarjeta en 0 es un
+          dato válido, y ocultarla justo en los requerimientos recién
+          empezados sería esconder lo que el cliente viene a mirar.
+          ------------------------------------------------------------------ */}
+      {req.tdx_minutes > 0 || req.client_minutes > 0 ? (
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="rounded-lg border p-2.5 dark:border-gray-700">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              TDX
+            </p>
+            <p
+              className={`mt-0.5 text-lg font-bold leading-tight ${
+                req.tdx_over > 0
+                  ? 'text-amber-700 dark:text-amber-400'
+                  : 'text-gray-900 dark:text-gray-100'
+              }`}
+            >
+              {req.tdx_minutes > 0 ? formatHabil(req.tdx_minutes) : '—'}
+            </p>
+            {/* El «dentro del plazo» es tan importante como el exceso: la
+                honestidad va en las dos direcciones, y sin esta línea el
+                cliente pierde la confirmación de que vamos a tiempo. */}
+            <p className="mt-0.5 text-[11px] text-gray-600 dark:text-gray-400">
+              {req.tdx_over > 0
+                ? `se pasó ${formatHabil(req.tdx_over)} del plazo`
+                : 'dentro del plazo'}
+            </p>
           </div>
 
-          {/* Una frase por parte, en renglones distintos. Juntas decían
-              «Llevamos 2 días de atraso. Las 8 minutos que esperamos tu
-              respuesta extienden el plazo», que mezcla nuestro
-              incumplimiento con su espera y no se entiende. */}
-          <div className="mt-1.5 space-y-0.5 text-[11px] leading-relaxed">
-            {req.tdx_over > 0 ? (
-              <p className="font-medium text-amber-700 dark:text-amber-400">
-                Nos pasamos {formatHabilLargo(req.tdx_over)} del plazo en este requerimiento.
-              </p>
-            ) : (
-              <p className="text-emerald-700 dark:text-emerald-400">
-                Sin atraso de nuestra parte.
-              </p>
-            )}
-            {req.client_over > 0 ? (
-              <p className="text-gray-600 dark:text-gray-400">
-                Llevas {formatHabilLargo(req.client_over)} por encima de tu plazo de respuesta,
-                y eso extiende el nuestro.
-              </p>
-            ) : req.client_minutes > 0 ? (
-              <p className="text-gray-600 dark:text-gray-400">
-                Esperando tu respuesta desde hace {formatHabilLargo(req.client_minutes)}.
-              </p>
-            ) : null}
+          <div
+            className={`rounded-lg border p-2.5 ${
+              req.client_over > 0
+                ? 'border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30'
+                : 'dark:border-gray-700'
+            }`}
+          >
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              {orgName}
+            </p>
+            <p
+              className={`mt-0.5 text-lg font-bold leading-tight ${
+                req.client_over > 0
+                  ? 'text-amber-700 dark:text-amber-400'
+                  : 'text-gray-900 dark:text-gray-100'
+              }`}
+            >
+              {req.client_minutes > 0 ? formatHabil(req.client_minutes) : '—'}
+            </p>
+            <p className="mt-0.5 text-[11px] text-gray-600 dark:text-gray-400">
+              {req.client_over > 0
+                ? `se pasó ${formatHabil(req.client_over)} del plazo`
+                : 'dentro del plazo'}
+            </p>
           </div>
         </div>
       ) : null}

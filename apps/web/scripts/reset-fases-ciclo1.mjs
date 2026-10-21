@@ -64,8 +64,8 @@ await c.connect();
 const CLAVES = [
   'committed_credits', 'delivered_credits', 'pending_credits', 'items_total',
   'items_delivered', 'delivery_pct', 'below_threshold', 'breached_items',
-  'exposed_credits', 'discount_cop', 'discount_capped', 'tdx_delay_days',
-  'client_delay_days', 'third_party_days',
+  'exposed_credits', 'discount_cop', 'discount_capped', 'tdx_delay_minutes',
+  'client_delay_minutes', 'third_party_minutes',
 ];
 
 let fallos = 0;
@@ -169,11 +169,11 @@ try {
 
   for (const k of CLAVES) {
     const igual = antes[k] === despues[k];
-    // client_delay_days TIENE que bajar: es el objetivo. Si no cambia, el
+    // client_delay_minutes TIENE que bajar: es el objetivo. Si no cambia, el
     // borrado no se aplicó.
-    if (k === 'client_delay_days') {
+    if (k === 'client_delay_minutes') {
       ok(
-        `client_delay_days baja  ${antes[k]} → ${despues[k]}`,
+        `client_delay_minutes baja  ${antes[k]} → ${despues[k]}`,
         Number(despues[k]) < Number(antes[k]),
       );
     } else {
@@ -183,7 +183,7 @@ try {
 
   // Ningún tramo nuevo puede tener plazo: propuesto no lo tiene.
   const { rows: nuevos } = await c.query(
-    `SELECT count(*) n, count(*) FILTER (WHERE target_days IS NOT NULL) con_plazo
+    `SELECT count(*) n, count(*) FILTER (WHERE target_minutes IS NOT NULL) con_plazo
        FROM ticket_phase_log WHERE ticket_id = ANY($1)`,
     [ids],
   );

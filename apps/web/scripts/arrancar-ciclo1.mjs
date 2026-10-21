@@ -160,9 +160,10 @@ try {
 
   // El plazo sale del catálogo: levantamiento son 2 días hábiles.
   const sla = (await c.query(
-    `SELECT target_days FROM ticket_phase_sla($1) WHERE is_open`,
+    `SELECT target_minutes FROM ticket_phase_sla($1) WHERE is_open`,
     [entregables[0].id])).rows[0];
-  ok('plazo de 2 días hábiles', Number(sla?.target_days) === 2, String(sla?.target_days));
+  // Dos jornadas de 8 horas. Era `=== 2` cuando esto se medía en días.
+  ok('plazo de 2 jornadas (960 min)', Number(sla?.target_minutes) === 960, String(sla?.target_minutes));
 
   const cap = (await c.query('SELECT * FROM agent_capacity_status($1)', [CICLO])).rows;
   ok('la capacidad ya calcula', cap.length === CAPACIDAD.length, `${cap.length} fila(s)`);
