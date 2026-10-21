@@ -17,16 +17,8 @@
 //    cupo agotado.
 // ---------------------------------------------------------------------------
 
-import { useMemo, useState } from 'react';
 
-import {
-  AlertTriangle,
-  CalendarCheck,
-  CheckCircle2,
-  Clock,
-  FileText,
-  Inbox,
-} from 'lucide-react';
+import { AlertTriangle, CalendarCheck } from 'lucide-react';
 
 interface Meter {
   quota: number | null;
@@ -86,66 +78,9 @@ import {
   type PhaseWait,
 } from './portal-phases';
 
-/** Etiquetas en el idioma del cliente, no en el del sistema. */
-const ESTADO: Record<string, { texto: string; clase: string }> = {
-  proposed: {
-    texto: 'Propuesto',
-    clase: 'bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300',
-  },
-  backlog: {
-    texto: 'En backlog',
-    clase: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
-  },
-  new: { texto: 'Nuevo', clase: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' },
-  assigned: {
-    texto: 'Asignado',
-    clase: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
-  },
-  in_progress: {
-    texto: 'En desarrollo',
-    clase: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
-  },
-  testing: {
-    texto: 'En revisión',
-    clase: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
-  },
-  resolved: {
-    texto: 'Entregado',
-    clase: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
-  },
-  closed: {
-    texto: 'Cerrado',
-    clase: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
-  },
-  cancelled: {
-    texto: 'Descartado',
-    clase: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
-  },
-};
-
-function Etiqueta({ estado }: { estado: string }) {
-  const e = ESTADO[estado] ?? {
-    texto: estado,
-    clase: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
-  };
-  return (
-    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${e.clase}`}>
-      {e.texto}
-    </span>
-  );
-}
 
 export function PortalProjectClient(props: PortalProjectClientProps) {
-  const [filtro, setFiltro] = useState<'todos' | 'pendientes' | 'entregados'>('todos');
   const primary = props.orgColors?.primary ?? '#4f46e5';
-
-  const visibles = useMemo(() => {
-    const ENTREGADO = ['resolved', 'closed'];
-    if (filtro === 'entregados') return props.items.filter((i) => ENTREGADO.includes(i.status));
-    if (filtro === 'pendientes')
-      return props.items.filter((i) => !ENTREGADO.includes(i.status) && i.status !== 'cancelled');
-    return props.items;
-  }, [props.items, filtro]);
 
   const m = props.meter;
   const tieneContrato = m.quota !== null;
@@ -301,6 +236,7 @@ export function PortalProjectClient(props: PortalProjectClientProps) {
            Va antes del backlog porque "lo que esperamos de ti" es lo único
            que el cliente puede resolver al entrar. */}
       <PortalPhases
+        orgName={props.orgName}
         requirements={props.requirements}
         waits={props.waits}
         summary={props.summary}
@@ -320,25 +256,3 @@ export function PortalProjectClient(props: PortalProjectClientProps) {
   );
 }
 
-function Resumen({
-  icono: Icono,
-  etiqueta,
-  valor,
-  nota,
-}: {
-  icono: typeof FileText;
-  etiqueta: string;
-  valor: number;
-  nota?: string;
-}) {
-  return (
-    <div className="rounded-lg border p-4">
-      <div className="flex items-center gap-2 text-xs text-gray-500">
-        <Icono className="h-3.5 w-3.5" />
-        {etiqueta}
-      </div>
-      <div className="mt-1 text-2xl font-semibold">{valor}</div>
-      {nota ? <div className="text-xs text-gray-500">{nota}</div> : null}
-    </div>
-  );
-}
