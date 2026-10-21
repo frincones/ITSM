@@ -483,7 +483,7 @@ registry.register({
 registry.register({
   name: 'requirements_list',
   description:
-    'Requerimientos de proyecto con su fase actual y el reparto de días de atraso por responsable. Devuelve `tdx_minutes`, `cliente_minutes` y `tercero_days` separados a propósito: un item con 11 de espera del cliente y 1 nuestro no está "12 días tarde", y mezclarlos impide saber de quién es el atraso. `exposed_over` es lo único que puede costar dinero.',
+    'Requerimientos de proyecto con su fase actual y el reparto del tiempo de atraso por responsable. Devuelve `tdx_minutes`, `cliente_minutes` y `tercero_minutes` separados a propósito: un item con 11 horas de espera del cliente y 1 nuestra no está "12 horas tarde", y mezclarlos impide saber de quién es el atraso. `exposed_over` es lo único que puede costar dinero.',
   scope: 'projects:read',
   inputSchema: z.object({
     project_id: z.string().uuid().optional(),
@@ -527,7 +527,7 @@ registry.register({
 registry.register({
   name: 'requirements_phase_sla',
   description:
-    'Los tramos de fase de un requerimiento con sus días contra el plazo. `net_minutes` descuenta el tiempo en espera, y es la cifra que se compara con el objetivo: es la implementación de la cláusula "los atrasos del cliente extienden el plazo de TDX día por día". Un `target_minutes` nulo significa que esa fase no tiene plazo definido (por ejemplo un despliegue, que depende del calendario de freeze), no que se cumpliera en cero días.',
+    'Los tramos de fase de un requerimiento con su tiempo contra el plazo. Todo en MINUTOS hábiles: una jornada son 480. `net_minutes` descuenta el tiempo en espera, y es la cifra que se compara con el objetivo: es la implementación de la cláusula "los atrasos del cliente extienden el plazo de TDX día por día". Un `target_minutes` nulo significa que esa fase no tiene plazo definido (por ejemplo un despliegue, que depende del calendario de freeze), no que se cumpliera en cero minutos.',
   scope: 'projects:read',
   inputSchema: z.object({ ticket_id: z.string().uuid() }),
   meta: { since: '1.5.0', tags: ['projects', 'phases', 'read'] },
@@ -539,7 +539,7 @@ registry.register({
 registry.register({
   name: 'requirements_delay',
   description:
-    'El atraso de un requerimiento separado por responsable, en una sola fila. `exposed_over` es el único campo con consecuencia económica: días de atraso de TDX en una fase que genera descuento. El atraso del cliente aparece en `cliente_over` y no cuesta nada, porque ya extendió nuestro plazo.',
+    'El atraso de un requerimiento separado por responsable, en una sola fila. `exposed_over` es el único campo con consecuencia económica: minutos hábiles de atraso de TDX en una fase que genera descuento. El atraso del cliente aparece en `cliente_over` y no cuesta nada, porque ya extendió nuestro plazo.',
   scope: 'projects:read',
   inputSchema: z.object({ ticket_id: z.string().uuid() }),
   meta: { since: '1.5.0', tags: ['projects', 'phases', 'read'] },
@@ -579,7 +579,7 @@ registry.register({
 registry.register({
   name: 'organizations_delay_summary',
   description:
-    'Las cifras de cabecera del atraso de un cliente: días de cada parte, créditos expuestos y esperas abiertas. Cuenta solo requerimientos vivos — lo entregado y lo descartado ya no consumen reloj.',
+    'Las cifras de cabecera del atraso de un cliente: minutos hábiles de cada parte, créditos expuestos y esperas abiertas. Cuenta solo requerimientos vivos — lo entregado y lo descartado ya no consumen reloj.',
   scope: 'projects:read',
   inputSchema: z.object({ organization_id: z.string().uuid() }),
   meta: { since: '1.5.0', tags: ['projects', 'phases', 'read'] },
@@ -593,7 +593,7 @@ registry.register({
 registry.register({
   name: 'waits_list',
   description:
-    'Las esperas sin cerrar, ordenadas por antigüedad: qué se pidió, a quién y cuántos días hábiles lleva. Es la bandeja del PM. `pauses_clock` en false significa que la espera se registró pero NO descuenta días, lo que ocurre con el motivo priorizacion_interna: aparcar algo por decisión propia no es atraso de nadie más.',
+    'Las esperas sin cerrar, ordenadas por antigüedad: qué se pidió, a quién y cuántos minutos hábiles lleva. Es la bandeja del PM. `pauses_clock` en false significa que la espera se registró pero NO descuenta tiempo, lo que ocurre con el motivo priorizacion_interna: aparcar algo por decisión propia no es atraso de nadie más.',
   scope: 'projects:read',
   inputSchema: z.object({
     organization_id: z.string().uuid().optional(),
@@ -615,18 +615,18 @@ registry.register({
 registry.register({
   name: 'waits_open',
   description:
-    'Registra que se pidió algo y se está esperando. Mientras la espera siga abierta, los días corren a cargo de quien se indique en owed_by y, salvo con el motivo priorizacion_interna, se descuentan del plazo de TDX al cerrarla. El texto de `what` lo lee el cliente en su portal, así que conviene escribirlo en sus palabras ("las credenciales del API del banco"), no en jerga interna.',
+    'Registra que se pidió algo y se está esperando. Mientras la espera siga abierta, el tiempo corre a cargo de quien se indique en owed_by y, salvo con el motivo priorizacion_interna, se descuentan del plazo de TDX al cerrarla. El texto de `what` lo lee el cliente en su portal, así que conviene escribirlo en sus palabras ("las credenciales del API del banco"), no en jerga interna.',
   scope: 'projects:write',
   inputSchema: z.object({
     ticket_id: z.string().uuid(),
     what: z.string().min(1).max(500).describe('Qué se pidió, en palabras que el cliente entienda'),
     owed_by: z
       .enum(['cliente', 'tercero', 'tdx'])
-      .describe('De quién se espera: determina a quién se imputan los días'),
+      .describe('De quién se espera: determina a quién se le imputa el tiempo'),
     reason: z
       .enum(PAUSE_REASONS)
       .describe(
-        'El motivo contractual. Obligatorio: sin él la pausa no se puede defender ante el cliente. priorizacion_interna registra la espera sin descontar días.',
+        'El motivo contractual. Obligatorio: sin él la pausa no se puede defender ante el cliente. priorizacion_interna registra la espera sin descontar tiempo.',
       ),
     owed_by_name: z
       .string()
@@ -666,7 +666,7 @@ registry.register({
 registry.register({
   name: 'waits_close',
   description:
-    'El "ya llegó": cierra la espera, calcula los días hábiles que costó y los descuenta del plazo de la fase. Con `return_what` abre el turno de vuelta en la misma operación invirtiendo quién debe, que es lo que ocurre de verdad cuando llegan los comentarios del cliente: la pelota vuelve a nuestro campo. `received_at` admite una fecha pasada, porque la llegada se suele registrar después de ocurrir; nunca antes de haberse pedido.',
+    'El "ya llegó": cierra la espera, calcula los minutos hábiles que costó y los descuenta del plazo de la fase. Con `return_what` abre el turno de vuelta en la misma operación invirtiendo quién debe, que es lo que ocurre de verdad cuando llegan los comentarios del cliente: la pelota vuelve a nuestro campo. `received_at` admite una fecha pasada, porque la llegada se suele registrar después de ocurrir; nunca antes de haberse pedido.',
   scope: 'projects:write',
   inputSchema: z.object({
     wait_id: z.string().uuid(),

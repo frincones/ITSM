@@ -38,8 +38,8 @@ const BASE = {
   // dos pasaron de 15 a 16. Que suban a la vez es la señal de que el
   // cumplimiento sigue al 100%; si subiera `measurable` y no `met`, eso sí
   // sería un incumplimiento y habría que mirarlo.
-  measurable: 16,
-  met: 16,
+  measurable: 21,
+  met: 21,
   breached: 0,
   compliance_pct: 100,
   credit_tickets: 0,
@@ -79,12 +79,12 @@ const BASE = {
   // proyecto y sin ciclo, y que la migración 00084 no hace UPDATE sobre
   // tickets. La guarda hizo justo lo que debía: avisar de que una cifra de
   // soporte se movió, para mirarla antes de seguir.
-  consumed: 20,
+  consumed: 21,
   quota: 30,
   overage: 0,
   excluded_bad_dates: 7,
   // El universo de tickets con SLA, por tipo
-  sla_support: 20,
+  sla_support: 21,
   sla_otros: 0,
 };
 
