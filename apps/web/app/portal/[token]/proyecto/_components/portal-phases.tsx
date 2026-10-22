@@ -429,27 +429,48 @@ function RequirementRow({
           ------------------------------------------------------------------ */}
       {req.tdx_minutes > 0 || req.client_minutes > 0 ? (
         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {/* ----------------------------------------------------------------
+              El titular es el EXCESO, no el tiempo en la fase.
+
+              Antes encabezaba `tdx_minutes`, que incluye el plazo pactado:
+              un requerimiento con 9 h de plazo y 9,2 h consumidas gritaba
+              «9,2 h» en rojo cuando lo que se debe son 0,2 h. El número
+              grande contestaba una pregunta que nadie hace —cuánto tiempo
+              llevamos— en vez de la que trae al cliente aquí: cuánto nos
+              pasamos.
+
+              El tiempo consumido no se pierde; baja al subtítulo, que es su
+              sitio: contexto del exceso, no titular.
+              ---------------------------------------------------------------- */}
           <div className="rounded-lg border p-2.5 dark:border-gray-700">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
               TDX
             </p>
-            <p
-              className={`mt-0.5 text-lg font-bold leading-tight ${
-                req.tdx_over > 0
-                  ? 'text-amber-700 dark:text-amber-400'
-                  : 'text-gray-900 dark:text-gray-100'
-              }`}
-            >
-              {req.tdx_minutes > 0 ? formatHabil(req.tdx_minutes) : '—'}
-            </p>
-            {/* El «dentro del plazo» es tan importante como el exceso: la
-                honestidad va en las dos direcciones, y sin esta línea el
-                cliente pierde la confirmación de que vamos a tiempo. */}
-            <p className="mt-0.5 text-[11px] text-gray-600 dark:text-gray-400">
-              {req.tdx_over > 0
-                ? `se pasó ${formatHabil(req.tdx_over)} del plazo`
-                : 'dentro del plazo'}
-            </p>
+            {req.tdx_over > 0 ? (
+              <>
+                <p className="mt-0.5 text-lg font-bold leading-tight text-amber-700 dark:text-amber-400">
+                  +{formatHabil(req.tdx_over)}
+                </p>
+                <p className="mt-0.5 text-[11px] text-gray-600 dark:text-gray-400">
+                  de atraso · {formatHabil(req.tdx_minutes)} trabajadas
+                </p>
+              </>
+            ) : (
+              /* Sin exceso no hay cifra que agrandar: un «0 h» enorme se lee
+                 como alarma. El «en plazo» es tan importante como el exceso
+                 —la honestidad va en las dos direcciones— y el tiempo
+                 trabajado solo se dice si existe. */
+              <>
+                <p className="mt-0.5 text-lg font-bold leading-tight text-gray-900 dark:text-gray-100">
+                  En plazo
+                </p>
+                <p className="mt-0.5 text-[11px] text-gray-600 dark:text-gray-400">
+                  {req.tdx_minutes > 0
+                    ? `${formatHabil(req.tdx_minutes)} trabajadas`
+                    : 'sin tiempo acumulado'}
+                </p>
+              </>
+            )}
           </div>
 
           <div
@@ -462,20 +483,27 @@ function RequirementRow({
             <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
               {orgName}
             </p>
-            <p
-              className={`mt-0.5 text-lg font-bold leading-tight ${
-                req.client_over > 0
-                  ? 'text-amber-700 dark:text-amber-400'
-                  : 'text-gray-900 dark:text-gray-100'
-              }`}
-            >
-              {req.client_minutes > 0 ? formatHabil(req.client_minutes) : '—'}
-            </p>
-            <p className="mt-0.5 text-[11px] text-gray-600 dark:text-gray-400">
-              {req.client_over > 0
-                ? `se pasó ${formatHabil(req.client_over)} del plazo`
-                : 'dentro del plazo'}
-            </p>
+            {req.client_over > 0 ? (
+              <>
+                <p className="mt-0.5 text-lg font-bold leading-tight text-amber-700 dark:text-amber-400">
+                  +{formatHabil(req.client_over)}
+                </p>
+                <p className="mt-0.5 text-[11px] text-gray-600 dark:text-gray-400">
+                  de atraso · {formatHabil(req.client_minutes)} esperando
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="mt-0.5 text-lg font-bold leading-tight text-gray-900 dark:text-gray-100">
+                  En plazo
+                </p>
+                <p className="mt-0.5 text-[11px] text-gray-600 dark:text-gray-400">
+                  {req.client_minutes > 0
+                    ? `${formatHabil(req.client_minutes)} esperando`
+                    : 'sin tiempo acumulado'}
+                </p>
+              </>
+            )}
           </div>
         </div>
       ) : null}

@@ -7,22 +7,24 @@
 //
 //   1. Las cifras del ciclo: cumplimiento contra el umbral y la exposición
 //   2. Las esperas abiertas, con el botón "ya llegó"   <- lo accionable
-//   3. Los requerimientos, con el reparto de días por responsable
+//   3. Los requerimientos, con el atraso de cada parte
 //
 // El criterio que gobierna la pantalla: SIEMPRE se muestra de quién es cada
-// día de atraso. Un ítem con 19 días de espera del cliente y 2 nuestros no es
-// "21 días tarde": son dos conversaciones distintas, y mezclarlas es cómo se
+// minuto de atraso. Un ítem con 19 h de espera del cliente y 2 nuestras no es
+// "21 h tarde": son dos conversaciones distintas, y mezclarlas es cómo se
 // acaba discutiendo sin datos.
 //
-// El ancho de las barras es tiempo real, no decoración: si el tramo violeta
-// del cliente ocupa más que el nuestro, es porque duró más.
+// Y la cifra grande es el EXCESO sobre el plazo, no el tiempo en la fase.
+// El tiempo en la fase incluye el plazo pactado, así que encabezarlo
+// convertía un requerimiento puntual en uno que parecía tarde. Lo consumido
+// sigue ahí, de subtítulo. Misma jerarquía que el portal del cliente, a
+// propósito: las dos pantallas se abren juntas en reunión y no pueden decir
+// cifras distintas de lo mismo.
 // ---------------------------------------------------------------------------
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
-  AlertTriangle,
-  CheckCircle2,
   Clock,
   Loader2,
   TrendingDown,
@@ -600,6 +602,10 @@ function ReqRow({
   const ter = Number(d.tercero_minutes ?? 0);
   // El atraso real de TDX, se cobre o no.
   const atrasoTdx = Number(d.tdx_over ?? 0);
+  // El del cliente. No cuesta crédito —ya extendió nuestro plazo— pero sin
+  // él la tarjeta solo sabía reprochar hacia dentro: decía las 25 h que
+  // esperamos nosotros y callaba las 40 h que esperamos al cliente.
+  const atrasoCli = Number(d.cliente_over ?? 0);
   // Lo que además expone crédito: solo cuenta en fases que lo generan
   // (desarrollo). Decir «sin atraso» cuando esto es 0 era mentir: un
   // requerimiento podía llevar 16 h de más en documentación y la pantalla
@@ -659,7 +665,7 @@ function ReqRow({
             ) : null}
             {expuesto > 0 ? (
               <Badge variant="destructive" className="text-[10px]">
-                +{formatHabil(atrasoTdx)} de atraso nuestro
+                expone crédito
               </Badge>
             ) : null}
           </div>
@@ -713,54 +719,114 @@ function ReqRow({
 
       {total > 0 ? (
         <div className="mt-2">
-          <div className="bg-muted flex h-5 overflow-hidden rounded">
+          {/* La barra se queda solo por la proporción, que es lo único que
+              aporta y las tarjetas no pueden dar. Las cifras salían dentro
+              de cada tramo y son las MISMAS que los subtítulos de abajo, a
+              dos centímetros: ahora viven una sola vez. La franja es fina y
+              sin texto, para leerse de un vistazo y no competir con el
+              titular. */}
+          <div
+            className="bg-muted flex h-2 overflow-hidden rounded-full"
+            role="img"
+            aria-label={`Reparto del tiempo: ${formatHabil(cli)} del cliente, ${formatHabil(tdx)} de TDX`}
+          >
             {cli > 0 ? (
               <div
-                className="flex items-center justify-center bg-violet-500 text-[10px] font-medium text-white"
+                className="bg-violet-500"
                 style={{ width: `${(cli / total) * 100}%` }}
                 title={`${formatHabil(cli)} del cliente`}
-              >
-                {cli / total > 0.2 ? `${formatHabil(cli)} cliente` : ''}
-              </div>
+              />
             ) : null}
             {ter > 0 ? (
               <div
-                className="flex items-center justify-center bg-slate-400 text-[10px] font-medium text-white"
+                className="bg-slate-400"
                 style={{ width: `${(ter / total) * 100}%` }}
                 title={`${formatHabil(ter)} de terceros`}
-              >
-                {ter / total > 0.2 ? `${formatHabil(ter)} 3ro` : ''}
-              </div>
+              />
             ) : null}
             {tdx > 0 ? (
               <div
-                className="flex items-center justify-center bg-sky-700 text-[10px] font-medium text-white"
+                className="bg-sky-700"
                 style={{ width: `${(tdx / total) * 100}%` }}
                 title={`${formatHabil(tdx)} de TDX`}
-              >
-                {tdx / total > 0.2 ? `${formatHabil(tdx)} TDX` : ''}
-              </div>
+              />
             ) : null}
           </div>
-          <p className="text-muted-foreground mt-1 text-[11px]">
-            {atrasoTdx > 0 ? (
-              <span className="text-destructive font-medium">
-                <AlertTriangle className="mr-1 inline h-3 w-3" />
-                {formatHabil(atrasoTdx)} de atraso nuestro
-                {expuesto > 0
-                  ? `, de los que ${formatHabil(expuesto)} exponen crédito.`
-                  : '. No expone crédito: el desarrollo no ha empezado.'}
-              </span>
-            ) : (
-              <span>
-                <CheckCircle2 className="mr-1 inline h-3 w-3" />
-                Sin atraso nuestro.
-              </span>
-            )}{' '}
-            {cli > 0
-              ? `Los ${formatHabil(cli)} del cliente extienden nuestro plazo.`
-              : ''}
-          </p>
+          {/* ------------------------------------------------------------
+              Las dos partes, cada una con su exceso al frente.
+
+              Antes esto era prosa que encabezaba el atraso de TDX y del
+              cliente solo decía las horas esperadas, nunca su exceso: la
+              tarjeta sabía reprochar hacia dentro y no hacia fuera. Y el
+              atraso de TDX salía dos veces, aquí y en la insignia.
+
+              Lo que se pasó del plazo va grande; lo consumido, debajo. Es
+              la misma jerarquía que el portal, para que una reunión con la
+              pantalla interna y el portal abiertos no muestre dos cifras
+              distintas para lo mismo.
+              ------------------------------------------------------------ */}
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <div className="rounded border p-2">
+              <p className="text-muted-foreground text-[10px] font-semibold uppercase">
+                TDX
+              </p>
+              {atrasoTdx > 0 ? (
+                <>
+                  <p className="text-destructive text-base leading-tight font-bold">
+                    +{formatHabil(atrasoTdx)}
+                  </p>
+                  <p className="text-muted-foreground mt-0.5 text-[10px]">
+                    de atraso · {formatHabil(tdx)} trabajadas
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-base leading-tight font-bold">En plazo</p>
+                  <p className="text-muted-foreground mt-0.5 text-[10px]">
+                    {tdx > 0 ? `${formatHabil(tdx)} trabajadas` : 'sin tiempo'}
+                  </p>
+                </>
+              )}
+              {/* El crédito expuesto es un subconjunto del atraso, no otra
+                  cifra: solo cuenta en fases que generan descuento. Decir
+                  «sin atraso» cuando esto es 0 era mentir. */}
+              {atrasoTdx > 0 ? (
+                <p className="text-muted-foreground mt-1 text-[10px]">
+                  {expuesto > 0
+                    ? `${formatHabil(expuesto)} exponen crédito`
+                    : 'no expone crédito todavía'}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="rounded border p-2">
+              <p className="text-muted-foreground text-[10px] font-semibold uppercase">
+                Cliente
+              </p>
+              {atrasoCli > 0 ? (
+                <>
+                  <p className="text-base leading-tight font-bold text-amber-600 dark:text-amber-500">
+                    +{formatHabil(atrasoCli)}
+                  </p>
+                  <p className="text-muted-foreground mt-0.5 text-[10px]">
+                    de atraso · {formatHabil(cli)} esperando
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-base leading-tight font-bold">En plazo</p>
+                  <p className="text-muted-foreground mt-0.5 text-[10px]">
+                    {cli > 0 ? `${formatHabil(cli)} esperando` : 'sin tiempo'}
+                  </p>
+                </>
+              )}
+              {cli > 0 ? (
+                <p className="text-muted-foreground mt-1 text-[10px]">
+                  extiende nuestro plazo
+                </p>
+              ) : null}
+            </div>
+          </div>
         </div>
       ) : null}
     </Card>
