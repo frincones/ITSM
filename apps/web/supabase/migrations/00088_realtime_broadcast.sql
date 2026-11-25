@@ -19,6 +19,9 @@
 --
 -- Topics are private: the client joins with { private: true } and the RLS
 -- policies below decide who may listen.
+--
+-- Additive only, safe to apply before the client deploy. 00089 does the
+-- part that actually removes the load, and must go AFTER the deploy.
 -- ---------------------------------------------------------------------------
 
 -- 1. Trigger functions -------------------------------------------------------
@@ -99,28 +102,16 @@ CREATE POLICY "listen visible ticket timeline"
     )
   );
 
--- 3. Stop the WAL poller -----------------------------------------------------
--- With no table left in the publication, postgres_changes has nothing to
--- poll. Any stale client still subscribing simply receives no events.
-
-ALTER PUBLICATION supabase_realtime DROP TABLE public.tickets;
-ALTER PUBLICATION supabase_realtime DROP TABLE public.ticket_followups;
-ALTER PUBLICATION supabase_realtime DROP TABLE public.notifications;
-
--- 00038 set FULL so UPDATE events carried the whole row. Nothing reads the
--- WAL for tickets anymore; 00044 already returned it to DEFAULT on prod —
--- restated here so a fresh database ends in the same state.
-ALTER TABLE public.tickets REPLICA IDENTITY DEFAULT;
+-- The publication is left untouched here, so the client build still on
+-- postgres_changes keeps working alongside the new one. 00089 removes the
+-- tables once the Broadcast client is deployed.
 
 -- ---------------------------------------------------------------------------
 -- Rollback:
---   ALTER PUBLICATION supabase_realtime ADD TABLE public.tickets,
---     public.ticket_followups, public.notifications;
 --   DROP TRIGGER broadcast_notification_change ON public.notifications;
 --   DROP TRIGGER broadcast_followup_change ON public.ticket_followups;
 --   DROP FUNCTION public.broadcast_notification_change();
 --   DROP FUNCTION public.broadcast_followup_change();
 --   DROP POLICY "listen own notifications" ON realtime.messages;
 --   DROP POLICY "listen visible ticket timeline" ON realtime.messages;
--- (and redeploy the previous client build)
 -- ---------------------------------------------------------------------------
