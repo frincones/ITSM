@@ -1,14 +1,10 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
-
-import { getSupabaseBrowserClient } from '@kit/supabase/browser-client';
+import { useRefreshOnFocus } from '~/lib/hooks/use-refresh-on-focus';
 
 /**
- * Raw `tickets` row shape as broadcast by Supabase Realtime (REPLICA
- * IDENTITY FULL). Includes every column the server stores, so each view
- * can resolve joined fields (assigned_agent, organization, category)
- * from maps it already has as props.
+ * Raw `tickets` row shape, as the list and workspace views map it into their
+ * own row types.
  *
  * We intentionally keep this permissive — individual views will cast to
  * their own row type after merging.
@@ -45,25 +41,9 @@ export interface RealtimeTicketRow {
 }
 
 interface UseTicketRealtimeOptions {
-  /**
-   * Unique channel name per view. Two views rendered at once (e.g. if a
-   * dev splits the list) must not share this string — Supabase silently
-   * dedupes identical channel names per connection.
-   */
   channelKey: string;
-  /**
-   * Optional server-side filter. See Supabase docs for syntax —
-   * e.g. `assigned_agent_id=eq.<uuid>`. Undefined = all UPDATEs for the
-   * caller's tenant pass through (RLS handles tenant scoping).
-   */
   filter?: string;
-  /** INSERT handler. Called once per matching INSERT event. */
   onInsert: (row: RealtimeTicketRow) => void;
-  /**
-   * UPDATE handler. `newRow` is the post-update snapshot; `oldRow` is the
-   * pre-update snapshot (available only because we set
-   * REPLICA IDENTITY FULL on the table in migration 00038).
-   */
   onUpdate: (
     newRow: RealtimeTicketRow,
     oldRow: Partial<RealtimeTicketRow>,
@@ -71,60 +51,18 @@ interface UseTicketRealtimeOptions {
 }
 
 /**
- * Subscribe to realtime UPSERTS on `tickets`. The hook manages channel
- * lifecycle; each view provides INSERT/UPDATE handlers that mutate its
- * own state. DELETE events are not exposed — tickets are soft-deleted
- * (UPDATE with `deleted_at` set), and Supabase drops the event under
- * RLS because the SELECT policy excludes `deleted_at IS NOT NULL`.
+ * Keeps the ticket list / workspace fresh by re-fetching when the user
+ * returns to the tab.
  *
- * Callbacks are captured via refs so a re-rendering parent does not
- * cause the subscription to tear down and re-create on every render.
+ * This used to subscribe to postgres_changes on `tickets`. That kept a
+ * Realtime worker polling the WAL ~2×/second around the clock — 76% of all
+ * DB time on prod for ~4 tickets a day — so migration 00088 took `tickets`
+ * out of the publication. Both callers already sync their local state from
+ * server props, so a refresh is all they need.
+ *
+ * The handler options are accepted but unused, so the callers keep compiling
+ * unchanged; removing them along with their row-mapping code is a follow-up.
  */
-export function useTicketRealtime(opts: UseTicketRealtimeOptions): void {
-  const onInsertRef = useRef(opts.onInsert);
-  const onUpdateRef = useRef(opts.onUpdate);
-  onInsertRef.current = opts.onInsert;
-  onUpdateRef.current = opts.onUpdate;
-
-  const { channelKey, filter } = opts;
-
-  useEffect(() => {
-    const supabase = getSupabaseBrowserClient();
-    const channel = supabase
-      .channel(channelKey)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'tickets',
-          ...(filter ? { filter } : {}),
-        },
-        (payload) => {
-          onInsertRef.current(payload.new as RealtimeTicketRow);
-        },
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'tickets',
-          ...(filter ? { filter } : {}),
-        },
-        (payload) => {
-          onUpdateRef.current(
-            payload.new as RealtimeTicketRow,
-            (payload.old ?? {}) as Partial<RealtimeTicketRow>,
-          );
-        },
-      )
-      .subscribe();
-
-    return () => {
-      // Explicit cleanup — a stale subscription would leak a WebSocket
-      // connection and keep firing handlers against unmounted state.
-      supabase.removeChannel(channel);
-    };
-  }, [channelKey, filter]);
+export function useTicketRealtime(_opts: UseTicketRealtimeOptions): void {
+  useRefreshOnFocus();
 }

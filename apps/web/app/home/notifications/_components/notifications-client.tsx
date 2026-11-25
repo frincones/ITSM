@@ -20,6 +20,8 @@ import { Card, CardContent } from '@kit/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@kit/ui/tabs';
 import { getSupabaseBrowserClient } from '@kit/supabase/browser-client';
 
+import { useRefreshOnFocus } from '~/lib/hooks/use-refresh-on-focus';
+
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                      */
 /* -------------------------------------------------------------------------- */
@@ -121,7 +123,6 @@ function getTabType(type: string | null): string {
 
 export function NotificationsClient({
   notifications: initialNotifications,
-  agentId,
 }: NotificationsClientProps) {
   const router = useRouter();
   const [notifications, setNotifications] =
@@ -130,45 +131,12 @@ export function NotificationsClient({
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  // Supabase Realtime subscription for new notifications
+  // Live toasts for new notifications come from the topbar panel, which is
+  // mounted on this page too. The full list just refreshes on tab focus.
   useEffect(() => {
-    const supabase = getSupabaseBrowserClient();
-    const channel = supabase
-      .channel('notifications-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${agentId}`,
-        },
-        (payload) => {
-          const newNotif = payload.new as Notification;
-          setNotifications((prev) => [newNotif, ...prev]);
-        },
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${agentId}`,
-        },
-        (payload) => {
-          const updated = payload.new as Notification;
-          setNotifications((prev) =>
-            prev.map((n) => (n.id === updated.id ? updated : n)),
-          );
-        },
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [agentId]);
+    setNotifications(initialNotifications);
+  }, [initialNotifications]);
+  useRefreshOnFocus();
 
   const markAsRead = useCallback(
     async (id: string) => {

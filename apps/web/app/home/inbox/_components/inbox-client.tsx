@@ -258,8 +258,7 @@ export function InboxClient({
   currentAgentId,
 }: InboxClientProps) {
   const supabase = useSupabase();
-  const [conversations, setConversations] =
-    useState<Conversation[]>(initialConversations);
+  const [conversations] = useState<Conversation[]>(initialConversations);
   const [selectedId, setSelectedId] = useState<string | null>(
     initialConversations[0]?.id ?? null,
   );
@@ -308,90 +307,6 @@ export function InboxClient({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-
-  // ---------------------------------------------------------------------------
-  // Supabase Realtime for new messages
-  // ---------------------------------------------------------------------------
-
-  useEffect(() => {
-    const channel = supabase
-      .channel('inbox-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'inbox_messages',
-        },
-        (payload) => {
-          const newMsg = payload.new as InboxMessage & {
-            conversation_id: string;
-          };
-
-          // Add message to thread if it belongs to selected conversation
-          if (newMsg.conversation_id === selectedId) {
-            setMessages((prev) => {
-              if (prev.some((m) => m.id === newMsg.id)) return prev;
-              return [...prev, newMsg];
-            });
-          }
-
-          // Update conversation list (move to top, update last_message)
-          setConversations((prev) => {
-            const updated = prev.map((conv) => {
-              if (conv.id === newMsg.conversation_id) {
-                return {
-                  ...conv,
-                  last_message_at: newMsg.created_at,
-                  last_message: {
-                    id: newMsg.id,
-                    direction: newMsg.direction,
-                    sender_type: newMsg.sender_type,
-                    content_text: newMsg.content_text,
-                    attachments: newMsg.attachments,
-                    ai_classification: null,
-                    created_at: newMsg.created_at,
-                  },
-                };
-              }
-              return conv;
-            });
-            return updated.sort((a, b) => {
-              const aTime = a.last_message_at
-                ? new Date(a.last_message_at).getTime()
-                : 0;
-              const bTime = b.last_message_at
-                ? new Date(b.last_message_at).getTime()
-                : 0;
-              return bTime - aTime;
-            });
-          });
-        },
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'inbox_conversations',
-        },
-        (payload) => {
-          const updated = payload.new as Conversation;
-          setConversations((prev) =>
-            prev.map((conv) =>
-              conv.id === updated.id
-                ? { ...conv, status: updated.status, subject: updated.subject }
-                : conv,
-            ),
-          );
-        },
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [supabase, selectedId]);
 
   // ---------------------------------------------------------------------------
   // Send reply
