@@ -253,60 +253,51 @@ export function TicketDetailClient({
     setLiveFollowups(followups);
   }, [followups]);
 
-  // ── Supabase Realtime subscription for ticket_followups ──
+  // ── Live timeline via private Broadcast (migration 00088) ──
+  // addFollowup skips revalidatePath on purpose, so this is also how the
+  // agent's own reply lands in the timeline. Public followups arrive on
+  // `ticket:<id>`; internal notes on `ticket:<id>:internal`, which RLS only
+  // lets staff join (a client user's join is refused and stays silent).
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
-    const channel = supabase
-      .channel(`ticket-followups-${ticket.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'ticket_followups',
-          filter: `ticket_id=eq.${ticket.id}`,
-        },
-        (payload) => {
-          const newFollowup = payload.new as TimelineFollowup;
+
+    const listen = (topic: string) =>
+      supabase
+        .channel(topic, { config: { private: true } })
+        .on('broadcast', { event: 'INSERT' }, ({ payload }) => {
+          const newFollowup = payload.record as TimelineFollowup;
           setLiveFollowups((prev) => {
             // Prevent duplicates
             if (prev.some((f) => f.id === newFollowup.id)) return prev;
             return [...prev, newFollowup];
           });
-        },
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'ticket_followups',
-          filter: `ticket_id=eq.${ticket.id}`,
-        },
-        (payload) => {
-          const updated = payload.new as TimelineFollowup;
+        })
+        .on('broadcast', { event: 'UPDATE' }, ({ payload }) => {
+          const updated = payload.record as TimelineFollowup;
           setLiveFollowups((prev) =>
             prev.map((f) => (f.id === updated.id ? updated : f)),
           );
-        },
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'DELETE',
-          schema: 'public',
-          table: 'ticket_followups',
-          filter: `ticket_id=eq.${ticket.id}`,
-        },
-        (payload) => {
-          const deleted = payload.old as { id: string };
+        })
+        .on('broadcast', { event: 'DELETE' }, ({ payload }) => {
+          const deleted = payload.old_record as { id: string };
           setLiveFollowups((prev) => prev.filter((f) => f.id !== deleted.id));
-        },
-      )
-      .subscribe();
+        });
+
+    const channels = [
+      listen(`ticket:${ticket.id}`),
+      listen(`ticket:${ticket.id}:internal`),
+    ];
+
+    // Private channels authorize with the user's JWT; make sure Realtime has
+    // it before joining, or the first join on page load goes out as anon.
+    let cancelled = false;
+    supabase.realtime.setAuth().then(() => {
+      if (!cancelled) channels.forEach((c) => c.subscribe());
+    });
 
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      channels.forEach((c) => supabase.removeChannel(c));
     };
   }, [ticket.id]);
 
@@ -686,6 +677,7 @@ export function TicketDetailClient({
               <TicketTimeline
                 ticketCreatedAt={ticket.created_at}
                 ticketCreatedBy={requester?.name ?? ticket.requester_email ?? undefined}
+                ticketDescription={ticket.description}
                 followups={liveFollowups}
                 tasks={tasks}
                 solutions={solutions}

@@ -235,19 +235,16 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
     if (!userId) return;
     fetchNotifications();
 
+    // Private Broadcast topic fed by a trigger on `notifications` (migration
+    // 00088). Push-only — unlike postgres_changes, nothing polls the WAL.
     const supabase = getSupabaseBrowserClient();
     const channel = supabase
-      .channel(`notifications:${userId}`)
+      .channel(`notifications:${userId}`, { config: { private: true } })
       .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${userId}`,
-        },
-        async (payload) => {
-          const n = payload.new as Notification;
+        'broadcast',
+        { event: 'INSERT' },
+        async ({ payload }) => {
+          const n = payload.record as Notification;
           const [enriched] = await enrichWithClient([n]);
           const toInsert = enriched ?? n;
           setItems((prev) => (prev.some((p) => p.id === toInsert.id) ? prev : [toInsert, ...prev]));
@@ -312,37 +309,26 @@ export function NotificationsPanel({ userId }: NotificationsPanelProps) {
           );
         },
       )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${userId}`,
-        },
-        (payload) => {
-          const updated = payload.new as Notification;
-          setItems((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-        },
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'DELETE',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${userId}`,
-        },
-        (payload) => {
-          const deletedId = (payload.old as { id?: string } | null)?.id;
-          if (deletedId) {
-            setItems((prev) => prev.filter((p) => p.id !== deletedId));
-          }
-        },
-      )
-      .subscribe();
+      .on('broadcast', { event: 'UPDATE' }, ({ payload }) => {
+        const updated = payload.record as Notification;
+        setItems((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      })
+      .on('broadcast', { event: 'DELETE' }, ({ payload }) => {
+        const deletedId = (payload.old_record as { id?: string } | null)?.id;
+        if (deletedId) {
+          setItems((prev) => prev.filter((p) => p.id !== deletedId));
+        }
+      });
+
+    // Private channels authorize with the user's JWT; make sure Realtime has
+    // it before joining, or the first join on page load goes out as anon.
+    let cancelled = false;
+    supabase.realtime.setAuth().then(() => {
+      if (!cancelled) channel.subscribe();
+    });
 
     return () => {
+      cancelled = true;
       supabase.removeChannel(channel);
     };
   }, [userId, fetchNotifications, router, enrichWithClient]);
